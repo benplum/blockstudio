@@ -98,6 +98,11 @@ npm run build            # Generate + build
 
 **Schema-driven docs:** Field types and settings filters are auto-generated from local schemas in `docs/src/schemas/`. Generated content is injected between `{/* GENERATED_*_START */}` and `{/* GENERATED_*_END */}` markers in MDX files.
 
+## Changelog Policy
+
+- `readme.txt` changelog entries are release-facing. Do not add entries for iterative changes to unreleased 7.3 behavior.
+- Only update the changelog when documenting a release boundary or a change that should be visible to users upgrading from a previous published version.
+
 ## Comment Policy
 
 - Internal code: no JSDoc. Comments only for why, not what.

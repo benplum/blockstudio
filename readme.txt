@@ -66,7 +66,6 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Fix: reset mode now removes WordPress iframe content/reset styles and provides clean Blockstudio hover/selection overlays
 * Fix: editor preloads now preserve RichText wrapper classes for repeated blocks of the same type
 * Fix: editor preloads now match blocks whose default field values are expanded by Gutenberg but omitted from saved block markup
-* Enhancement: blockEditor/enhance now unlocks editor scroll before revealing preloaded React blocks
 * Fix: editor preloads now ignore registered default attributes expanded by Gutenberg before comparing render cache keys
 * Fix: editor render cache now keeps editor and inserter preview renders isolated for blocks that share a client id
 
