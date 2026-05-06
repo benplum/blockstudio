@@ -162,6 +162,58 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( '<p>Content</p>', $result );
 	}
 
+	public function test_maybe_fullwidth_editor_removes_classic_styles_and_neutralizes_block_widths(): void {
+		$this->add_filter(
+			'blockstudio/settings/assets/reset/full_width',
+			static function () {
+				return array( 'page' );
+			}
+		);
+
+		$assets   = new Assets();
+		$settings = array(
+			'__unstableResolvedAssets' => array(
+				'styles' => '<link rel="stylesheet" href="classic.css"><style>.keep{display:block}</style>',
+			),
+		);
+		$context  = (object) array(
+			'post' => (object) array(
+				'post_type' => 'page',
+			),
+		);
+
+		$result = $assets->maybe_fullwidth_editor( $settings, $context );
+		$styles = $result['__unstableResolvedAssets']['styles'];
+
+		$this->assertStringNotContainsString( 'classic.css', $styles );
+		$this->assertStringContainsString( 'blockstudio-fullwidth-editor', $styles );
+		$this->assertStringContainsString( 'html :where(.wp-block){max-width:none!important;margin-top:0!important;margin-bottom:0!important}', $styles );
+		$this->assertStringContainsString( 'margin-left:0!important;margin-right:0!important', $styles );
+	}
+
+	public function test_maybe_fullwidth_editor_leaves_unconfigured_post_types_unchanged(): void {
+		$this->add_filter(
+			'blockstudio/settings/assets/reset/full_width',
+			static function () {
+				return array( 'page' );
+			}
+		);
+
+		$assets   = new Assets();
+		$settings = array(
+			'__unstableResolvedAssets' => array(
+				'styles' => '<link rel="stylesheet" href="classic.css"><style>.keep{display:block}</style>',
+			),
+		);
+		$context  = (object) array(
+			'post' => (object) array(
+				'post_type' => 'post',
+			),
+		);
+
+		$this->assertSame( $settings, $assets->maybe_fullwidth_editor( $settings, $context ) );
+	}
+
 	public function test_compile_scss_supports_bootstrap_prelude(): void {
 		$bootstrap_path = BLOCKSTUDIO_DIR . '/node_modules/bootstrap/scss';
 

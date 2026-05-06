@@ -62,6 +62,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Fix: `bs:` page tags now resolve hyphenated block namespaces correctly, such as `custom-theme/card`
 * Fix: generic non-core container tags now serialize valid `innerContent` when they do not provide wrapper markup
 * Fix: editor Tailwind CSS now includes class candidates from file-based page templates
+* Fix: full-width reset now neutralizes Gutenberg editor block width and vertical margin rules for configured post types
 
 = 7.2.2 =
 * Fix: Canvas no longer stalls when editor-only WordPress data stores are unavailable during admin page init

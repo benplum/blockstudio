@@ -245,6 +245,10 @@ class Assets {
 			$settings['__unstableResolvedAssets']['styles'] ?? ''
 		);
 
+		if ( ! str_contains( $settings['__unstableResolvedAssets']['styles'], 'blockstudio-fullwidth-editor' ) ) {
+			$settings['__unstableResolvedAssets']['styles'] .= '<style id="blockstudio-fullwidth-editor">html :where(.wp-block){max-width:none!important;margin-top:0!important;margin-bottom:0!important}.editor-styles-wrapper .block-editor-block-list__layout.is-root-container,.editor-styles-wrapper .is-root-container,.editor-styles-wrapper .wp-block-post-content{max-width:none!important}.editor-styles-wrapper .block-editor-block-list__layout.is-root-container>.wp-block,.editor-styles-wrapper .is-root-container>.wp-block,.editor-styles-wrapper .wp-block-post-content>.wp-block,.editor-styles-wrapper .edit-post-visual-editor__post-title-wrapper{max-width:none!important;margin-left:0!important;margin-right:0!important}</style>';
+		}
+
 		return $settings;
 	}
 
