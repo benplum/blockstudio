@@ -341,7 +341,13 @@ class Block_Tags {
 	 */
 	private static function resolve_bs_tag_name( string $tag_name, array $blocks ) {
 		$pos = 0;
-		while ( false !== ( $pos = strpos( $tag_name, '-', $pos ) ) ) {
+		while ( true ) {
+			$pos = strpos( $tag_name, '-', $pos );
+
+			if ( false === $pos ) {
+				break;
+			}
+
 			$full_name = substr_replace( $tag_name, '/', $pos, 1 );
 
 			$is_registered = isset( $blocks[ $full_name ] )
@@ -749,9 +755,9 @@ class Block_Tags {
 							|| ! str_starts_with( $block_arr['blockName'], 'core/' );
 						if ( $is_container ) {
 							$inner_blocks = self::parse_all_elements( $result['inner'] );
-							$original_ic = $block_arr['innerContent'];
-							$has_wrapper = ! empty( $original_ic ) && is_string( $original_ic[0] );
-							$new_ic      = $has_wrapper ? array( $original_ic[0] ) : array();
+							$original_ic  = $block_arr['innerContent'];
+							$has_wrapper  = ! empty( $original_ic ) && is_string( $original_ic[0] );
+							$new_ic       = $has_wrapper ? array( $original_ic[0] ) : array();
 							foreach ( $inner_blocks as $ib ) {
 								$new_ic[] = null;
 							}
