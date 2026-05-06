@@ -11,6 +11,7 @@ const READY_CLASS = 'blockstudio-editor-enhance-ready';
 const LOCKED_CLASS = 'blockstudio-editor-enhance-locked';
 const SETTLE_DELAY_MS = 1000;
 const REVEAL_AFTER_UNLOCK_DELAY_MS = 250;
+const REVEAL_TRANSITION_MS = 250;
 const MAX_WAIT_MS = 4000;
 
 const expectedClientIds = new Set<string>();
@@ -21,6 +22,7 @@ let ready = false;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 let revealTimer: ReturnType<typeof setTimeout> | null = null;
+let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
 let unsubscribe: (() => void) | null = null;
 let classSyncDeadline = 0;
 
@@ -94,24 +96,26 @@ const setPendingClass = () => {
   if (ready) return;
   [...parentBodyTargets(), ...bodyTargets].forEach((target) => {
     target.classList.add(LOCKED_CLASS);
+    target.classList.add(PENDING_CLASS);
     target.classList.remove(READY_CLASS);
   });
   wrapper.classList.add(PENDING_CLASS);
   wrapper.classList.remove(READY_CLASS);
 };
 
-const setReadyClass = () => {
+const setReadyClass = (): boolean => {
   const wrapper = editorWrapper();
   const bodyTargets = editorBodyTargets();
   if (!wrapper || !bodyTargets.length) {
-    retryClassSync(setReadyClass);
-    return;
+    retryClassSync(revealContent);
+    return false;
   }
   [...parentBodyTargets(), ...bodyTargets].forEach((target) => {
     target.classList.add(READY_CLASS);
   });
   wrapper.classList.remove(PENDING_CLASS);
   wrapper.classList.add(READY_CLASS);
+  return true;
 };
 
 const unlockEditorBody = () => {
@@ -120,9 +124,19 @@ const unlockEditorBody = () => {
   });
 };
 
+const cleanupPendingClass = () => {
+  cleanupTimer = null;
+  const wrapper = editorWrapper();
+  [...parentBodyTargets(), ...editorBodyTargets()].forEach((target) => {
+    target.classList.remove(PENDING_CLASS);
+  });
+  wrapper?.classList.remove(PENDING_CLASS);
+};
+
 const revealContent = () => {
   revealTimer = null;
-  setReadyClass();
+  if (!setReadyClass()) return;
+  cleanupTimer = setTimeout(cleanupPendingClass, REVEAL_TRANSITION_MS);
 };
 
 const complete = () => {
@@ -138,6 +152,10 @@ const complete = () => {
   if (revealTimer) {
     clearTimeout(revealTimer);
     revealTimer = null;
+  }
+  if (cleanupTimer) {
+    clearTimeout(cleanupTimer);
+    cleanupTimer = null;
   }
   unsubscribe?.();
   unsubscribe = null;
@@ -175,7 +193,11 @@ export const initializeEditorReadinessGate = () => {
   if (enabled || !editorEnhanceEnabled()) return;
   enabled = true;
   classSyncDeadline =
-    Date.now() + MAX_WAIT_MS + SETTLE_DELAY_MS + REVEAL_AFTER_UNLOCK_DELAY_MS;
+    Date.now() +
+    MAX_WAIT_MS +
+    SETTLE_DELAY_MS +
+    REVEAL_AFTER_UNLOCK_DELAY_MS +
+    REVEAL_TRANSITION_MS;
 
   setPendingClass();
   updateExpectedClientIds();
