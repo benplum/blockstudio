@@ -8,7 +8,9 @@ type EditorBlock = {
 
 const PENDING_CLASS = 'blockstudio-editor-enhance-pending';
 const READY_CLASS = 'blockstudio-editor-enhance-ready';
-const SETTLE_DELAY_MS = 500;
+const LOCKED_CLASS = 'blockstudio-editor-enhance-locked';
+const SETTLE_DELAY_MS = 1000;
+const UNLOCK_DELAY_MS = 50;
 const MAX_WAIT_MS = 4000;
 
 const expectedClientIds = new Set<string>();
@@ -18,6 +20,7 @@ let enabled = false;
 let ready = false;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+let unlockTimer: ReturnType<typeof setTimeout> | null = null;
 let unsubscribe: (() => void) | null = null;
 let classSyncDeadline = 0;
 
@@ -31,12 +34,16 @@ const blockTypes = (): Set<string> =>
     ),
   );
 
-const editorDocument = (): Document => {
+const editorDocument = (): Document | null => {
   const frame = document.querySelector(
     'iframe[name="editor-canvas"]',
   ) as HTMLIFrameElement | null;
 
-  return frame?.contentDocument ?? document;
+  if (frame) {
+    return frame.contentDocument;
+  }
+
+  return document.querySelector('.editor-styles-wrapper') ? document : null;
 };
 
 const retryClassSync = (callback: () => void) => {
@@ -45,15 +52,15 @@ const retryClassSync = (callback: () => void) => {
 };
 
 const editorWrapper = (): HTMLElement | null =>
-  editorDocument().querySelector('.editor-styles-wrapper');
+  editorDocument()?.querySelector('.editor-styles-wrapper') ?? null;
 
-const editorClassTargets = (): HTMLElement[] => {
+const editorBodyTargets = (): HTMLElement[] => {
   const doc = editorDocument();
-  return [
-    doc.documentElement,
-    doc.body,
-    editorWrapper(),
-  ].filter((target): target is HTMLElement => Boolean(target));
+  if (!doc) return [];
+
+  return [doc.documentElement, doc.body].filter(
+    (target): target is HTMLElement => Boolean(target),
+  );
 };
 
 const allEditorBlocks = (): EditorBlock[] => {
@@ -73,27 +80,38 @@ const flattenBlockstudioClientIds = (
   ]);
 
 const setPendingClass = () => {
-  const targets = editorClassTargets();
-  if (!targets.length || !targets.some((target) => target.classList.contains('editor-styles-wrapper'))) {
+  const wrapper = editorWrapper();
+  const bodyTargets = editorBodyTargets();
+  if (!wrapper || !bodyTargets.length) {
     if (!ready) retryClassSync(setPendingClass);
     return;
   }
   if (ready) return;
-  targets.forEach((target) => {
-    target.classList.add(PENDING_CLASS);
+  bodyTargets.forEach((target) => {
+    target.classList.add(LOCKED_CLASS);
     target.classList.remove(READY_CLASS);
   });
+  wrapper.classList.add(PENDING_CLASS);
+  wrapper.classList.remove(READY_CLASS);
 };
 
 const setReadyClass = () => {
-  const targets = editorClassTargets();
-  if (!targets.length || !targets.some((target) => target.classList.contains('editor-styles-wrapper'))) {
+  const wrapper = editorWrapper();
+  const bodyTargets = editorBodyTargets();
+  if (!wrapper || !bodyTargets.length) {
     retryClassSync(setReadyClass);
     return;
   }
-  targets.forEach((target) => {
-    target.classList.remove(PENDING_CLASS);
+  bodyTargets.forEach((target) => {
     target.classList.add(READY_CLASS);
+  });
+  wrapper.classList.remove(PENDING_CLASS);
+  wrapper.classList.add(READY_CLASS);
+};
+
+const unlockEditorBody = () => {
+  editorBodyTargets().forEach((target) => {
+    target.classList.remove(LOCKED_CLASS);
   });
 };
 
@@ -107,9 +125,14 @@ const reveal = () => {
     clearTimeout(fallbackTimer);
     fallbackTimer = null;
   }
+  if (unlockTimer) {
+    clearTimeout(unlockTimer);
+    unlockTimer = null;
+  }
   unsubscribe?.();
   unsubscribe = null;
   setReadyClass();
+  unlockTimer = setTimeout(unlockEditorBody, UNLOCK_DELAY_MS);
 };
 
 const scheduleReveal = () => {
@@ -141,7 +164,8 @@ const updateExpectedClientIds = () => {
 export const initializeEditorReadinessGate = () => {
   if (enabled || !editorEnhanceEnabled()) return;
   enabled = true;
-  classSyncDeadline = Date.now() + MAX_WAIT_MS + SETTLE_DELAY_MS;
+  classSyncDeadline =
+    Date.now() + MAX_WAIT_MS + SETTLE_DELAY_MS + UNLOCK_DELAY_MS;
 
   setPendingClass();
   updateExpectedClientIds();

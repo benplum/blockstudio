@@ -241,9 +241,10 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( 'common.min.css', $styles );
 		$this->assertStringContainsString( '<style>.keep{display:block}</style>', $styles );
 		$this->assertStringContainsString( 'blockstudio-editor-enhance', $styles );
-		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-pending,body.blockstudio-editor-enhance-pending{overflow:hidden!important}', $styles );
+		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-locked{overflow:hidden!important}', $styles );
+		$this->assertStringContainsString( 'body.blockstudio-editor-enhance-locked{position:fixed!important', $styles );
 		$this->assertStringContainsString( '.blockstudio-editor-enhance-pending .blockstudio-block{visibility:hidden}', $styles );
-		$this->assertStringContainsString( 'body.blockstudio-editor-enhance-pending::before', $styles );
+		$this->assertStringContainsString( 'body.blockstudio-editor-enhance-locked:not(.blockstudio-editor-enhance-ready)::before', $styles );
 		$this->assertStringContainsString( 'blockstudio-editor-enhance-spin', $styles );
 		$this->assertStringContainsString( ':focus-visible{outline:none!important', $styles );
 		$this->assertStringContainsString( ':where(.wp-block,.blockstudio-block){position:relative}', $styles );

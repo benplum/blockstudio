@@ -90,6 +90,9 @@ test.describe('Preload Defaults and Zero Values', () => {
       timeout: 15000,
     });
     await expect(wrapper).not.toHaveClass(/blockstudio-editor-enhance-pending/);
+    await expect(canvas.locator('body')).not.toHaveClass(
+      /blockstudio-editor-enhance-locked/,
+    );
     await expect(canvas.locator('.preload-simple').first()).toBeVisible();
   });
 
