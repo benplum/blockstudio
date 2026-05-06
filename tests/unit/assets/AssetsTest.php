@@ -278,6 +278,43 @@ class AssetsTest extends TestCase {
 		$this->assertStringNotContainsString( '.blockstudio-block{visibility:hidden}', $output );
 	}
 
+	public function test_add_parent_editor_enhancement_body_class_locks_parent_body_when_enabled(): void {
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return true;
+			}
+		);
+
+		Assets::$force_editor_screen = true;
+		$assets                      = new Assets();
+
+		$classes = $assets->add_parent_editor_enhancement_body_class( 'wp-admin block-editor-page' );
+
+		$this->assertStringContainsString( 'wp-admin block-editor-page', $classes );
+		$this->assertStringContainsString( 'blockstudio-editor-enhance-locked', $classes );
+		$this->assertSame(
+			$classes,
+			$assets->add_parent_editor_enhancement_body_class( $classes )
+		);
+	}
+
+	public function test_add_parent_editor_enhancement_body_class_does_not_lock_parent_body_when_disabled(): void {
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return false;
+			}
+		);
+
+		Assets::$force_editor_screen = true;
+		$assets                      = new Assets();
+
+		$classes = $assets->add_parent_editor_enhancement_body_class( 'wp-admin block-editor-page' );
+
+		$this->assertSame( 'wp-admin block-editor-page', $classes );
+	}
+
 	public function test_maybe_fullwidth_editor_removes_classic_styles_and_neutralizes_block_widths(): void {
 		$this->add_filter(
 			'blockstudio/settings/assets/reset/full_width',

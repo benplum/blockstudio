@@ -91,6 +91,7 @@ class Assets {
 		add_action( 'admin_enqueue_scripts', array( $this, 'maybe_reset_styles' ), 999 );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'maybe_reset_styles' ), 999 );
 		add_action( 'admin_head', array( $this, 'render_parent_editor_enhancement_styles' ) );
+		add_filter( 'admin_body_class', array( $this, 'add_parent_editor_enhancement_body_class' ) );
 		add_filter( 'block_editor_settings_all', array( $this, 'maybe_reset_editor_styles' ) );
 		add_filter( 'block_editor_settings_all', array( $this, 'maybe_fullwidth_editor' ), 10, 2 );
 		add_filter(
@@ -219,6 +220,27 @@ class Assets {
 			'<style id="blockstudio-editor-enhance-parent">%s</style>',
 			self::get_parent_editor_enhancement_styles()
 		);
+	}
+
+	/**
+	 * Lock the parent editor body as soon as WordPress renders it.
+	 *
+	 * The editor client removes the class after preloaded blocks have rendered.
+	 *
+	 * @param string $classes Admin body classes.
+	 *
+	 * @return string Modified admin body classes.
+	 */
+	public function add_parent_editor_enhancement_body_class( string $classes ): string {
+		if ( ! Settings::get( 'blockEditor/enhance' ) || ! self::is_editor_screen() ) {
+			return $classes;
+		}
+
+		if ( str_contains( $classes, 'blockstudio-editor-enhance-locked' ) ) {
+			return $classes;
+		}
+
+		return trim( $classes . ' blockstudio-editor-enhance-locked' );
 	}
 
 	/**
