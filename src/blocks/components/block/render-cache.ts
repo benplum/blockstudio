@@ -45,6 +45,39 @@ const getBlockstudioFieldDefaults = (
   );
 };
 
+const getRegisteredAttributeDefaults = (
+  blockName: string,
+): Record<string, unknown> => {
+  if (typeof window === 'undefined') return {};
+
+  const getBlockType = (
+    window as unknown as {
+      wp?: {
+        blocks?: {
+          getBlockType?: (
+            name: string,
+          ) => {
+            attributes?: Record<string, { default?: unknown }>;
+          };
+        };
+      };
+    }
+  ).wp?.blocks?.getBlockType;
+
+  const attributes = getBlockType?.(blockName)?.attributes;
+  if (!attributes) return {};
+
+  return Object.entries(attributes).reduce<Record<string, unknown>>(
+    (defaults, [key, attribute]) => {
+      if (key !== 'blockstudio' && 'default' in attribute) {
+        defaults[key] = attribute.default;
+      }
+      return defaults;
+    },
+    {},
+  );
+};
+
 const sortedStringify = (value: unknown): string => {
   if (value === null || value === undefined) return JSON.stringify(value);
   if (typeof value !== 'object') return JSON.stringify(value);
@@ -82,34 +115,57 @@ export const computeHash = (
       : undefined;
 
   const fieldDefaults = getBlockstudioFieldDefaults(blockName);
+  const registeredDefaults = getRegisteredAttributeDefaults(blockName);
+  const fieldIds = new Set([...Object.keys(fieldDefaults)]);
+  const canonicalFieldAttributes: Record<string, unknown> = {};
+  const isMatchingDefault = (
+    defaults: Record<string, unknown>,
+    key: string,
+    value: unknown,
+  ): boolean =>
+    Object.prototype.hasOwnProperty.call(defaults, key) &&
+    sortedStringify(value) === sortedStringify(defaults[key]);
+  const isFieldDefaultValue = (key: string, value: unknown): boolean =>
+    isMatchingDefault(fieldDefaults, key, value);
 
   if (nestedAttributes) {
-    Object.entries(fieldDefaults).forEach(([key, defaultValue]) => {
-      if (
-        key in nestedAttributes &&
-        defaultValue !== undefined &&
-        sortedStringify(nestedAttributes[key]) === sortedStringify(defaultValue)
-      ) {
-        delete nestedAttributes[key];
+    Object.entries(nestedAttributes).forEach(([key, value]) => {
+      if (!isFieldDefaultValue(key, value)) {
+        canonicalFieldAttributes[key] = value;
       }
     });
 
-    if (Object.keys(nestedAttributes).length === 0) {
-      delete (clonedRecord.blockstudio as Record<string, unknown>).attributes;
-    }
+    delete (clonedRecord.blockstudio as Record<string, unknown>).attributes;
 
     if (Object.keys(clonedRecord.blockstudio as object).length === 0) {
       delete clonedRecord.blockstudio;
     }
-
-    const fieldIds = new Set([...Object.keys(fieldDefaults)]);
-
+  } else {
     fieldIds.forEach((key) => {
-      if (key in clonedRecord) {
-        delete clonedRecord[key];
+      if (key in clonedRecord && !isFieldDefaultValue(key, clonedRecord[key])) {
+        canonicalFieldAttributes[key] = clonedRecord[key];
       }
     });
   }
+
+  fieldIds.forEach((key) => {
+    if (key in clonedRecord) {
+      delete clonedRecord[key];
+    }
+  });
+
+  if (Object.keys(canonicalFieldAttributes).length > 0) {
+    clonedRecord.__blockstudioAttributes = canonicalFieldAttributes;
+  }
+
+  Object.entries(registeredDefaults).forEach(([key, defaultValue]) => {
+    if (
+      key in clonedRecord &&
+      sortedStringify(clonedRecord[key]) === sortedStringify(defaultValue)
+    ) {
+      delete clonedRecord[key];
+    }
+  });
 
   Object.keys(clonedRecord).forEach((key) => {
     if (key.startsWith('BLOCKSTUDIO_RICH_TEXT')) {
@@ -204,7 +260,11 @@ export const renderCache = {
         return;
       }
 
-      if (data.attributes) {
+      if (
+        data.attributes &&
+        typeof data.attributes === 'object' &&
+        !Array.isArray(data.attributes)
+      ) {
         const hash = computeHash(
           data.blockName,
           data.attributes,

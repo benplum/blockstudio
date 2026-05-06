@@ -41,7 +41,34 @@ interface RenderState {
   hasBlockProps: boolean | null;
 }
 
+const getDocumentFrameElement = (): HTMLElement | null => {
+  try {
+    return window.frameElement instanceof HTMLElement
+      ? window.frameElement
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const isPreviewFrameElement = (frameElement: HTMLElement | null): boolean =>
+  !!frameElement &&
+  (
+    frameElement.classList.contains('block-editor-block-preview__content-iframe') ||
+    !!frameElement.closest('.block-editor-block-preview')
+  );
+
 const getDocumentRenderMode = (): 'editor' | 'preview' => {
+  const frameElement = getDocumentFrameElement();
+
+  if (frameElement?.getAttribute('name') === 'editor-canvas') {
+    return 'editor';
+  }
+
+  if (isPreviewFrameElement(frameElement)) {
+    return 'preview';
+  }
+
   if (
     typeof document !== 'undefined' &&
     document.documentElement.classList.contains(
@@ -191,6 +218,7 @@ export const Block = ({
   }
 
   const firstRenderDone = useRef<boolean | null>(null);
+  const renderedModeRef = useRef<'editor' | 'preview' | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
   const attributesRef = useRef(attributes);
   const prevContextRef = useRef(JSON.stringify(context));
@@ -225,6 +253,7 @@ export const Block = ({
       const hash = computeHash(block.name, attributes, mode);
       renderCache.set(hash, preloaded, block.name);
       firstRenderDone.current = true;
+      renderedModeRef.current = mode;
       return computeRender(preloaded);
     }
 
@@ -241,14 +270,24 @@ export const Block = ({
     });
   };
 
-  const updateRender = (rendered: string) => {
+  const updateRender = (rendered: string, mode?: 'editor' | 'preview') => {
+    if (mode) {
+      renderedModeRef.current = mode;
+    }
+
     setRenderState(computeRender(rendered));
   };
 
-  const getRenderMode = (): 'editor' | 'preview' =>
-    ref.current?.closest('.block-editor-block-preview__content-iframe')
+  const getRenderMode = (): 'editor' | 'preview' => {
+    const frameElement = getDocumentFrameElement();
+    if (frameElement?.getAttribute('name') === 'editor-canvas') {
+      return 'editor';
+    }
+
+    return ref.current?.closest('.block-editor-block-preview__content-iframe')
       ? 'preview'
       : getDocumentRenderMode();
+  };
 
   const getPostParams = (mode: 'editor' | 'preview' = getRenderMode()) => ({
     blockstudioMode: mode,
@@ -263,7 +302,7 @@ export const Block = ({
     const cached = renderCache.get(hash);
 
     if (cached) {
-      updateRender(cached);
+      updateRender(cached, mode);
       loaded();
       firstRenderDone.current = true;
       return;
@@ -278,7 +317,7 @@ export const Block = ({
         getPostParams(mode),
       )
       .then((rendered) => {
-        updateRender(rendered);
+        updateRender(rendered, mode);
         loaded();
         firstRenderDone.current = true;
       })
@@ -314,7 +353,7 @@ export const Block = ({
         const res = response as { rendered: string };
         const hash = computeHash(block.name, attributes, renderMode);
         renderCache.set(hash, res.rendered, block.name);
-        updateRender(res.rendered);
+        updateRender(res.rendered, renderMode);
       })
       .then(() => {
         loaded();
@@ -329,13 +368,13 @@ export const Block = ({
 
     if (disableLoading) return;
 
-    const hash = computeHash(block.name, attributes, mode);
-
-    if (firstRenderDone.current && renderState.hasMarkup) {
-      if (renderCache.get(hash)) {
-        loaded();
-        return;
-      }
+    if (
+      firstRenderDone.current &&
+      renderState.hasMarkup &&
+      renderedModeRef.current === mode
+    ) {
+      loaded();
+      return;
     }
 
     renderForMode(mode);
@@ -373,20 +412,22 @@ export const Block = ({
         }
       });
 
-      if (
-        JSON.stringify(attributesRef.current) === JSON.stringify(newAttributes)
-      ) {
+      const mode = getRenderMode();
+      const previousHash = computeHash(block.name, attributesRef.current, mode);
+      const nextHash = computeHash(block.name, newAttributes, mode);
+
+      if (previousHash === nextHash) {
+        attributesRef.current = newAttributes as BlockstudioBlockAttributes;
         return;
       }
       attributesRef.current = newAttributes as BlockstudioBlockAttributes;
 
       if (!firstRenderDone.current) return;
 
-      const hash = computeHash(block.name, newAttributes, getRenderMode());
-      const cached = renderCache.get(hash);
+      const cached = renderCache.get(nextHash);
 
       if (cached) {
-        updateRender(cached);
+        updateRender(cached, mode);
         loaded();
         return;
       }
