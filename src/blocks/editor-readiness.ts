@@ -47,6 +47,15 @@ const retryClassSync = (callback: () => void) => {
 const editorWrapper = (): HTMLElement | null =>
   editorDocument().querySelector('.editor-styles-wrapper');
 
+const editorClassTargets = (): HTMLElement[] => {
+  const doc = editorDocument();
+  return [
+    doc.documentElement,
+    doc.body,
+    editorWrapper(),
+  ].filter((target): target is HTMLElement => Boolean(target));
+};
+
 const allEditorBlocks = (): EditorBlock[] => {
   const store = select('core/block-editor') as
     | { getBlocks?: () => EditorBlock[] }
@@ -64,24 +73,28 @@ const flattenBlockstudioClientIds = (
   ]);
 
 const setPendingClass = () => {
-  const wrapper = editorWrapper();
-  if (!wrapper) {
+  const targets = editorClassTargets();
+  if (!targets.length || !targets.some((target) => target.classList.contains('editor-styles-wrapper'))) {
     if (!ready) retryClassSync(setPendingClass);
     return;
   }
   if (ready) return;
-  wrapper.classList.add(PENDING_CLASS);
-  wrapper.classList.remove(READY_CLASS);
+  targets.forEach((target) => {
+    target.classList.add(PENDING_CLASS);
+    target.classList.remove(READY_CLASS);
+  });
 };
 
 const setReadyClass = () => {
-  const wrapper = editorWrapper();
-  if (!wrapper) {
+  const targets = editorClassTargets();
+  if (!targets.length || !targets.some((target) => target.classList.contains('editor-styles-wrapper'))) {
     retryClassSync(setReadyClass);
     return;
   }
-  wrapper.classList.remove(PENDING_CLASS);
-  wrapper.classList.add(READY_CLASS);
+  targets.forEach((target) => {
+    target.classList.remove(PENDING_CLASS);
+    target.classList.add(READY_CLASS);
+  });
 };
 
 const reveal = () => {
