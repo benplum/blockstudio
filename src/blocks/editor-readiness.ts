@@ -9,6 +9,8 @@ type EditorBlock = {
 const PENDING_CLASS = 'blockstudio-editor-enhance-pending';
 const READY_CLASS = 'blockstudio-editor-enhance-ready';
 const LOCKED_CLASS = 'blockstudio-editor-enhance-locked';
+const SCROLLBAR_WIDTH_PROPERTY =
+  '--blockstudio-editor-enhance-scrollbar-width';
 const SETTLE_DELAY_MS = 1000;
 const REVEAL_AFTER_UNLOCK_DELAY_MS = 250;
 const REVEAL_TRANSITION_MS = 250;
@@ -53,6 +55,38 @@ const parentBodyTargets = (): HTMLElement[] =>
     (target): target is HTMLElement => Boolean(target),
   );
 
+const uniqueDocuments = (): Document[] => {
+  const doc = editorDocument();
+  return [document, doc].filter(
+    (target, index, targets): target is Document =>
+      Boolean(target) && targets.indexOf(target) === index,
+  );
+};
+
+const scrollbarWidth = (doc: Document): number => {
+  const view = doc.defaultView;
+  if (!view) return 0;
+
+  return Math.max(0, view.innerWidth - doc.documentElement.clientWidth);
+};
+
+const setScrollbarCompensation = () => {
+  uniqueDocuments().forEach((doc) => {
+    const width = `${scrollbarWidth(doc)}px`;
+    [doc.documentElement, doc.body].forEach((target) => {
+      target?.style.setProperty(SCROLLBAR_WIDTH_PROPERTY, width);
+    });
+  });
+};
+
+const clearScrollbarCompensation = () => {
+  uniqueDocuments().forEach((doc) => {
+    [doc.documentElement, doc.body].forEach((target) => {
+      target?.style.removeProperty(SCROLLBAR_WIDTH_PROPERTY);
+    });
+  });
+};
+
 const retryClassSync = (callback: () => void) => {
   if (Date.now() > classSyncDeadline) return;
   window.setTimeout(callback, 50);
@@ -94,6 +128,7 @@ const setPendingClass = () => {
     return;
   }
   if (ready) return;
+  setScrollbarCompensation();
   [...parentBodyTargets(), ...bodyTargets].forEach((target) => {
     target.classList.add(LOCKED_CLASS);
     target.classList.add(PENDING_CLASS);
@@ -122,6 +157,7 @@ const unlockEditorBody = () => {
   [...parentBodyTargets(), ...editorBodyTargets()].forEach((target) => {
     target.classList.remove(LOCKED_CLASS);
   });
+  clearScrollbarCompensation();
 };
 
 const cleanupPendingClass = () => {

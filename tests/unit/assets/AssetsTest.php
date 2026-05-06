@@ -244,9 +244,11 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( 'blockstudio-editor-enhance', $styles );
 		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-locked{overflow:hidden!important}', $styles );
 		$this->assertStringContainsString( 'body.blockstudio-editor-enhance-locked{position:fixed!important', $styles );
+		$this->assertStringContainsString( 'right:var(--blockstudio-editor-enhance-scrollbar-width,0px)!important;width:auto!important', $styles );
 		$this->assertStringContainsString( '.editor-styles-wrapper .blockstudio-block{transition:opacity .25s ease}', $styles );
 		$this->assertStringContainsString( '.blockstudio-editor-enhance-pending:not(.blockstudio-editor-enhance-ready) .blockstudio-block{visibility:hidden;opacity:0;pointer-events:none}', $styles );
 		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-pending:not(.blockstudio-editor-enhance-ready)::before', $styles );
+		$this->assertStringContainsString( 'left:calc(50% - (var(--blockstudio-editor-enhance-scrollbar-width,0px) / 2))', $styles );
 		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-pending.blockstudio-editor-enhance-ready::before{opacity:0}', $styles );
 		$this->assertStringContainsString( 'blockstudio-editor-enhance-spin', $styles );
 		$this->assertStringContainsString( ':focus-visible{outline:none!important', $styles );
@@ -277,6 +279,7 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( 'id="blockstudio-editor-enhance-parent"', $output );
 		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-locked{overflow:hidden!important}', $output );
 		$this->assertStringContainsString( 'body.blockstudio-editor-enhance-locked{position:fixed!important', $output );
+		$this->assertStringContainsString( 'right:var(--blockstudio-editor-enhance-scrollbar-width,0px)!important;width:auto!important', $output );
 		$this->assertStringNotContainsString( '.blockstudio-block{visibility:hidden}', $output );
 	}
 
