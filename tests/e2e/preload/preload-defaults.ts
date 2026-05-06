@@ -83,6 +83,12 @@ test.describe('Preload Defaults and Zero Values', () => {
 
   test('editor enhancement waits for preloaded React blocks before reveal', async () => {
     await page.reload();
+    const parentBody = page.locator('body');
+    await expect(parentBody).toHaveClass(/blockstudio-editor-enhance-locked/, {
+      timeout: 15000,
+    });
+    await expect(parentBody).toHaveCSS('position', 'fixed');
+
     const canvas = await getEditorCanvas(page);
     const wrapper = canvas.locator('.editor-styles-wrapper');
 

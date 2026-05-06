@@ -90,6 +90,7 @@ class Assets {
 		add_action( 'wp_enqueue_scripts', array( $this, 'maybe_reset_styles' ), 999 );
 		add_action( 'admin_enqueue_scripts', array( $this, 'maybe_reset_styles' ), 999 );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'maybe_reset_styles' ), 999 );
+		add_action( 'admin_head', array( $this, 'render_parent_editor_enhancement_styles' ) );
 		add_filter( 'block_editor_settings_all', array( $this, 'maybe_reset_editor_styles' ) );
 		add_filter( 'block_editor_settings_all', array( $this, 'maybe_fullwidth_editor' ), 10, 2 );
 		add_filter(
@@ -189,6 +190,35 @@ class Assets {
 				wp_dequeue_style( $handle );
 			}
 		}
+	}
+
+	/**
+	 * Get parent editor enhancement styles.
+	 *
+	 * These styles run in the parent editor document. The iframe receives the full
+	 * enhancement stylesheet through block_editor_settings_all.
+	 *
+	 * @return string Parent document enhancement styles.
+	 */
+	public static function get_parent_editor_enhancement_styles(): string {
+		return 'html.blockstudio-editor-enhance-locked{overflow:hidden!important}body.blockstudio-editor-enhance-locked{position:fixed!important;inset:0!important;width:100%!important;overflow:hidden!important}';
+	}
+
+	/**
+	 * Render parent editor enhancement styles.
+	 *
+	 * @return void
+	 */
+	public function render_parent_editor_enhancement_styles(): void {
+		if ( ! Settings::get( 'blockEditor/enhance' ) || ! self::is_editor_screen() ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Static stylesheet.
+		printf(
+			'<style id="blockstudio-editor-enhance-parent">%s</style>',
+			self::get_parent_editor_enhancement_styles()
+		);
 	}
 
 	/**

@@ -14,6 +14,7 @@ class AssetsTest extends TestCase {
 		}
 
 		$this->filter_callbacks = array();
+		Assets::$force_editor_screen = false;
 	}
 
 	private function add_filter( string $name, callable $callback, int $priority = 10, int $args = 1 ): void {
@@ -254,6 +255,27 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( '.is-selected::after{border-color:#7c3aed}', $styles );
 		$this->assertStringNotContainsString( '.has-child-selected{outline', $styles );
 		$this->assertStringNotContainsString( '.is-highlighted{outline', $styles );
+	}
+
+	public function test_render_parent_editor_enhancement_styles_outputs_parent_lock_css_when_enabled(): void {
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return true;
+			}
+		);
+
+		Assets::$force_editor_screen = true;
+		$assets                      = new Assets();
+
+		ob_start();
+		$assets->render_parent_editor_enhancement_styles();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'id="blockstudio-editor-enhance-parent"', $output );
+		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-locked{overflow:hidden!important}', $output );
+		$this->assertStringContainsString( 'body.blockstudio-editor-enhance-locked{position:fixed!important', $output );
+		$this->assertStringNotContainsString( '.blockstudio-block{visibility:hidden}', $output );
 	}
 
 	public function test_maybe_fullwidth_editor_removes_classic_styles_and_neutralizes_block_widths(): void {
