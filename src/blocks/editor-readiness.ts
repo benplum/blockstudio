@@ -155,6 +155,9 @@ const setReadyClass = (): boolean => {
 
 const unlockEditorBody = () => {
   [...parentBodyTargets(), ...editorBodyTargets()].forEach((target) => {
+    target.classList.add(READY_CLASS);
+  });
+  [...parentBodyTargets(), ...editorBodyTargets()].forEach((target) => {
     target.classList.remove(LOCKED_CLASS);
   });
   clearScrollbarCompensation();

@@ -249,7 +249,7 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( '.blockstudio-editor-enhance-pending:not(.blockstudio-editor-enhance-ready) .blockstudio-block{visibility:hidden;opacity:0;pointer-events:none}', $styles );
 		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-pending:not(.blockstudio-editor-enhance-ready)::before', $styles );
 		$this->assertStringContainsString( 'left:calc(50% - (var(--blockstudio-editor-enhance-scrollbar-width,0px) / 2))', $styles );
-		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-pending.blockstudio-editor-enhance-ready::before{opacity:0}', $styles );
+		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-pending.blockstudio-editor-enhance-ready::before{opacity:0;visibility:hidden}', $styles );
 		$this->assertStringContainsString( 'blockstudio-editor-enhance-spin', $styles );
 		$this->assertStringContainsString( ':focus-visible{outline:none!important', $styles );
 		$this->assertStringContainsString( ':where(.wp-block,.blockstudio-block){position:relative}', $styles );
