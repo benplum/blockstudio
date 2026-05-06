@@ -13,6 +13,12 @@ const cacheByBlock = new Map<string, Set<string>>();
 const preloadQueues = new Map<string, string[]>();
 const claimedByClient = new Map<string, string | undefined>();
 
+const getClientClaimKey = (clientId: string, mode: string): string =>
+  `${mode}:${clientId}`;
+
+const getQueueKey = (blockName: string, mode: string): string =>
+  `${mode}:${blockName}`;
+
 const getBlockstudioFieldDefaults = (
   blockName: string,
 ): Record<string, unknown> => {
@@ -152,25 +158,29 @@ export const renderCache = {
     attributes?: unknown,
     mode: string = 'editor',
   ): string | undefined {
-    if (clientId && claimedByClient.has(clientId)) {
-      return claimedByClient.get(clientId);
+    const clientClaimKey = clientId
+      ? getClientClaimKey(clientId, mode)
+      : undefined;
+
+    if (clientClaimKey && claimedByClient.has(clientClaimKey)) {
+      return claimedByClient.get(clientClaimKey);
     }
 
     if (attributes) {
       const cached = this.get(computeHash(blockName, attributes, mode));
       if (cached) {
-        if (clientId) {
-          claimedByClient.set(clientId, cached);
+        if (clientClaimKey) {
+          claimedByClient.set(clientClaimKey, cached);
         }
         return cached;
       }
     }
 
-    const queue = preloadQueues.get(blockName);
+    const queue = preloadQueues.get(getQueueKey(blockName, mode));
     if (!queue || queue.length === 0) return undefined;
     const rendered = queue.shift();
-    if (clientId) {
-      claimedByClient.set(clientId, rendered);
+    if (clientClaimKey) {
+      claimedByClient.set(clientClaimKey, rendered);
     }
     return rendered;
   },
@@ -204,9 +214,10 @@ export const renderCache = {
         return;
       }
 
-      const queue = preloadQueues.get(data.blockName) || [];
+      const queueKey = getQueueKey(data.blockName, data.mode || 'editor');
+      const queue = preloadQueues.get(queueKey) || [];
       queue.push(data.rendered);
-      preloadQueues.set(data.blockName, queue);
+      preloadQueues.set(queueKey, queue);
     });
   },
 
@@ -217,7 +228,8 @@ export const renderCache = {
     });
 
     for (const blockName of affectedTypes) {
-      preloadQueues.delete(blockName);
+      preloadQueues.delete(getQueueKey(blockName, 'editor'));
+      preloadQueues.delete(getQueueKey(blockName, 'preview'));
 
       const hashes = cacheByBlock.get(blockName);
       if (hashes) {

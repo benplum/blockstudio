@@ -41,6 +41,19 @@ interface RenderState {
   hasBlockProps: boolean | null;
 }
 
+const getDocumentRenderMode = (): 'editor' | 'preview' => {
+  if (
+    typeof document !== 'undefined' &&
+    document.documentElement.classList.contains(
+      'block-editor-block-preview__content-iframe',
+    )
+  ) {
+    return 'preview';
+  }
+
+  return 'editor';
+};
+
 export const Block = ({
   attributes,
   block,
@@ -200,15 +213,16 @@ export const Block = ({
       return { markup: null, hasMarkup: false, hasBlockProps: null };
     }
 
+    const mode = getDocumentRenderMode();
     const preloaded = renderCache.claimPreloaded(
       block.name,
       clientId,
       attributes,
-      'editor',
+      mode,
     );
 
     if (preloaded) {
-      const hash = computeHash(block.name, attributes, 'editor');
+      const hash = computeHash(block.name, attributes, mode);
       renderCache.set(hash, preloaded, block.name);
       firstRenderDone.current = true;
       return computeRender(preloaded);
@@ -231,70 +245,23 @@ export const Block = ({
     setRenderState(computeRender(rendered));
   };
 
-  const getPostParams = () => ({
-    blockstudioMode: ref.current?.closest(
-      '.block-editor-block-preview__content-iframe',
-    )
+  const getRenderMode = (): 'editor' | 'preview' =>
+    ref.current?.closest('.block-editor-block-preview__content-iframe')
       ? 'preview'
-      : 'editor',
+      : getDocumentRenderMode();
+
+  const getPostParams = (mode: 'editor' | 'preview' = getRenderMode()) => ({
+    blockstudioMode: mode,
     postId,
     contextPostId: attributes.blockstudio?.contextBlock?.postId || postId,
     contextPostType:
       attributes.blockstudio?.contextBlock?.postType || postType,
   });
 
-  const fetchSingle = (event: CustomEvent | false = false) => {
-    if (event) {
-    }
-    const sendAttrs = cloneDeep(attributes) as Record<string, Any>;
-    if (sendAttrs.metadata && typeof sendAttrs.metadata === 'object') {
-      delete (sendAttrs.metadata as Record<string, unknown>).blockVisibility;
-      if (Object.keys(sendAttrs.metadata as object).length === 0) {
-        delete sendAttrs.metadata;
-      }
-    }
-
-    const params = new URLSearchParams({
-      ...getPostParams(),
-    }).toString();
-
-    apiFetch({
-      path: `/blockstudio/v1/gutenberg/block/render/${block.name}?${params}`,
-      method: 'POST',
-      data: {
-        attributes: sendAttrs,
-        context,
-      },
-    })
-      .then((response) => {
-        const res = response as { rendered: string };
-        const hash = computeHash(block.name, attributes, getPostParams().blockstudioMode);
-        renderCache.set(hash, res.rendered, block.name);
-        updateRender(res.rendered);
-      })
-      .then(() => {
-        loaded();
-      });
-  };
-
-  const debouncedFetchSingle = useDebounce(fetchSingle, 500);
-
-  useEffect(function onMount() {
-    const isPreview = !!ref.current?.closest(
-      '.block-editor-block-preview__content-iframe',
-    );
-    setIsInPreview(isPreview);
-
-    if (disableLoading) return;
-
-    if (firstRenderDone.current && renderState.hasMarkup) {
-      loaded();
-      return;
-    }
-
-    const mode = isPreview ? 'preview' : 'editor';
+  const renderForMode = (mode: 'editor' | 'preview') => {
     const hash = computeHash(block.name, attributes, mode);
     const cached = renderCache.get(hash);
+
     if (cached) {
       updateRender(cached);
       loaded();
@@ -308,7 +275,7 @@ export const Block = ({
         block.name,
         attributes,
         context,
-        getPostParams(),
+        getPostParams(mode),
       )
       .then((rendered) => {
         updateRender(rendered);
@@ -317,6 +284,84 @@ export const Block = ({
       })
       .catch(() => {
       });
+  };
+
+  const fetchSingle = (event: CustomEvent | false = false) => {
+    if (event) {
+    }
+    const sendAttrs = cloneDeep(attributes) as Record<string, Any>;
+    if (sendAttrs.metadata && typeof sendAttrs.metadata === 'object') {
+      delete (sendAttrs.metadata as Record<string, unknown>).blockVisibility;
+      if (Object.keys(sendAttrs.metadata as object).length === 0) {
+        delete sendAttrs.metadata;
+      }
+    }
+
+    const renderMode = getRenderMode();
+    const params = new URLSearchParams({
+      ...getPostParams(renderMode),
+    }).toString();
+
+    apiFetch({
+      path: `/blockstudio/v1/gutenberg/block/render/${block.name}?${params}`,
+      method: 'POST',
+      data: {
+        attributes: sendAttrs,
+        context,
+      },
+    })
+      .then((response) => {
+        const res = response as { rendered: string };
+        const hash = computeHash(block.name, attributes, renderMode);
+        renderCache.set(hash, res.rendered, block.name);
+        updateRender(res.rendered);
+      })
+      .then(() => {
+        loaded();
+      });
+  };
+
+  const debouncedFetchSingle = useDebounce(fetchSingle, 500);
+
+  useEffect(function onMount() {
+    const mode = getRenderMode();
+    setIsInPreview(mode === 'preview');
+
+    if (disableLoading) return;
+
+    const hash = computeHash(block.name, attributes, mode);
+
+    if (firstRenderDone.current && renderState.hasMarkup) {
+      if (renderCache.get(hash)) {
+        loaded();
+        return;
+      }
+    }
+
+    renderForMode(mode);
+  }, [disableLoading]);
+
+  useEffect(function onPreviewModeDetected() {
+    if (disableLoading) return;
+
+    const syncPreviewMode = () => {
+      if (getDocumentRenderMode() !== 'preview') {
+        return;
+      }
+
+      setIsInPreview(true);
+      renderForMode('preview');
+    };
+
+    syncPreviewMode();
+
+    const observer = new MutationObserver(syncPreviewMode);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    return () => observer.disconnect();
   }, [disableLoading]);
 
   useEffect(
@@ -337,7 +382,7 @@ export const Block = ({
 
       if (!firstRenderDone.current) return;
 
-      const hash = computeHash(block.name, newAttributes, getPostParams().blockstudioMode);
+      const hash = computeHash(block.name, newAttributes, getRenderMode());
       const cached = renderCache.get(hash);
 
       if (cached) {
@@ -391,6 +436,11 @@ export const Block = ({
 
   return (
     <>
+      <span
+        ref={ref}
+        data-blockstudio-render-marker=""
+        style={{ display: 'none' }}
+      />
       {disableLoading ? (
         <div
           {...blockProps}
@@ -410,7 +460,6 @@ export const Block = ({
         )
       ) : (
         <div
-          ref={ref}
           css={css({
             display: 'flex',
             width: '100%',

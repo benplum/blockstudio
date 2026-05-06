@@ -20,6 +20,9 @@ interface RenderRequest {
 const queue: RenderRequest[] = [];
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+const getRequestKey = (req: RenderRequest): string =>
+  `${req.post.blockstudioMode}:${req.clientId}`;
+
 const flush = () => {
   if (queue.length === 0) return;
 
@@ -34,8 +37,10 @@ const flush = () => {
       attrs.metadata = Object.keys(meta).length > 0 ? meta : undefined;
     }
 
-    data[req.clientId] = {
-      clientId: req.clientId,
+    const requestKey = getRequestKey(req);
+
+    data[requestKey] = {
+      clientId: requestKey,
       attributes: attrs,
       context: req.context,
       name: req.name,
@@ -52,9 +57,13 @@ const flush = () => {
       const rendered = response as Record<string, string>;
 
       batch.forEach((req) => {
-        const html = rendered[req.clientId];
+        const html = rendered[getRequestKey(req)];
         if (html) {
-          const hash = computeHash(req.name, req.attributes, req.post.blockstudioMode);
+          const hash = computeHash(
+            req.name,
+            req.attributes,
+            req.post.blockstudioMode,
+          );
           renderCache.set(hash, html, req.name);
           req.resolve(html);
         } else {
