@@ -46,6 +46,11 @@ const editorDocument = (): Document | null => {
   return document.querySelector('.editor-styles-wrapper') ? document : null;
 };
 
+const parentBodyTargets = (): HTMLElement[] =>
+  [document.documentElement, document.body].filter(
+    (target): target is HTMLElement => Boolean(target),
+  );
+
 const retryClassSync = (callback: () => void) => {
   if (Date.now() > classSyncDeadline) return;
   window.setTimeout(callback, 50);
@@ -87,7 +92,7 @@ const setPendingClass = () => {
     return;
   }
   if (ready) return;
-  bodyTargets.forEach((target) => {
+  [...parentBodyTargets(), ...bodyTargets].forEach((target) => {
     target.classList.add(LOCKED_CLASS);
     target.classList.remove(READY_CLASS);
   });
@@ -102,7 +107,7 @@ const setReadyClass = () => {
     retryClassSync(setReadyClass);
     return;
   }
-  bodyTargets.forEach((target) => {
+  [...parentBodyTargets(), ...bodyTargets].forEach((target) => {
     target.classList.add(READY_CLASS);
   });
   wrapper.classList.remove(PENDING_CLASS);
@@ -110,7 +115,7 @@ const setReadyClass = () => {
 };
 
 const unlockEditorBody = () => {
-  editorBodyTargets().forEach((target) => {
+  [...parentBodyTargets(), ...editorBodyTargets()].forEach((target) => {
     target.classList.remove(LOCKED_CLASS);
   });
 };

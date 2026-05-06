@@ -93,6 +93,9 @@ test.describe('Preload Defaults and Zero Values', () => {
     await expect(canvas.locator('body')).not.toHaveClass(
       /blockstudio-editor-enhance-locked/,
     );
+    await expect(page.locator('body')).not.toHaveClass(
+      /blockstudio-editor-enhance-locked/,
+    );
     await expect(canvas.locator('.preload-simple').first()).toBeVisible();
   });
 
