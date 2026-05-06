@@ -367,6 +367,30 @@ class BlockTagsHtmlParsingTest extends TestCase {
 		$this->assertSame( 'core/paragraph', $blocks[0]['innerBlocks'][0]['blockName'] );
 		$this->assertSame( 'core/heading', $blocks[0]['innerBlocks'][1]['blockName'] );
 		$this->assertSame( 'core/paragraph', $blocks[0]['innerBlocks'][2]['blockName'] );
+		$this->assertCount( 3, $blocks[0]['innerContent'] );
+		$this->assertSame( array( null, null, null ), $blocks[0]['innerContent'] );
+	}
+
+	public function test_bs_syntax_resolves_hyphenated_namespaces(): void {
+		register_block_type(
+			'custom-theme/panel',
+			array(
+				'render_callback' => static fn (): string => '',
+			)
+		);
+
+		try {
+			$blocks = Block_Tags::parse_all_elements(
+				'<bs:custom-theme-panel><p>Panel content</p></bs:custom-theme-panel>'
+			);
+		} finally {
+			unregister_block_type( 'custom-theme/panel' );
+		}
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'custom-theme/panel', $blocks[0]['blockName'] );
+		$this->assertCount( 1, $blocks[0]['innerBlocks'] );
+		$this->assertSame( array( null ), $blocks[0]['innerContent'] );
 	}
 
 	public function test_non_core_block_with_attributes_and_inner_content(): void {

@@ -340,22 +340,21 @@ class Block_Tags {
 	 * @return string|false The full block name or false if not found.
 	 */
 	private static function resolve_bs_tag_name( string $tag_name, array $blocks ) {
-		$pos = strpos( $tag_name, '-' );
+		$pos = 0;
+		while ( false !== ( $pos = strpos( $tag_name, '-', $pos ) ) ) {
+			$full_name = substr_replace( $tag_name, '/', $pos, 1 );
 
-		if ( false === $pos ) {
-			return false;
+			$is_registered = isset( $blocks[ $full_name ] )
+				|| \WP_Block_Type_Registry::get_instance()->is_registered( $full_name );
+
+			if ( $is_registered ) {
+				return self::check_allow_deny( $full_name );
+			}
+
+			++$pos;
 		}
 
-		$full_name = substr_replace( $tag_name, '/', $pos, 1 );
-
-		$is_registered = isset( $blocks[ $full_name ] )
-			|| \WP_Block_Type_Registry::get_instance()->is_registered( $full_name );
-
-		if ( ! $is_registered ) {
-			return false;
-		}
-
-		return self::check_allow_deny( $full_name );
+		return false;
 	}
 
 	/**
@@ -750,14 +749,15 @@ class Block_Tags {
 							|| ! str_starts_with( $block_arr['blockName'], 'core/' );
 						if ( $is_container ) {
 							$inner_blocks = self::parse_all_elements( $result['inner'] );
-							$original_ic  = $block_arr['innerContent'];
-							$open_tag     = ! empty( $original_ic ) ? $original_ic[0] : '';
-							$close_tag    = ! empty( $original_ic ) ? end( $original_ic ) : '';
-							$new_ic       = array( $open_tag );
+							$original_ic = $block_arr['innerContent'];
+							$has_wrapper = ! empty( $original_ic ) && is_string( $original_ic[0] );
+							$new_ic      = $has_wrapper ? array( $original_ic[0] ) : array();
 							foreach ( $inner_blocks as $ib ) {
 								$new_ic[] = null;
 							}
-							$new_ic[]                  = $close_tag;
+							if ( $has_wrapper ) {
+								$new_ic[] = end( $original_ic );
+							}
 							$block_arr['innerBlocks']  = $inner_blocks;
 							$block_arr['innerContent'] = $new_ic;
 						}
@@ -879,15 +879,16 @@ class Block_Tags {
 						$inner_blocks = self::parse_all_elements( $inner );
 						$block_array  = self::build_block_array( $block_name, $attrs, '' );
 
-						// Rebuild innerContent using the wrapper from the trait renderer.
+						// Rebuild innerContent using wrapper fragments when the renderer provides them.
 						$original_ic = $block_array['innerContent'];
-						$open_tag    = ! empty( $original_ic ) ? $original_ic[0] : '';
-						$close_tag   = ! empty( $original_ic ) ? end( $original_ic ) : '';
-						$new_ic      = array( $open_tag );
+						$has_wrapper = ! empty( $original_ic ) && is_string( $original_ic[0] );
+						$new_ic      = $has_wrapper ? array( $original_ic[0] ) : array();
 						foreach ( $inner_blocks as $ib ) {
 							$new_ic[] = null;
 						}
-						$new_ic[]                    = $close_tag;
+						if ( $has_wrapper ) {
+							$new_ic[] = end( $original_ic );
+						}
 						$block_array['innerBlocks']  = $inner_blocks;
 						$block_array['innerContent'] = $new_ic;
 						$blocks[]                    = $block_array;
@@ -960,7 +961,10 @@ class Block_Tags {
 			if ( '' === $tag_name || false === strpos( $tag_name, '-' ) ) {
 				return null;
 			}
-			$block_name = substr_replace( $tag_name, '/', strpos( $tag_name, '-' ), 1 );
+			$block_name = self::resolve_bs_tag_name( $tag_name, Build::blocks() );
+			if ( ! $block_name ) {
+				$block_name = substr_replace( $tag_name, '/', strpos( $tag_name, '-' ), 1 );
+			}
 			$attr_start = $tag_end;
 		} else {
 			$attr_start = $pos + 6;
