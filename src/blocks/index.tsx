@@ -239,13 +239,23 @@ window.blockstudio.registerBlock = (block: BlockstudioBlock) => {
 };
 
 window.blockstudio.addPreloads = (
-  entries: Array<{ rendered: string; blockName: string }>,
+  entries: Array<{
+    rendered: string;
+    blockName: string;
+    attributes?: unknown;
+    mode?: string;
+  }>,
 ) => {
   renderCache.addPreloads(entries);
 };
 
 window.blockstudio.replacePreloads = (
-  entries: Array<{ rendered: string; blockName: string }>,
+  entries: Array<{
+    rendered: string;
+    blockName: string;
+    attributes?: unknown;
+    mode?: string;
+  }>,
 ) => {
   renderCache.replacePreloads(entries);
 };

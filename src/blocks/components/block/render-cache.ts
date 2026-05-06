@@ -1,6 +1,13 @@
 import { cloneDeep } from 'lodash-es';
 import { replaceEmptyStringsWithFalse } from '@/blocks/utils/replace-empty-strings-with-false';
 
+interface PreloadEntry {
+  rendered: string;
+  blockName: string;
+  attributes?: unknown;
+  mode?: string;
+}
+
 const cache = new Map<string, string>();
 const cacheByBlock = new Map<string, Set<string>>();
 const preloadQueues = new Map<string, string[]>();
@@ -24,6 +31,25 @@ export const computeHash = (
   mode: string = 'editor',
 ): string => {
   const cloned = cloneDeep(attributes) as Record<string, unknown>;
+  const nestedAttributes =
+    cloned.blockstudio &&
+    typeof cloned.blockstudio === 'object' &&
+    (cloned.blockstudio as Record<string, unknown>).attributes &&
+    typeof (cloned.blockstudio as Record<string, unknown>).attributes === 'object'
+      ? ((cloned.blockstudio as Record<string, unknown>).attributes as Record<
+          string,
+          unknown
+        >)
+      : undefined;
+
+  if (nestedAttributes) {
+    Object.keys(nestedAttributes).forEach((key) => {
+      if (key in cloned) {
+        delete cloned[key];
+      }
+    });
+  }
+
   Object.keys(cloned).forEach((key) => {
     if (key.startsWith('BLOCKSTUDIO_RICH_TEXT')) {
       delete cloned[key];
@@ -62,13 +88,7 @@ export const renderCache = {
       ? preloaded
       : Object.values(preloaded);
 
-    entries.forEach((data) => {
-      if (data.rendered && data.blockName) {
-        const queue = preloadQueues.get(data.blockName) || [];
-        queue.push(data.rendered);
-        preloadQueues.set(data.blockName, queue);
-      }
-    });
+    this.addPreloads(entries);
   },
 
   claimPreloaded(blockName: string, clientId?: string): string | undefined {
@@ -97,17 +117,29 @@ export const renderCache = {
     }
   },
 
-  addPreloads(entries: Array<{ rendered: string; blockName: string }>) {
+  addPreloads(entries: PreloadEntry[]) {
     entries.forEach((data) => {
-      if (data.rendered && data.blockName) {
-        const queue = preloadQueues.get(data.blockName) || [];
-        queue.push(data.rendered);
-        preloadQueues.set(data.blockName, queue);
+      if (!data.rendered || !data.blockName) {
+        return;
       }
+
+      if (data.attributes) {
+        const hash = computeHash(
+          data.blockName,
+          data.attributes,
+          data.mode || 'editor',
+        );
+        this.set(hash, data.rendered, data.blockName);
+        return;
+      }
+
+      const queue = preloadQueues.get(data.blockName) || [];
+      queue.push(data.rendered);
+      preloadQueues.set(data.blockName, queue);
     });
   },
 
-  replacePreloads(entries: Array<{ rendered: string; blockName: string }>) {
+  replacePreloads(entries: PreloadEntry[]) {
     const affectedTypes = new Set<string>();
     entries.forEach((data) => {
       if (data.blockName) affectedTypes.add(data.blockName);
@@ -123,12 +155,6 @@ export const renderCache = {
       }
     }
 
-    entries.forEach((data) => {
-      if (data.rendered && data.blockName) {
-        const queue = preloadQueues.get(data.blockName) || [];
-        queue.push(data.rendered);
-        preloadQueues.set(data.blockName, queue);
-      }
-    });
+    this.addPreloads(entries);
   },
 };

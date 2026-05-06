@@ -210,7 +210,11 @@ class Assets {
 		}
 
 		$settings['__unstableResolvedAssets']['styles'] = preg_replace(
-			'/<link[^>]+(?:reset|common)\.css[^>]*>/',
+			array(
+				'/<link\b[^>]+(?:content|common|reset|classic)(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
+				'/<link\b[^>]+\/wp-includes\/css\/dist\/block-library\/(?:style|editor)(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
+				'/<link\b[^>]+\/wp-includes\/css\/classic-themes(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
+			),
 			'',
 			$settings['__unstableResolvedAssets']['styles']
 		);
@@ -246,7 +250,7 @@ class Assets {
 		);
 
 		if ( ! str_contains( $settings['__unstableResolvedAssets']['styles'], 'blockstudio-fullwidth-editor' ) ) {
-			$settings['__unstableResolvedAssets']['styles'] .= '<style id="blockstudio-fullwidth-editor">html :where(.wp-block){max-width:none!important;margin-top:0!important;margin-bottom:0!important}.editor-styles-wrapper .block-editor-block-list__layout.is-root-container,.editor-styles-wrapper .is-root-container,.editor-styles-wrapper .wp-block-post-content{max-width:none!important}.editor-styles-wrapper .block-editor-block-list__layout.is-root-container>.wp-block,.editor-styles-wrapper .is-root-container>.wp-block,.editor-styles-wrapper .wp-block-post-content>.wp-block,.editor-styles-wrapper .edit-post-visual-editor__post-title-wrapper{max-width:none!important;margin-left:0!important;margin-right:0!important}</style>';
+			$settings['__unstableResolvedAssets']['styles'] .= '<style id="blockstudio-fullwidth-editor">.editor-styles-wrapper :where(.blockstudio-block):not([class*="max-w-"]){max-width:none}.editor-styles-wrapper :where(.blockstudio-block){margin-block:0}.editor-styles-wrapper :where(.blockstudio-block):not(:where(.mx-auto,.ml-auto,.mr-auto)){margin-left:0!important;margin-right:0!important}.editor-styles-wrapper :where(.blockstudio-block.block-editor-block-list__layout){display:revert}.editor-styles-wrapper .block-editor-block-list__layout.is-root-container,.editor-styles-wrapper .is-root-container,.editor-styles-wrapper .wp-block-post-content{max-width:none}.editor-styles-wrapper .edit-post-visual-editor__post-title-wrapper{max-width:none;margin-left:0;margin-right:0}</style>';
 		}
 
 		return $settings;

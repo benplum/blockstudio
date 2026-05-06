@@ -298,8 +298,10 @@ class Canvas {
 				}
 
 				$blockstudio_blocks[] = array(
-					'rendered'  => $rendered,
-					'blockName' => $block['blockName'],
+					'rendered'   => $rendered,
+					'blockName'  => $block['blockName'],
+					'attributes' => $block['attrs'],
+					'mode'       => 'editor',
 				);
 			}
 		}
@@ -332,8 +334,10 @@ class Canvas {
 					$_GET['blockstudioMode'] = 'editor';
 
 					$blockstudio_blocks[] = array(
-						'rendered'  => render_block( $block ),
-						'blockName' => $block['blockName'],
+						'rendered'   => render_block( $block ),
+						'blockName'  => $block['blockName'],
+						'attributes' => $block['attrs'],
+						'mode'       => 'editor',
 					);
 				}
 			}

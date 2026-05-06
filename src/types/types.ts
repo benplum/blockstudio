@@ -201,20 +201,34 @@ declare global {
         | {
             rendered: string;
             blockName: string;
+            attributes?: unknown;
+            mode?: string;
           }[]
         | Record<
             string,
             {
               rendered: string;
               blockName: string;
+              attributes?: unknown;
+              mode?: string;
             }
           >;
       registerBlock?: (block: BlockstudioBlock) => void;
       addPreloads?: (
-        entries: Array<{ rendered: string; blockName: string }>,
+        entries: Array<{
+          rendered: string;
+          blockName: string;
+          attributes?: unknown;
+          mode?: string;
+        }>,
       ) => void;
       replacePreloads?: (
-        entries: Array<{ rendered: string; blockName: string }>,
+        entries: Array<{
+          rendered: string;
+          blockName: string;
+          attributes?: unknown;
+          mode?: string;
+        }>,
       ) => void;
     };
     blockstudioAdmin: BlockstudioAdmin;

@@ -39,6 +39,8 @@ interface Transform {
 interface PreloadEntry {
   rendered: string;
   blockName: string;
+  attributes?: unknown;
+  mode?: string;
 }
 
 interface SSEChangedData {

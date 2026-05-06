@@ -1,0 +1,23 @@
+{
+  "$schema": "https://blockstudio.dev/schema/block",
+  "name": "blockstudio/type-preload-richtext-class",
+  "title": "Preload RichText Class",
+  "category": "blockstudio-test-native",
+  "icon": "star-filled",
+  "description": "Preload test block with RichText classes.",
+  "keywords": ["preload", "richtext", "class"],
+  "blockstudio": {
+    "attributes": [
+      {
+        "id": "content",
+        "type": "richtext",
+        "label": "Content"
+      },
+      {
+        "id": "cssClass",
+        "type": "text",
+        "label": "CSS class"
+      }
+    ]
+  }
+}

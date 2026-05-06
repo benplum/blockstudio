@@ -99,8 +99,10 @@ class Blocks {
 				$_GET['blockstudioMode'] = 'editor';
 
 				$blockstudio_blocks[] = array(
-					'rendered'  => render_block( $block ),
-					'blockName' => $block['blockName'],
+					'rendered'   => render_block( $block ),
+					'blockName'  => $block['blockName'],
+					'attributes' => $block['attrs'],
+					'mode'       => 'editor',
 				);
 			}
 			if ( count( $block['innerBlocks'] ) > 0 ) {

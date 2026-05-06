@@ -14,6 +14,8 @@ interface BlockItem {
 interface PreloadEntry {
   rendered: string;
   blockName: string;
+  attributes?: unknown;
+  mode?: string;
 }
 
 export interface QueueEntry {
@@ -60,10 +62,16 @@ function coalesce(existing: QueueEntry, incoming: QueueEntry): QueueEntry {
 
   const mergedBsBlocks = new Map<string, PreloadEntry>();
   for (const entry of existing.blockstudioBlocks) {
-    mergedBsBlocks.set(entry.blockName, entry);
+    mergedBsBlocks.set(
+      `${entry.blockName}:${JSON.stringify(entry.attributes || {})}`,
+      entry,
+    );
   }
   for (const entry of incoming.blockstudioBlocks) {
-    mergedBsBlocks.set(entry.blockName, entry);
+    mergedBsBlocks.set(
+      `${entry.blockName}:${JSON.stringify(entry.attributes || {})}`,
+      entry,
+    );
   }
 
   return {
