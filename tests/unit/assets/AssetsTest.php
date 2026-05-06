@@ -162,6 +162,55 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( '<p>Content</p>', $result );
 	}
 
+	public function test_maybe_reset_editor_styles_removes_wordpress_iframe_styles_and_adds_editor_reset(): void {
+		$this->add_filter(
+			'blockstudio/settings/assets/reset/enabled',
+			static function () {
+				return true;
+			}
+		);
+
+		$assets   = new Assets();
+		$settings = array(
+			'__unstableResolvedAssets' => array(
+				'styles' => implode(
+					'',
+					array(
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/dist/block-library/style.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/dist/block-library/editor.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/common.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/content.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/reset.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/classic.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/classic-themes.min.css?ver=6.9.4">',
+						'<style>.keep{display:block}</style>',
+					)
+				),
+			),
+		);
+
+		$result = $assets->maybe_reset_editor_styles( $settings );
+		$styles = $result['__unstableResolvedAssets']['styles'];
+
+		$this->assertStringNotContainsString( 'block-library/style.min.css', $styles );
+		$this->assertStringNotContainsString( 'block-library/editor.min.css', $styles );
+		$this->assertStringNotContainsString( 'common.min.css', $styles );
+		$this->assertStringNotContainsString( 'content.min.css', $styles );
+		$this->assertStringNotContainsString( 'reset.min.css', $styles );
+		$this->assertStringNotContainsString( 'classic.min.css', $styles );
+		$this->assertStringNotContainsString( 'classic-themes.min.css', $styles );
+		$this->assertStringContainsString( '<style>.keep{display:block}</style>', $styles );
+		$this->assertStringContainsString( 'blockstudio-editor-reset', $styles );
+		$this->assertStringContainsString( ':focus-visible{outline:none!important', $styles );
+		$this->assertStringContainsString( ':where(.wp-block,.blockstudio-block){position:relative}', $styles );
+		$this->assertStringContainsString( '.is-hovered:not(.has-child-selected)::after', $styles );
+		$this->assertStringContainsString( '.is-highlighted:not(.has-child-selected)::after', $styles );
+		$this->assertStringContainsString( '.is-selected::after{content:"";position:absolute;inset:0;border:1px solid rgb(142 142 142 / .65)', $styles );
+		$this->assertStringContainsString( '.is-selected::after{border-color:#7c3aed}', $styles );
+		$this->assertStringNotContainsString( '.has-child-selected{outline', $styles );
+		$this->assertStringNotContainsString( '.is-highlighted{outline', $styles );
+	}
+
 	public function test_maybe_fullwidth_editor_removes_classic_styles_and_neutralizes_block_widths(): void {
 		$this->add_filter(
 			'blockstudio/settings/assets/reset/full_width',
@@ -187,7 +236,7 @@ class AssetsTest extends TestCase {
 
 		$this->assertStringNotContainsString( 'classic.css', $styles );
 		$this->assertStringContainsString( 'blockstudio-fullwidth-editor', $styles );
-		$this->assertStringContainsString( 'html :where(.wp-block){max-width:none!important;margin-top:0!important;margin-bottom:0!important}', $styles );
+		$this->assertStringContainsString( '.editor-styles-wrapper :where(.blockstudio-block):not([class*="max-w-"]){max-width:none}', $styles );
 		$this->assertStringContainsString( 'margin-left:0!important;margin-right:0!important', $styles );
 	}
 

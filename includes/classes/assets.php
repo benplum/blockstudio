@@ -219,6 +219,10 @@ class Assets {
 			$settings['__unstableResolvedAssets']['styles']
 		);
 
+		if ( ! str_contains( $settings['__unstableResolvedAssets']['styles'], 'blockstudio-editor-reset' ) ) {
+			$settings['__unstableResolvedAssets']['styles'] .= '<style id="blockstudio-editor-reset">.editor-styles-wrapper :where(.wp-block,.blockstudio-block,.block-editor-rich-text__editable):focus,.editor-styles-wrapper :where(.wp-block,.blockstudio-block,.block-editor-rich-text__editable):focus-visible{outline:none!important;box-shadow:none}.editor-styles-wrapper :where(.wp-block,.blockstudio-block){position:relative}.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-hovered:not(.has-child-selected)::after,.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-highlighted:not(.has-child-selected)::after,.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-selected::after{content:"";position:absolute;inset:0;border:1px solid rgb(142 142 142 / .65);border-radius:inherit;pointer-events:none;z-index:1}.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-selected::after{border-color:#7c3aed}</style>';
+		}
+
 		return $settings;
 	}
 
