@@ -214,6 +214,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * New: devtools grabber for copying block template paths on the frontend (hold Cmd+C)
 * New: assets/reset setting to remove WordPress core block styles on the frontend and in the editor
 * New: blockEditor/enhance setting to opt into Blockstudio editor hover and selection affordances
+* Enhancement: blockEditor/enhance now waits for preloaded React blocks before revealing the editor canvas
 * Enhancement: apiVersion 3 support. Blocks now render correctly in the iframed editor (site editor, responsive previews)
 * Enhancement: all PHP hooks now use snake_case naming (old camelCase names still supported)
 * Enhancement: compiled Tailwind CSS now injected into the block editor alongside the CDN

@@ -14,6 +14,7 @@ import { getAttributes } from '@/blocks/components/block/utils/get-attributes';
 import { getInnerHTML as getFirstElementContent } from '@/blocks/components/block/utils/get-first-element-content';
 import { getRegex } from '@/blocks/components/block/utils/get-regex';
 import { Placeholder } from '@/blocks/components/placeholder';
+import { markEditorBlockRendered } from '@/blocks/editor-readiness';
 import { dispatch } from '@/blocks/utils/dispatch';
 import {
   Any,
@@ -468,6 +469,7 @@ export const Block = ({
     function onMarkupChange() {
       setTimeout(() => {
         if (disableLoading) return;
+        markEditorBlockRendered(clientId);
         dispatch(block, 'rendered');
         dispatch(false as unknown as BlockstudioBlock, 'rendered');
       });

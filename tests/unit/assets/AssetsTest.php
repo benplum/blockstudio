@@ -241,6 +241,8 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( 'common.min.css', $styles );
 		$this->assertStringContainsString( '<style>.keep{display:block}</style>', $styles );
 		$this->assertStringContainsString( 'blockstudio-editor-enhance', $styles );
+		$this->assertStringContainsString( '.blockstudio-editor-enhance-pending .blockstudio-block{visibility:hidden}', $styles );
+		$this->assertStringContainsString( 'blockstudio-editor-enhance-spin', $styles );
 		$this->assertStringContainsString( ':focus-visible{outline:none!important', $styles );
 		$this->assertStringContainsString( ':where(.wp-block,.blockstudio-block){position:relative}', $styles );
 		$this->assertStringContainsString( '.is-hovered:not(.has-child-selected)::after', $styles );

@@ -7,6 +7,7 @@ import parse from 'html-react-parser';
 import { cloneDeep, set } from 'lodash-es';
 import { Block } from '@/blocks/components/block';
 import { renderCache } from '@/blocks/components/block/render-cache';
+import { initializeEditorReadinessGate } from '@/blocks/editor-readiness';
 import { Fields } from '@/blocks/components/fields';
 import '@/blocks/filters/custom-class';
 import '@/blocks/filters/default';
@@ -32,6 +33,7 @@ register(store);
 register(tailwindStore);
 renderCache.initFromPreload();
 mediaModal();
+initializeEditorReadinessGate();
 
 const blocks = window.blockstudioAdmin.data.blocksNative;
 
