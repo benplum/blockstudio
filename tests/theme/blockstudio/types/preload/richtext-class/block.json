@@ -17,6 +17,12 @@
         "id": "cssClass",
         "type": "text",
         "label": "CSS class"
+      },
+      {
+        "id": "unusedDefault",
+        "type": "text",
+        "label": "Unused default",
+        "default": "editor-only-default"
       }
     ]
   }

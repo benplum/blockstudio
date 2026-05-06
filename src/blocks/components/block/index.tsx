@@ -200,7 +200,12 @@ export const Block = ({
       return { markup: null, hasMarkup: false, hasBlockProps: null };
     }
 
-    const preloaded = renderCache.claimPreloaded(block.name, clientId);
+    const preloaded = renderCache.claimPreloaded(
+      block.name,
+      clientId,
+      attributes,
+      'editor',
+    );
 
     if (preloaded) {
       const hash = computeHash(block.name, attributes, 'editor');

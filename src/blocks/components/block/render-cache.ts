@@ -13,6 +13,32 @@ const cacheByBlock = new Map<string, Set<string>>();
 const preloadQueues = new Map<string, string[]>();
 const claimedByClient = new Map<string, string | undefined>();
 
+const getBlockstudioFieldDefaults = (
+  blockName: string,
+): Record<string, unknown> => {
+  if (typeof window === 'undefined') return {};
+
+  const blocks = window.blockstudioAdmin?.data?.blocksNative as unknown as
+    | Record<
+        string,
+        { attributes?: Record<string, { id?: string; default?: unknown }> }
+      >
+    | undefined;
+  const block = blocks?.[blockName];
+
+  if (!block?.attributes) return {};
+
+  return Object.values(block.attributes).reduce<Record<string, unknown>>(
+    (defaults, attribute) => {
+      if (attribute.id) {
+        defaults[attribute.id] = attribute.default;
+      }
+      return defaults;
+    },
+    {},
+  );
+};
+
 const sortedStringify = (value: unknown): string => {
   if (value === null || value === undefined) return JSON.stringify(value);
   if (typeof value !== 'object') return JSON.stringify(value);
@@ -30,40 +56,69 @@ export const computeHash = (
   attributes: unknown,
   mode: string = 'editor',
 ): string => {
-  const cloned = cloneDeep(attributes) as Record<string, unknown>;
+  let cloned = cloneDeep(attributes) as Record<string, unknown> | unknown[];
+  if (Array.isArray(cloned)) {
+    cloned = {};
+  }
+
+  const clonedRecord = cloned as Record<string, unknown>;
   const nestedAttributes =
-    cloned.blockstudio &&
-    typeof cloned.blockstudio === 'object' &&
-    (cloned.blockstudio as Record<string, unknown>).attributes &&
-    typeof (cloned.blockstudio as Record<string, unknown>).attributes === 'object'
-      ? ((cloned.blockstudio as Record<string, unknown>).attributes as Record<
-          string,
-          unknown
-        >)
+    clonedRecord.blockstudio &&
+    typeof clonedRecord.blockstudio === 'object' &&
+    (clonedRecord.blockstudio as Record<string, unknown>).attributes &&
+    typeof (clonedRecord.blockstudio as Record<string, unknown>).attributes ===
+      'object' &&
+    !Array.isArray(
+      (clonedRecord.blockstudio as Record<string, unknown>).attributes,
+    )
+      ? ((clonedRecord.blockstudio as Record<string, unknown>)
+          .attributes as Record<string, unknown>)
       : undefined;
 
+  const fieldDefaults = getBlockstudioFieldDefaults(blockName);
+
   if (nestedAttributes) {
-    Object.keys(nestedAttributes).forEach((key) => {
-      if (key in cloned) {
-        delete cloned[key];
+    Object.entries(fieldDefaults).forEach(([key, defaultValue]) => {
+      if (
+        key in nestedAttributes &&
+        defaultValue !== undefined &&
+        sortedStringify(nestedAttributes[key]) === sortedStringify(defaultValue)
+      ) {
+        delete nestedAttributes[key];
+      }
+    });
+
+    if (Object.keys(nestedAttributes).length === 0) {
+      delete (clonedRecord.blockstudio as Record<string, unknown>).attributes;
+    }
+
+    if (Object.keys(clonedRecord.blockstudio as object).length === 0) {
+      delete clonedRecord.blockstudio;
+    }
+
+    const fieldIds = new Set([...Object.keys(fieldDefaults)]);
+
+    fieldIds.forEach((key) => {
+      if (key in clonedRecord) {
+        delete clonedRecord[key];
       }
     });
   }
 
-  Object.keys(cloned).forEach((key) => {
+  Object.keys(clonedRecord).forEach((key) => {
     if (key.startsWith('BLOCKSTUDIO_RICH_TEXT')) {
-      delete cloned[key];
+      delete clonedRecord[key];
     }
   });
-  if (cloned.metadata && typeof cloned.metadata === 'object') {
-    delete (cloned.metadata as Record<string, unknown>).blockVisibility;
-    if (Object.keys(cloned.metadata as object).length === 0) {
-      delete cloned.metadata;
+  if (clonedRecord.metadata && typeof clonedRecord.metadata === 'object') {
+    delete (clonedRecord.metadata as Record<string, unknown>).blockVisibility;
+    if (Object.keys(clonedRecord.metadata as object).length === 0) {
+      delete clonedRecord.metadata;
     }
   }
 
   const attrs = replaceEmptyStringsWithFalse(
-    cloned as Parameters<typeof replaceEmptyStringsWithFalse>[0],
+    clonedRecord as Parameters<typeof replaceEmptyStringsWithFalse>[0],
   );
 
   return sortedStringify({ blockName, attrs, mode })
@@ -91,10 +146,26 @@ export const renderCache = {
     this.addPreloads(entries);
   },
 
-  claimPreloaded(blockName: string, clientId?: string): string | undefined {
+  claimPreloaded(
+    blockName: string,
+    clientId?: string,
+    attributes?: unknown,
+    mode: string = 'editor',
+  ): string | undefined {
     if (clientId && claimedByClient.has(clientId)) {
       return claimedByClient.get(clientId);
     }
+
+    if (attributes) {
+      const cached = this.get(computeHash(blockName, attributes, mode));
+      if (cached) {
+        if (clientId) {
+          claimedByClient.set(clientId, cached);
+        }
+        return cached;
+      }
+    }
+
     const queue = preloadQueues.get(blockName);
     if (!queue || queue.length === 0) return undefined;
     const rendered = queue.shift();
