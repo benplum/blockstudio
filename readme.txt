@@ -61,6 +61,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Fix: file-based page element mapping now runs during HTML parsing and supports attribute-aware custom container mappings
 * Fix: `bs:` page tags now resolve hyphenated block namespaces correctly, such as `custom-theme/card`
 * Fix: generic non-core container tags now serialize valid `innerContent` when they do not provide wrapper markup
+* Fix: editor Tailwind CSS now includes class candidates from file-based page templates
 
 = 7.2.2 =
 * Fix: Canvas no longer stalls when editor-only WordPress data stores are unavailable during admin page init
