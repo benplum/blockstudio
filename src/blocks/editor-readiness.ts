@@ -10,7 +10,7 @@ const PENDING_CLASS = 'blockstudio-editor-enhance-pending';
 const READY_CLASS = 'blockstudio-editor-enhance-ready';
 const LOCKED_CLASS = 'blockstudio-editor-enhance-locked';
 const SETTLE_DELAY_MS = 1000;
-const UNLOCK_DELAY_MS = 50;
+const REVEAL_AFTER_UNLOCK_DELAY_MS = 250;
 const MAX_WAIT_MS = 4000;
 
 const expectedClientIds = new Set<string>();
@@ -20,7 +20,7 @@ let enabled = false;
 let ready = false;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-let unlockTimer: ReturnType<typeof setTimeout> | null = null;
+let revealTimer: ReturnType<typeof setTimeout> | null = null;
 let unsubscribe: (() => void) | null = null;
 let classSyncDeadline = 0;
 
@@ -120,7 +120,12 @@ const unlockEditorBody = () => {
   });
 };
 
-const reveal = () => {
+const revealContent = () => {
+  revealTimer = null;
+  setReadyClass();
+};
+
+const complete = () => {
   ready = true;
   if (settleTimer) {
     clearTimeout(settleTimer);
@@ -130,19 +135,19 @@ const reveal = () => {
     clearTimeout(fallbackTimer);
     fallbackTimer = null;
   }
-  if (unlockTimer) {
-    clearTimeout(unlockTimer);
-    unlockTimer = null;
+  if (revealTimer) {
+    clearTimeout(revealTimer);
+    revealTimer = null;
   }
   unsubscribe?.();
   unsubscribe = null;
-  setReadyClass();
-  unlockTimer = setTimeout(unlockEditorBody, UNLOCK_DELAY_MS);
+  unlockEditorBody();
+  revealTimer = setTimeout(revealContent, REVEAL_AFTER_UNLOCK_DELAY_MS);
 };
 
 const scheduleReveal = () => {
   if (ready || settleTimer) return;
-  settleTimer = setTimeout(reveal, SETTLE_DELAY_MS);
+  settleTimer = setTimeout(complete, SETTLE_DELAY_MS);
 };
 
 const updateExpectedClientIds = () => {
@@ -170,13 +175,13 @@ export const initializeEditorReadinessGate = () => {
   if (enabled || !editorEnhanceEnabled()) return;
   enabled = true;
   classSyncDeadline =
-    Date.now() + MAX_WAIT_MS + SETTLE_DELAY_MS + UNLOCK_DELAY_MS;
+    Date.now() + MAX_WAIT_MS + SETTLE_DELAY_MS + REVEAL_AFTER_UNLOCK_DELAY_MS;
 
   setPendingClass();
   updateExpectedClientIds();
 
   unsubscribe = subscribe(updateExpectedClientIds);
-  fallbackTimer = setTimeout(reveal, MAX_WAIT_MS);
+  fallbackTimer = setTimeout(complete, MAX_WAIT_MS);
 };
 
 export const markEditorBlockRendered = (clientId: string) => {

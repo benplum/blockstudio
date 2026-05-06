@@ -216,10 +216,7 @@ class Assets {
 		}
 
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Static stylesheet.
-		printf(
-			'<style id="blockstudio-editor-enhance-parent">%s</style>',
-			self::get_parent_editor_enhancement_styles()
-		);
+		echo '<style id="blockstudio-editor-enhance-parent">' . self::get_parent_editor_enhancement_styles() . '</style>';
 	}
 
 	/**
