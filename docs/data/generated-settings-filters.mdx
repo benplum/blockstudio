@@ -158,6 +158,16 @@ add_filter('blockstudio/settings/block_editor/disable_loading', function() {
 });
 ```
 
+### block_editor/enhance
+
+This filter allows you to enable Blockstudio editor affordances such as cleaner focus styles and hover/selection outlines.
+
+```php title="functions.php"
+add_filter('blockstudio/settings/block_editor/enhance', function() {
+  return true;
+});
+```
+
 ### block_editor/css_classes
 
 This filter allows you to add stylesheets whose classes should be available for choice in the class field.

@@ -125,6 +125,10 @@ class SettingsTest extends TestCase {
 		$this->assertFalse( Settings::get( 'blockEditor/disableLoading' ) );
 	}
 
+	public function test_block_editor_enhance_from_json(): void {
+		$this->assertTrue( Settings::get( 'blockEditor/enhance' ) );
+	}
+
 	public function test_block_editor_css_classes_from_json(): void {
 		$classes = Settings::get( 'blockEditor/cssClasses' );
 		$this->assertIsArray( $classes );
@@ -333,6 +337,14 @@ class SettingsTest extends TestCase {
 		} );
 
 		$this->assertTrue( Settings::get( 'blockEditor/disableLoading' ) );
+	}
+
+	public function test_snake_case_filter_works_for_block_editor_enhance(): void {
+		$this->add_filter( 'blockstudio/settings/block_editor/enhance', function () {
+			return true;
+		} );
+
+		$this->assertTrue( Settings::get( 'blockEditor/enhance' ) );
 	}
 
 	public function test_camel_case_filter_still_works_for_backwards_compat(): void {

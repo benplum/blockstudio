@@ -162,11 +162,17 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( '<p>Content</p>', $result );
 	}
 
-	public function test_maybe_reset_editor_styles_removes_wordpress_iframe_styles_and_adds_editor_reset(): void {
+	public function test_maybe_reset_editor_styles_removes_wordpress_iframe_styles_without_editor_enhancements(): void {
 		$this->add_filter(
 			'blockstudio/settings/assets/reset/enabled',
 			static function () {
 				return true;
+			}
+		);
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return false;
 			}
 		);
 
@@ -200,7 +206,41 @@ class AssetsTest extends TestCase {
 		$this->assertStringNotContainsString( 'classic.min.css', $styles );
 		$this->assertStringNotContainsString( 'classic-themes.min.css', $styles );
 		$this->assertStringContainsString( '<style>.keep{display:block}</style>', $styles );
-		$this->assertStringContainsString( 'blockstudio-editor-reset', $styles );
+		$this->assertStringNotContainsString( 'blockstudio-editor-enhance', $styles );
+		$this->assertStringNotContainsString( ':focus-visible{outline:none!important', $styles );
+		$this->assertStringNotContainsString( '.is-hovered:not(.has-child-selected)::after', $styles );
+		$this->assertStringNotContainsString( '.is-selected::after{border-color:#7c3aed}', $styles );
+	}
+
+	public function test_maybe_reset_editor_styles_adds_editor_enhancements_when_enabled(): void {
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return true;
+			}
+		);
+
+		$assets   = new Assets();
+		$settings = array(
+			'__unstableResolvedAssets' => array(
+				'styles' => implode(
+					'',
+					array(
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/dist/block-library/style.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/common.min.css?ver=6.9.4">',
+						'<style>.keep{display:block}</style>',
+					)
+				),
+			),
+		);
+
+		$result = $assets->maybe_reset_editor_styles( $settings );
+		$styles = $result['__unstableResolvedAssets']['styles'];
+
+		$this->assertStringContainsString( 'block-library/style.min.css', $styles );
+		$this->assertStringContainsString( 'common.min.css', $styles );
+		$this->assertStringContainsString( '<style>.keep{display:block}</style>', $styles );
+		$this->assertStringContainsString( 'blockstudio-editor-enhance', $styles );
 		$this->assertStringContainsString( ':focus-visible{outline:none!important', $styles );
 		$this->assertStringContainsString( ':where(.wp-block,.blockstudio-block){position:relative}', $styles );
 		$this->assertStringContainsString( '.is-hovered:not(.has-child-selected)::after', $styles );

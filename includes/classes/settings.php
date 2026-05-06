@@ -28,6 +28,7 @@ namespace Blockstudio;
  * - editor/formatOnSave: Auto-format code in editor
  * - tailwind/enabled: Enable Tailwind CSS integration
  * - ui/enabled: Enable bundled UI components
+ * - blockEditor/enhance: Add Blockstudio editor hover and selection affordances
  * - dev/grab/enabled: Enable frontend element grabber
  * - dev/canvas/enabled: Enable the canvas
  * - users/ids: Array of user IDs allowed to use editor
@@ -102,6 +103,7 @@ class Settings {
 		),
 		'blockEditor' => array(
 			'disableLoading' => false,
+			'enhance'        => false,
 			'cssClasses'     => array(),
 			'cssVariables'   => array(),
 		),

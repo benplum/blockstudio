@@ -208,6 +208,15 @@ export const blockstudio = {
             'This filter allows you to disable the loading of blocks inside the Block Editor.',
           example: true,
         },
+        enhance: {
+          type: 'boolean',
+          default: false,
+          description:
+            'Enable Blockstudio editor affordances such as cleaner focus styles and hover/selection outlines.',
+          descriptionFilter:
+            'This filter allows you to enable Blockstudio editor affordances such as cleaner focus styles and hover/selection outlines.',
+          example: true,
+        },
         cssClasses: {
           id: 'blockEditorCssClasses',
           type: 'array',

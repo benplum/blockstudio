@@ -133,6 +133,10 @@ export interface BlockEditor {
    * Disable loading of blocks inside the Block Editor.
    */
   disableLoading?: boolean;
+  /**
+   * Enable Blockstudio editor affordances such as cleaner focus styles and hover/selection outlines.
+   */
+  enhance?: boolean;
   [property: string]: any;
 }
 
@@ -478,6 +482,7 @@ const typeMap: any = {
       { json: 'cssClasses', js: 'cssClasses', typ: u(undefined, a('any')) },
       { json: 'cssVariables', js: 'cssVariables', typ: u(undefined, a('any')) },
       { json: 'disableLoading', js: 'disableLoading', typ: u(undefined, true) },
+      { json: 'enhance', js: 'enhance', typ: u(undefined, true) },
     ],
     'any',
   ),

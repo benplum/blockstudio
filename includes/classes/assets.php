@@ -192,35 +192,33 @@ class Assets {
 	}
 
 	/**
-	 * Remove WordPress reset styles from the block editor iframe.
+	 * Remove WordPress reset styles from the block editor iframe and optionally add editor enhancements.
 	 *
 	 * @param array $settings Editor settings.
 	 *
 	 * @return array Modified editor settings.
 	 */
 	public function maybe_reset_editor_styles( array $settings ): array {
-		$reset = Settings::get( 'assets/reset' );
-
-		if ( true !== $reset && ! Settings::get( 'assets/reset/enabled' ) ) {
-			return $settings;
-		}
-
 		if ( ! isset( $settings['__unstableResolvedAssets']['styles'] ) ) {
 			return $settings;
 		}
 
-		$settings['__unstableResolvedAssets']['styles'] = preg_replace(
-			array(
-				'/<link\b[^>]+(?:content|common|reset|classic)(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
-				'/<link\b[^>]+\/wp-includes\/css\/dist\/block-library\/(?:style|editor)(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
-				'/<link\b[^>]+\/wp-includes\/css\/classic-themes(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
-			),
-			'',
-			$settings['__unstableResolvedAssets']['styles']
-		);
+		$reset = Settings::get( 'assets/reset' );
 
-		if ( ! str_contains( $settings['__unstableResolvedAssets']['styles'], 'blockstudio-editor-reset' ) ) {
-			$settings['__unstableResolvedAssets']['styles'] .= '<style id="blockstudio-editor-reset">.editor-styles-wrapper :where(.wp-block,.blockstudio-block,.block-editor-rich-text__editable):focus,.editor-styles-wrapper :where(.wp-block,.blockstudio-block,.block-editor-rich-text__editable):focus-visible{outline:none!important;box-shadow:none}.editor-styles-wrapper :where(.wp-block,.blockstudio-block){position:relative}.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-hovered:not(.has-child-selected)::after,.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-highlighted:not(.has-child-selected)::after,.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-selected::after{content:"";position:absolute;inset:0;border:1px solid rgb(142 142 142 / .65);border-radius:inherit;pointer-events:none;z-index:1}.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-selected::after{border-color:#7c3aed}</style>';
+		if ( true === $reset || Settings::get( 'assets/reset/enabled' ) ) {
+			$settings['__unstableResolvedAssets']['styles'] = preg_replace(
+				array(
+					'/<link\b[^>]+(?:content|common|reset|classic)(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
+					'/<link\b[^>]+\/wp-includes\/css\/dist\/block-library\/(?:style|editor)(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
+					'/<link\b[^>]+\/wp-includes\/css\/classic-themes(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
+				),
+				'',
+				$settings['__unstableResolvedAssets']['styles']
+			);
+		}
+
+		if ( Settings::get( 'blockEditor/enhance' ) && ! str_contains( $settings['__unstableResolvedAssets']['styles'], 'blockstudio-editor-enhance' ) ) {
+			$settings['__unstableResolvedAssets']['styles'] .= '<style id="blockstudio-editor-enhance">.editor-styles-wrapper :where(.wp-block,.blockstudio-block,.block-editor-rich-text__editable):focus,.editor-styles-wrapper :where(.wp-block,.blockstudio-block,.block-editor-rich-text__editable):focus-visible{outline:none!important;box-shadow:none}.editor-styles-wrapper :where(.wp-block,.blockstudio-block){position:relative}.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-hovered:not(.has-child-selected)::after,.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-highlighted:not(.has-child-selected)::after,.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-selected::after{content:"";position:absolute;inset:0;border:1px solid rgb(142 142 142 / .65);border-radius:inherit;pointer-events:none;z-index:1}.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-selected::after{border-color:#7c3aed}</style>';
 		}
 
 		return $settings;
