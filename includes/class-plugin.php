@@ -198,10 +198,6 @@ class Plugin {
 	 * @return void
 	 */
 	private function init(): void {
-		if ( class_exists( 'Blockstudio\Assets' ) ) {
-			new Assets();
-		}
-
 		$this->init_storage_system();
 
 		add_action(

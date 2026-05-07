@@ -2,6 +2,8 @@
 
 use Blockstudio\Assets;
 use Blockstudio\Build;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 
 class AssetsTest extends TestCase {
@@ -19,6 +21,46 @@ class AssetsTest extends TestCase {
 	private function add_filter( string $name, callable $callback, int $priority = 10, int $args = 1 ): void {
 		add_filter( $name, $callback, $priority, $args );
 		$this->filter_callbacks[] = array( $name, $callback, $priority );
+	}
+
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState(false)]
+	public function test_plugin_bootstrap_registers_editor_asset_footer_once(): void {
+		$this->assertSame( 1, $this->count_assets_admin_footer_callbacks() );
+	}
+
+	private function count_assets_admin_footer_callbacks(): int {
+		global $wp_filter;
+
+		if ( ! isset( $wp_filter['admin_footer'] ) ) {
+			return 0;
+		}
+
+		$assets_file = wp_normalize_path( BLOCKSTUDIO_DIR . '/includes/classes/assets.php' );
+		$count       = 0;
+
+		foreach ( $wp_filter['admin_footer']->callbacks as $priority_callbacks ) {
+			foreach ( $priority_callbacks as $callback ) {
+				$callback_function = $callback['function'] ?? null;
+
+				if ( ! $callback_function instanceof \Closure ) {
+					continue;
+				}
+
+				$reflection    = new \ReflectionFunction( $callback_function );
+				$callback_file = $reflection->getFileName();
+
+				if ( false === $callback_file ) {
+					continue;
+				}
+
+				if ( $assets_file === wp_normalize_path( $callback_file ) ) {
+					++$count;
+				}
+			}
+		}
+
+		return $count;
 	}
 
 	public function test_get_interactivity_api_import_map_returns_importmap_script(): void {
