@@ -68,6 +68,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Fix: editor preloads now match blocks whose default field values are expanded by Gutenberg but omitted from saved block markup
 * Fix: editor preloads now ignore registered default attributes expanded by Gutenberg before comparing render cache keys
 * Fix: editor render cache now keeps editor and inserter preview renders isolated for blocks that share a client id
+* Fix: PHPStan can now scan explicit external block-library roots for validating `<bs:*>` and `<block>` tags
 
 = 7.2.2 =
 * Fix: Canvas no longer stalls when editor-only WordPress data stores are unavailable during admin page init
