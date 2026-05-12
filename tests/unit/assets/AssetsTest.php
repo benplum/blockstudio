@@ -1,6 +1,7 @@
 <?php
 
 use Blockstudio\Assets;
+use Blockstudio\Block;
 use Blockstudio\Build;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
@@ -202,6 +203,64 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( '</head>', $result );
 		$this->assertStringContainsString( '</body>', $result );
 		$this->assertStringContainsString( '<p>Content</p>', $result );
+	}
+
+	public function test_parse_output_keeps_frontend_assets_when_render_filter_replaces_output(): void {
+		$block_name = 'blockstudio/assets';
+		$blocks     = Build::data();
+
+		if ( ! isset( $blocks[ $block_name ] ) ) {
+			$this->markTestSkipped( "{$block_name} not registered." );
+		}
+
+		$block_data        = $blocks[ $block_name ];
+		$expected_asset_id = null;
+
+		foreach ( $block_data['assets'] ?? array() as $asset_name => $asset ) {
+			if ( str_contains( $asset_name, 'editor' ) || str_contains( $asset_name, 'admin' ) ) {
+				continue;
+			}
+
+			if ( ! Assets::is_css( $asset_name ) || 'inline' === $asset['type'] ) {
+				continue;
+			}
+
+			$expected_asset_id = Assets::get_id( $asset_name, $block_data );
+			break;
+		}
+
+		if ( null === $expected_asset_id ) {
+			$this->markTestSkipped( "{$block_name} has no external frontend CSS asset." );
+		}
+
+		$this->add_filter(
+			'blockstudio/blocks/render',
+			function ( $html, $block ) use ( $block_name ) {
+				if ( ( $block->name ?? '' ) === $block_name ) {
+					return '<section class="sage-blade-render">Blade output</section>';
+				}
+
+				return $html;
+			},
+			20,
+			2
+		);
+
+		$rendered = Block::render(
+			array(
+				'blockstudio' => array(
+					'name'       => $block_name,
+					'attributes' => array(),
+				),
+			)
+		);
+
+		$result = ( new Assets() )->parse_output(
+			'<html><head></head><body>' . $rendered . '</body></html>'
+		);
+
+		$this->assertStringContainsString( 'sage-blade-render', $result );
+		$this->assertStringContainsString( "id='{$expected_asset_id}'", $result );
 	}
 
 	public function test_compile_scss_supports_bootstrap_prelude(): void {
