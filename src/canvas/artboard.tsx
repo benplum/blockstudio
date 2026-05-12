@@ -211,13 +211,20 @@ export const Artboard = ({
       const hasMeaningfulText =
         bodyText.length > 0 && !/^loading(?:\.\.\.)?$/i.test(bodyText);
 
-      if (!force && !hasActiveDisplay && hasSpinner && !hasUnsupportedBlock) {
-        if (!spinnerGraceElapsed) {
+      if (!force) {
+        if (hasUnsupportedBlock) {
           return;
         }
-        // Avoid freezing the first visible frame as "spinner only".
-        if (!hasMeaningfulText) {
-          return;
+
+        if (hasSpinner) {
+          if (!spinnerGraceElapsed) {
+            return;
+          }
+
+          // Avoid freezing refreshed artboards while async Blockstudio renders are still pending.
+          if (hasActiveDisplay || !hasMeaningfulText) {
+            return;
+          }
         }
       }
       captured = true;

@@ -7,6 +7,31 @@ import { login, waitForCanvasSurface } from '../utils/playwright-utils';
 let page: Page;
 const canvasUrl = 'http://localhost:8888/wp-admin/admin.php?page=blockstudio-canvas';
 
+const getCanvasTransform = async (page: Page): Promise<string> =>
+  page
+    .locator('[data-canvas-surface]')
+    .evaluate((el) => window.getComputedStyle(el).transform);
+
+const dispatchCanvasWheel = async (
+  page: Page,
+  init: { deltaX?: number; deltaY?: number; ctrlKey?: boolean; metaKey?: boolean },
+): Promise<void> => {
+  await page.locator('[data-canvas-view]').evaluate((el, options) => {
+    el.dispatchEvent(
+      new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        clientX: window.innerWidth / 2,
+        clientY: window.innerHeight / 2,
+        deltaX: options.deltaX ?? 0,
+        deltaY: options.deltaY ?? 0,
+        ctrlKey: options.ctrlKey ?? false,
+        metaKey: options.metaKey ?? false,
+      }),
+    );
+  }, init);
+};
+
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async ({ browser }) => {
@@ -288,25 +313,21 @@ test.describe('Canvas', () => {
       await page.keyboard.press('Escape');
       await page.waitForTimeout(200);
 
-      await page.mouse.move(960, 540);
-      await page.mouse.wheel(200, 200);
-      await page.waitForTimeout(100);
-
-      const surface = page.locator('[data-canvas-surface]');
-      const before = await surface.evaluate(
-        (el) => window.getComputedStyle(el).transform,
-      );
+      const fitted = await getCanvasTransform(page);
+      await dispatchCanvasWheel(page, { deltaX: 200, deltaY: 200 });
+      await expect
+        .poll(() => getCanvasTransform(page), { timeout: 3000 })
+        .not.toBe(fitted);
+      const before = await getCanvasTransform(page);
 
       const menuButton = page.locator('.blockstudio-canvas-menu .components-button').first();
       await menuButton.click();
       await expect(page.locator('role=menu')).toBeVisible({ timeout: 5000 });
       await page.locator('role=menuitem', { hasText: 'Fit to view' }).click();
-      await page.waitForTimeout(200);
 
-      const after = await surface.evaluate(
-        (el) => window.getComputedStyle(el).transform,
-      );
-      expect(after).not.toBe(before);
+      await expect
+        .poll(() => getCanvasTransform(page), { timeout: 3000 })
+        .not.toBe(before);
     });
 
     test('Zoom to 100% sets scale to 1', async () => {
@@ -1512,6 +1533,10 @@ test.describe('Canvas', () => {
     test('recompiled tailwind CSS applies styles in artboard iframe', async () => {
       originalBlockTemplate = fs.readFileSync(blockTemplatePath, 'utf-8');
 
+      await page.evaluate(() =>
+        localStorage.removeItem('blockstudio-canvas-settings'),
+      );
+
       // Write the modified template BEFORE navigating so the initial page load
       // picks it up (avoids OPcache staleness in long-running SSE processes).
       fs.writeFileSync(
@@ -1561,18 +1586,8 @@ test.describe('Canvas', () => {
       await waitForCanvasSurface(page);
 
       const surface = page.locator('[data-canvas-surface]');
-      const before = await surface.evaluate(
-        (el) => window.getComputedStyle(el).transform,
-      );
-
-      const box = await surface.boundingBox();
-      expect(box).not.toBeNull();
-
-      await page.mouse.move(
-        (box?.x ?? 0) + (box?.width ?? 0) / 2,
-        (box?.y ?? 0) + (box?.height ?? 0) / 2,
-      );
-      await page.mouse.wheel(0, -200);
+      const before = await getCanvasTransform(page);
+      await dispatchCanvasWheel(page, { deltaY: -200 });
 
       await expect
         .poll(
@@ -1586,21 +1601,13 @@ test.describe('Canvas', () => {
     });
 
     test('ctrl+wheel zooms the canvas', async () => {
-      const surface = page.locator('[data-canvas-surface]');
-      const before = await surface.evaluate(
-        (el) => window.getComputedStyle(el).transform,
-      );
+      const before = await getCanvasTransform(page);
 
-      await page.mouse.move(960, 540);
-      await page.keyboard.down('Control');
-      await page.mouse.wheel(0, -100);
-      await page.keyboard.up('Control');
-      await page.waitForTimeout(100);
+      await dispatchCanvasWheel(page, { deltaY: -100, ctrlKey: true });
 
-      const after = await surface.evaluate(
-        (el) => window.getComputedStyle(el).transform,
-      );
-      expect(after).not.toBe(before);
+      await expect
+        .poll(() => getCanvasTransform(page), { timeout: 3000 })
+        .not.toBe(before);
     });
 
   });
