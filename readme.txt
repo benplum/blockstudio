@@ -70,6 +70,13 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Fix: editor render cache now keeps editor and inserter preview renders isolated for blocks that share a client id
 * Fix: PHPStan can now scan explicit external block-library roots for validating `<bs:*>` and `<block>` tags
 
+= 7.2.3 =
+* Fix: duplicate editor asset callbacks no longer emit block editor CSS/JS twice
+* Fix: frontend block assets are preserved when custom render filters replace block markup
+* Fix: conditional repeater fields now show and hide correctly when custom fields are expanded inside repeaters
+* Fix: group-wrapped conditional repeater fields now work inside custom fields
+* Fix: custom fields now preserve idStructure, conditions, and nested expansion inside tabs, groups, repeaters, and block fields
+
 = 7.2.2 =
 * Fix: Canvas no longer stalls when editor-only WordPress data stores are unavailable during admin page init
 * Fix: plugin URL generation now works on Windows installs with mixed path separators

@@ -123,6 +123,37 @@ class Build {
 	}
 
 	/**
+	 * Flatten groups without IDs while preserving ID-bearing groups.
+	 *
+	 * @since 7.2.3
+	 *
+	 * @param array $attributes The attributes to flatten.
+	 *
+	 * @return array The flattened attributes.
+	 */
+	private static function flatten_idless_groups( array $attributes ): array {
+		$flattened = array();
+
+		foreach ( $attributes as $attribute ) {
+			if (
+				'group' === ( $attribute['type'] ?? '' ) &&
+				empty( $attribute['id'] ) &&
+				isset( $attribute['attributes'] )
+			) {
+				$flattened = array_merge(
+					$flattened,
+					self::flatten_idless_groups( $attribute['attributes'] )
+				);
+				continue;
+			}
+
+			$flattened[] = $attribute;
+		}
+
+		return $flattened;
+	}
+
+	/**
 	 * Build attributes.
 	 *
 	 * @since 2.4.0
@@ -190,6 +221,9 @@ class Build {
 							isset( $v['attributes'] ) &&
 							count( $v['attributes'] ) >= 1
 						) {
+							$v['attributes'] = self::flatten_idless_groups(
+								$v['attributes']
+							);
 							self::filter_not_key(
 								$v['attributes'],
 								'type',
@@ -218,7 +252,9 @@ class Build {
 									count( $v['attributes'] ?? array() ) >= 1
 										? array_values(
 											array_filter(
-												$v['attributes'],
+												self::flatten_idless_groups(
+													$v['attributes']
+												),
 												fn( $val ) => 'group' !== $val['type']
 											)
 										)
@@ -1333,6 +1369,9 @@ class Build {
 				continue;
 			}
 
+			$definition_atts = array_values( $definition_atts );
+			self::expand_custom_fields( $definition_atts, $block_lookup );
+
 			$id_structure   = $attr['idStructure'] ?? '{id}';
 			$overrides      = $attr['overrides'] ?? array();
 			$field_id       = $attr['id'] ?? '';
@@ -1360,32 +1399,35 @@ class Build {
 			$block_field_ids = array();
 
 			foreach ( $definition_atts as $field_attr ) {
-				$original_id    = $field_attr['id'] ?? '';
-				$field_override = $overrides[ $original_id ] ?? array();
+				$original_attr   = $field_attr;
+				$original_id     = $field_attr['id'] ?? '';
+				$field_override  = $overrides[ $original_id ] ?? array();
+				$merged          = array_merge( $field_attr, $field_override );
+				$skip_current_id = isset( $field_override['id'] );
 
-				if ( isset( $field_override['id'] ) ) {
-					$final_id = $field_override['id'];
-				} else {
-					$final_id = str_replace( '{id}', $original_id, $id_structure );
+				if ( '{id}' !== $id_structure ) {
+					self::rewrite_attribute_ids(
+						$merged,
+						$id_structure,
+						false,
+						false,
+						$skip_current_id
+					);
 				}
-
-				$merged       = array_merge( $field_attr, $field_override );
-				$merged['id'] = $final_id;
 
 				if ( $ref_conditions ) {
 					$merged['conditions'] = isset( $merged['conditions'] )
 						? array_merge( $merged['conditions'], $ref_conditions )
 						: $ref_conditions;
 				}
-
-				if ( '{id}' !== $id_structure && isset( $merged['conditions'] ) ) {
-					self::rewrite_condition_ids( $merged['conditions'], $id_structure );
-				}
-
 				$expanded[] = $merged;
 
 				if ( $is_block ) {
-					$block_field_ids[ $final_id ] = $original_id;
+					self::collect_block_field_ids(
+						$merged,
+						$original_attr,
+						$block_field_ids
+					);
 				}
 			}
 
@@ -1422,6 +1464,153 @@ class Build {
 			}
 		}
 		unset( $group, $condition );
+	}
+
+	/**
+	 * Rewrite an expanded custom field attribute using an idStructure pattern.
+	 *
+	 * @since 7.2.3
+	 *
+	 * @param array  $attribute       The attribute to rewrite (passed by reference).
+	 * @param string $id_structure    The idStructure pattern.
+	 * @param bool   $inside_repeater Whether the attribute belongs to a repeater row.
+	 * @param bool   $inside_id_group Whether an ID-bearing group will prefix the attribute.
+	 * @param bool   $skip_current_id Whether the current attribute ID was explicitly overridden.
+	 *
+	 * @return void
+	 */
+	private static function rewrite_attribute_ids(
+		array &$attribute,
+		string $id_structure,
+		bool $inside_repeater = false,
+		bool $inside_id_group = false,
+		bool $skip_current_id = false
+	): void {
+		$type   = $attribute['type'] ?? '';
+		$has_id = isset( $attribute['id'] ) && '' !== $attribute['id'];
+
+		if ( ! $inside_repeater && ! $inside_id_group && $has_id && ! $skip_current_id ) {
+			$attribute['id'] = str_replace( '{id}', $attribute['id'], $id_structure );
+		}
+
+		if ( ! $inside_repeater && isset( $attribute['conditions'] ) ) {
+			self::rewrite_condition_ids( $attribute['conditions'], $id_structure );
+		}
+
+		if ( 'tabs' === $type && isset( $attribute['tabs'] ) ) {
+			foreach ( $attribute['tabs'] as &$tab ) {
+				if ( isset( $tab['attributes'] ) ) {
+					foreach ( $tab['attributes'] as &$tab_attribute ) {
+						self::rewrite_attribute_ids(
+							$tab_attribute,
+							$id_structure,
+							$inside_repeater,
+							$inside_id_group
+						);
+					}
+					unset( $tab_attribute );
+				}
+			}
+			unset( $tab );
+		}
+
+		if ( 'group' === $type && isset( $attribute['attributes'] ) ) {
+			$children_inside_id_group = $inside_id_group || ( ! $inside_repeater && $has_id );
+
+			foreach ( $attribute['attributes'] as &$group_attribute ) {
+				self::rewrite_attribute_ids(
+					$group_attribute,
+					$id_structure,
+					$inside_repeater,
+					$children_inside_id_group
+				);
+			}
+			unset( $group_attribute );
+		}
+	}
+
+	/**
+	 * Collect mapped field IDs for block fields after idStructure expansion.
+	 *
+	 * @since 7.2.3
+	 *
+	 * @param array  $rewritten          The rewritten attribute.
+	 * @param array  $original           The original attribute.
+	 * @param array  $mapped             The collected map (passed by reference).
+	 * @param string $rewritten_prefix   The rewritten group prefix.
+	 * @param string $original_prefix    The original group prefix.
+	 * @param bool   $inside_repeater    Whether the attribute belongs to a repeater row.
+	 *
+	 * @return void
+	 */
+	private static function collect_block_field_ids(
+		array $rewritten,
+		array $original,
+		array &$mapped,
+		string $rewritten_prefix = '',
+		string $original_prefix = '',
+		bool $inside_repeater = false
+	): void {
+		$type = $rewritten['type'] ?? '';
+
+		if ( 'tabs' === $type && isset( $rewritten['tabs'], $original['tabs'] ) ) {
+			foreach ( $rewritten['tabs'] as $index => $tab ) {
+				if ( ! isset( $tab['attributes'], $original['tabs'][ $index ]['attributes'] ) ) {
+					continue;
+				}
+
+				foreach ( $tab['attributes'] as $attribute_index => $tab_attribute ) {
+					if ( ! isset( $original['tabs'][ $index ]['attributes'][ $attribute_index ] ) ) {
+						continue;
+					}
+
+					self::collect_block_field_ids(
+						$tab_attribute,
+						$original['tabs'][ $index ]['attributes'][ $attribute_index ],
+						$mapped,
+						$rewritten_prefix,
+						$original_prefix,
+						$inside_repeater
+					);
+				}
+			}
+			return;
+		}
+
+		if ( 'group' === $type && isset( $rewritten['attributes'], $original['attributes'] ) ) {
+			$next_rewritten_prefix = $rewritten_prefix;
+			$next_original_prefix  = $original_prefix;
+
+			if ( ! empty( $rewritten['id'] ) ) {
+				$next_rewritten_prefix .= $rewritten['id'] . '_';
+			}
+
+			if ( ! empty( $original['id'] ) ) {
+				$next_original_prefix .= $original['id'] . '_';
+			}
+
+			foreach ( $rewritten['attributes'] as $index => $group_attribute ) {
+				if ( ! isset( $original['attributes'][ $index ] ) ) {
+					continue;
+				}
+
+				self::collect_block_field_ids(
+					$group_attribute,
+					$original['attributes'][ $index ],
+					$mapped,
+					$next_rewritten_prefix,
+					$next_original_prefix,
+					$inside_repeater
+				);
+			}
+			return;
+		}
+
+		if ( empty( $rewritten['id'] ) || empty( $original['id'] ) ) {
+			return;
+		}
+
+		$mapped[ $rewritten_prefix . $rewritten['id'] ] = $original_prefix . $original['id'];
 	}
 
 	/**

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://blockstudio.dev/schema/field",
+  "name": "sample-media-group",
+  "title": "Sample media group",
+  "attributes": [
+    {
+      "id": "media_type",
+      "type": "select",
+      "label": "Grouped media type",
+      "default": "none",
+      "options": [
+        { "value": "none", "label": "None" },
+        { "value": "image", "label": "Image" },
+        { "value": "video", "label": "Video" }
+      ]
+    },
+    {
+      "id": "image_default",
+      "type": "files",
+      "label": "Grouped image default",
+      "min": 0,
+      "max": 1,
+      "multiple": false,
+      "allowedTypes": ["image"],
+      "conditions": [
+        [{ "id": "media_type", "operator": "==", "value": "image" }]
+      ]
+    },
+    {
+      "type": "group",
+      "title": "Grouped image sources",
+      "conditions": [
+        [{ "id": "media_type", "operator": "==", "value": "image" }]
+      ],
+      "attributes": [
+        {
+          "id": "image_sources",
+          "type": "repeater",
+          "label": "Grouped image sources",
+          "min": 0,
+          "max": 12,
+          "textButton": "Add grouped picture source",
+          "attributes": [
+            {
+              "id": "source_image",
+              "type": "files",
+              "label": "Grouped source image",
+              "min": 0,
+              "max": 1,
+              "multiple": false,
+              "allowedTypes": ["image"]
+            },
+            {
+              "id": "source_media",
+              "type": "text",
+              "label": "Grouped media query",
+              "default": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

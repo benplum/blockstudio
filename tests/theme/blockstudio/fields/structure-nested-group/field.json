@@ -1,0 +1,40 @@
+{
+  "$schema": "https://blockstudio.dev/schema/field",
+  "name": "structure-nested-group",
+  "title": "Structure nested group",
+  "attributes": [
+    {
+      "type": "group",
+      "title": "Outer wrapper",
+      "attributes": [
+        {
+          "type": "group",
+          "title": "Inner wrapper",
+          "attributes": [
+            {
+              "id": "enable",
+              "type": "toggle",
+              "label": "Enable nested detail",
+              "default": false
+            },
+            {
+              "id": "detail",
+              "type": "text",
+              "label": "Nested detail",
+              "default": "Nested detail default",
+              "conditions": [
+                [
+                  {
+                    "id": "enable",
+                    "operator": "==",
+                    "value": true
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

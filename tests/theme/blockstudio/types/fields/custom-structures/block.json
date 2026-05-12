@@ -1,0 +1,38 @@
+{
+  "$schema": "https://blockstudio.dev/schema/block",
+  "name": "blockstudio/type-fields-custom-structures",
+  "title": "Fields Custom Structures",
+  "category": "blockstudio-test-native",
+  "icon": "star-filled",
+  "blockstudio": {
+    "attributes": [
+      {
+        "type": "custom/structure-tabs",
+        "idStructure": "tabs_{id}"
+      },
+      {
+        "type": "custom/structure-nested-group",
+        "idStructure": "nested_{id}"
+      },
+      {
+        "id": "holder",
+        "type": "group",
+        "title": "Holder group",
+        "attributes": [
+          {
+            "type": "custom/hero",
+            "idStructure": "inside_{id}"
+          }
+        ]
+      },
+      {
+        "id": "component_custom",
+        "type": "block",
+        "block": "blockstudio/type-component-custom",
+        "idStructure": "component_{id}",
+        "label": "Component custom",
+        "returnFormat": "data"
+      }
+    ]
+  }
+}

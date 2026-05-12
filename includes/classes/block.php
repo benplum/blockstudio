@@ -1623,6 +1623,21 @@ class Block {
 			);
 		}
 
+		if (
+			! $is_editor &&
+			is_string( $result ) &&
+			$result !== $rendered_block &&
+			'' !== trim( $result )
+		) {
+			if ( ! str_contains( $result, $blockstudio_id ) ) {
+				$result = $blockstudio_id . $result;
+			}
+
+			if ( is_string( $assets ) && '' !== $assets && ! str_contains( $result, $assets ) ) {
+				$result .= $assets;
+			}
+		}
+
 		return $result;
 	}
 }

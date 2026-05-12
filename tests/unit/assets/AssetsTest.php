@@ -1,7 +1,10 @@
 <?php
 
 use Blockstudio\Assets;
+use Blockstudio\Block;
 use Blockstudio\Build;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 
 class AssetsTest extends TestCase {
@@ -20,6 +23,46 @@ class AssetsTest extends TestCase {
 	private function add_filter( string $name, callable $callback, int $priority = 10, int $args = 1 ): void {
 		add_filter( $name, $callback, $priority, $args );
 		$this->filter_callbacks[] = array( $name, $callback, $priority );
+	}
+
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState(false)]
+	public function test_plugin_bootstrap_registers_editor_asset_footer_once(): void {
+		$this->assertSame( 1, $this->count_assets_admin_footer_callbacks() );
+	}
+
+	private function count_assets_admin_footer_callbacks(): int {
+		global $wp_filter;
+
+		if ( ! isset( $wp_filter['admin_footer'] ) ) {
+			return 0;
+		}
+
+		$assets_file = wp_normalize_path( BLOCKSTUDIO_DIR . '/includes/classes/assets.php' );
+		$count       = 0;
+
+		foreach ( $wp_filter['admin_footer']->callbacks as $priority_callbacks ) {
+			foreach ( $priority_callbacks as $callback ) {
+				$callback_function = $callback['function'] ?? null;
+
+				if ( ! $callback_function instanceof \Closure ) {
+					continue;
+				}
+
+				$reflection    = new \ReflectionFunction( $callback_function );
+				$callback_file = $reflection->getFileName();
+
+				if ( false === $callback_file ) {
+					continue;
+				}
+
+				if ( $assets_file === wp_normalize_path( $callback_file ) ) {
+					++$count;
+				}
+			}
+		}
+
+		return $count;
 	}
 
 	public function test_get_interactivity_api_import_map_returns_importmap_script(): void {
@@ -161,6 +204,64 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( '</head>', $result );
 		$this->assertStringContainsString( '</body>', $result );
 		$this->assertStringContainsString( '<p>Content</p>', $result );
+	}
+
+	public function test_parse_output_keeps_frontend_assets_when_render_filter_replaces_output(): void {
+		$block_name = 'blockstudio/assets';
+		$blocks     = Build::data();
+
+		if ( ! isset( $blocks[ $block_name ] ) ) {
+			$this->markTestSkipped( "{$block_name} not registered." );
+		}
+
+		$block_data        = $blocks[ $block_name ];
+		$expected_asset_id = null;
+
+		foreach ( $block_data['assets'] ?? array() as $asset_name => $asset ) {
+			if ( str_contains( $asset_name, 'editor' ) || str_contains( $asset_name, 'admin' ) ) {
+				continue;
+			}
+
+			if ( ! Assets::is_css( $asset_name ) || 'inline' === $asset['type'] ) {
+				continue;
+			}
+
+			$expected_asset_id = Assets::get_id( $asset_name, $block_data );
+			break;
+		}
+
+		if ( null === $expected_asset_id ) {
+			$this->markTestSkipped( "{$block_name} has no external frontend CSS asset." );
+		}
+
+		$this->add_filter(
+			'blockstudio/blocks/render',
+			function ( $html, $block ) use ( $block_name ) {
+				if ( ( $block->name ?? '' ) === $block_name ) {
+					return '<section class="sage-blade-render">Blade output</section>';
+				}
+
+				return $html;
+			},
+			20,
+			2
+		);
+
+		$rendered = Block::render(
+			array(
+				'blockstudio' => array(
+					'name'       => $block_name,
+					'attributes' => array(),
+				),
+			)
+		);
+
+		$result = ( new Assets() )->parse_output(
+			'<html><head></head><body>' . $rendered . '</body></html>'
+		);
+
+		$this->assertStringContainsString( 'sage-blade-render', $result );
+		$this->assertStringContainsString( "id='{$expected_asset_id}'", $result );
 	}
 
 	public function test_maybe_reset_editor_styles_removes_wordpress_iframe_styles_without_editor_enhancements(): void {
