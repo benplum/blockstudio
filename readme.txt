@@ -3,7 +3,7 @@ Contributors: dnnsjsk
 Requires at least: 6.7
 Tested up to: 7.0.0
 Requires PHP: 8.2
-Stable tag: 7.2.2
+Stable tag: 7.2.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -52,6 +52,13 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * [Getting Started](https://blockstudio.dev/docs/getting-started)
 
 == Changelog ==
+
+= 7.2.3 =
+* Fix: duplicate editor asset callbacks no longer emit block editor CSS/JS twice
+* Fix: frontend block assets are preserved when custom render filters replace block markup
+* Fix: conditional repeater fields now show and hide correctly when custom fields are expanded inside repeaters
+* Fix: group-wrapped conditional repeater fields now work inside custom fields
+* Fix: custom fields now preserve idStructure, conditions, and nested expansion inside tabs, groups, repeaters, and block fields
 
 = 7.2.2 =
 * Fix: Canvas no longer stalls when editor-only WordPress data stores are unavailable during admin page init

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://blockstudio.dev/schema/field",
+  "name": "structure-tabs",
+  "title": "Structure tabs",
+  "attributes": [
+    {
+      "type": "tabs",
+      "tabs": [
+        {
+          "title": "Structure Tab",
+          "attributes": [
+            {
+              "id": "title",
+              "type": "text",
+              "label": "Structure title",
+              "default": "Structure default"
+            },
+            {
+              "id": "show_detail",
+              "type": "toggle",
+              "label": "Show structure detail",
+              "default": false
+            },
+            {
+              "id": "detail",
+              "type": "text",
+              "label": "Structure detail",
+              "default": "Structure detail default",
+              "conditions": [
+                [
+                  {
+                    "id": "show_detail",
+                    "operator": "==",
+                    "value": true
+                  }
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Nested Custom",
+          "attributes": [
+            {
+              "type": "custom/hero",
+              "idStructure": "inner_{id}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

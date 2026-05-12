@@ -1,0 +1,17 @@
+{
+  "$schema": "https://blockstudio.dev/schema/block",
+  "name": "blockstudio/type-component-custom",
+  "title": "Component Custom Field Test",
+  "category": "blockstudio-test-native",
+  "icon": "screenoptions",
+  "description": "Test component with custom field attributes.",
+  "blockstudio": {
+    "component": true,
+    "attributes": [
+      {
+        "type": "custom/hero",
+        "idStructure": "hero_{id}"
+      }
+    ]
+  }
+}

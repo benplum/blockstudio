@@ -1,0 +1,58 @@
+{
+  "$schema": "https://blockstudio.dev/schema/field",
+  "name": "sample-media",
+  "title": "Sample media",
+  "attributes": [
+    {
+      "id": "media_type",
+      "type": "select",
+      "label": "Media type",
+      "default": "none",
+      "options": [
+        { "value": "none", "label": "None" },
+        { "value": "image", "label": "Image" },
+        { "value": "video", "label": "Video" }
+      ]
+    },
+    {
+      "id": "image_default",
+      "type": "files",
+      "label": "Image default",
+      "min": 0,
+      "max": 1,
+      "multiple": false,
+      "allowedTypes": ["image"],
+      "conditions": [
+        [{ "id": "media_type", "operator": "==", "value": "image" }]
+      ]
+    },
+    {
+      "id": "image_sources",
+      "type": "repeater",
+      "label": "Image sources",
+      "min": 0,
+      "max": 12,
+      "textButton": "Add picture source",
+      "conditions": [
+        [{ "id": "media_type", "operator": "==", "value": "image" }]
+      ],
+      "attributes": [
+        {
+          "id": "source_image",
+          "type": "files",
+          "label": "Source image",
+          "min": 0,
+          "max": 1,
+          "multiple": false,
+          "allowedTypes": ["image"]
+        },
+        {
+          "id": "source_media",
+          "type": "text",
+          "label": "Media query",
+          "default": ""
+        }
+      ]
+    }
+  ]
+}
