@@ -127,7 +127,7 @@ export const Fields = ({
       return id.split('.')[0].split('[')[0];
     };
 
-    if (repeaterId !== '' && item.type !== 'repeater') {
+    if (repeaterId !== '') {
       const repeaterAttributes = result(
         attributes,
         `blockstudio.attributes.${repeaterId.slice(0, -item.id.length - 1)}`,
@@ -418,10 +418,49 @@ export const Fields = ({
       ) as BlockstudioBlock['blockstudio']['attributes'];
 
       const obj: Record<string | number, Any> = {};
-      transformed.attributes.forEach(
-        (e: { id: string | number; default: boolean }) => {
-          obj[e.id] = e?.default || false;
-        },
+      const applyDefaults = (
+        items: Array<BlockstudioAttribute & { default?: boolean }>,
+        groupId = '',
+      ) => {
+        items.forEach((e) => {
+          if (e.type === 'tabs') {
+            e.tabs?.forEach((tab) =>
+              applyDefaults(
+                (tab.attributes || []) as Array<
+                  BlockstudioAttribute & { default?: boolean }
+                >,
+                groupId,
+              ),
+            );
+            return;
+          }
+
+          if (e.type === 'group') {
+            if (e.id) {
+              return;
+            }
+
+            applyDefaults(
+              (e.attributes || []) as Array<
+                BlockstudioAttribute & { default?: boolean }
+              >,
+              groupId,
+            );
+            return;
+          }
+
+          if (!e.id) {
+            return;
+          }
+
+          obj[`${groupId}${e.id}`] = e?.default || false;
+        });
+      };
+
+      applyDefaults(
+        transformed.attributes as Array<
+          BlockstudioAttribute & { default?: boolean }
+        >,
       );
 
       set(newAttributes, key, [...(values || []), obj]);
@@ -576,7 +615,10 @@ export const Fields = ({
                 item,
                 v,
               }}
-              value={val ?? (typeof v === 'string' || typeof v === 'number' ? v : undefined)}
+              value={
+                val ??
+                (typeof v === 'string' || typeof v === 'number' ? v : undefined)
+              }
               inRepeater={repeaterId !== ''}
             />
           ) : item.type === 'checkbox' ? (

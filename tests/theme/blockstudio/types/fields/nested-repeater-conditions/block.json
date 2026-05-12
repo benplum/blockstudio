@@ -1,0 +1,33 @@
+{
+  "$schema": "https://blockstudio.dev/schema/block",
+  "name": "blockstudio/type-fields-nested-repeater-conditions",
+  "title": "Fields Nested Repeater Conditions",
+  "category": "blockstudio-test-native",
+  "icon": "star-filled",
+  "blockstudio": {
+    "attributes": [
+      {
+        "type": "custom/sample-media",
+        "idStructure": "top_{id}"
+      },
+      {
+        "type": "custom/sample-media-group",
+        "idStructure": "top_group_{id}"
+      },
+      {
+        "id": "cards",
+        "type": "repeater",
+        "label": "Cards",
+        "textButton": "Add card",
+        "attributes": [{ "type": "custom/sample-media" }]
+      },
+      {
+        "id": "group_cards",
+        "type": "repeater",
+        "label": "Group cards",
+        "textButton": "Add group card",
+        "attributes": [{ "type": "custom/sample-media-group" }]
+      }
+    ]
+  }
+}

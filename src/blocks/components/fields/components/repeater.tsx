@@ -5,6 +5,7 @@ import { Icon, closeSmall, chevronDown, create } from '@wordpress/icons';
 import { result } from 'lodash-es';
 import { Base } from '@/blocks/components/base';
 import { List } from '@/blocks/components/list';
+import { isAllowedToRender } from '@/blocks/utils/is-allowed-to-render';
 import { BlockstudioAttribute } from '@/types/block';
 import {
   Any,
@@ -92,7 +93,7 @@ const DragElement = ({
       };
 
       const fieldType = item.attributes?.find(
-        (a: Any) => a.id === item.textMinimized.id
+        (a: Any) => a.id === item.textMinimized.id,
       )?.type;
 
       const key = item.textMinimized.key || defaultKeys[fieldType] || '';
@@ -103,9 +104,7 @@ const DragElement = ({
     }
 
     textMinimized = `${item?.textMinimized?.prefix || ''}${
-      minimizedValue ||
-      item?.textMinimized?.fallback ||
-      textMinimized
+      minimizedValue || item?.textMinimized?.fallback || textMinimized
     }${item?.textMinimized?.suffix || ''}`;
   }
 
@@ -120,6 +119,135 @@ const DragElement = ({
     .replaceAll('[', '')
     .replaceAll(']', '')
     .replaceAll('.', '');
+
+  const rowAttributes = result(
+    attributes,
+    `blockstudio.attributes.${draggableId}`,
+  );
+  const rowBlockAttributes = {
+    blockstudio: { attributes: rowAttributes || {} },
+  } as BlockstudioBlockAttributes;
+
+  const renderGroup = (item: Any, index: number) => {
+    if (!isAllowedToRender(item, rowBlockAttributes, attributes)) {
+      return null;
+    }
+
+    const transformedAttributes = (transformed?.attributes || []) as Any[];
+    const groupAttributes = item?.attributes || [];
+    const getGroupTransform = (
+      itemInner: BlockstudioAttribute,
+      childIndex: number,
+      fallback?: Any,
+    ) => {
+      if (itemInner?.id) {
+        return (
+          transformedAttributes.find(
+            (attribute: BlockstudioAttribute) => attribute.id === itemInner.id,
+          ) ||
+          fallback ||
+          transformedAttributes[childIndex]
+        );
+      }
+
+      return fallback || transformedAttributes[childIndex];
+    };
+    const renderGroupAttribute = (
+      itemInner: BlockstudioAttribute,
+      childIndex: number,
+      transform: Any,
+    ) => {
+      const itemInnerProps = { ...itemInner };
+
+      if (itemInnerProps.type === 'group') {
+        if (itemInnerProps.id || !itemInnerProps.attributes?.length) {
+          return null;
+        }
+
+        if (
+          !isAllowedToRender(itemInnerProps, rowBlockAttributes, attributes)
+        ) {
+          return null;
+        }
+
+        return (
+          <div
+            key={`${draggableId}.group.${index}.${childIndex}`}
+            style={itemInnerProps.style}
+            className={`blockstudio-space${
+              itemInnerProps.class ? ` ${itemInnerProps.class}` : ''
+            } `}
+          >
+            {itemInnerProps.attributes.map((nestedItem, nestedIndex) =>
+              renderGroupAttribute(
+                nestedItem as unknown as BlockstudioAttribute,
+                nestedIndex,
+                getGroupTransform(
+                  nestedItem as unknown as BlockstudioAttribute,
+                  nestedIndex,
+                  transform?.attributes?.[nestedIndex],
+                ),
+              ),
+            )}
+          </div>
+        );
+      }
+
+      if (item?.id && itemInnerProps.id) {
+        itemInnerProps.id = `${item.id}_${itemInnerProps.id}`;
+      }
+
+      if (!isAllowedToRender(itemInnerProps, rowBlockAttributes, attributes)) {
+        return null;
+      }
+
+      return (
+        <Fragment key={`${draggableId}.${itemInnerProps.id}`}>
+          {element(
+            itemInnerProps,
+            `${draggableId}.${itemInnerProps.id}`,
+            (transform || itemInnerProps) as unknown as boolean,
+          )}
+        </Fragment>
+      );
+    };
+
+    return (
+      <Base
+        key={`${draggableId}.group.${index}`}
+        className="blockstudio-fields__field blockstudio-fields__field--group"
+      >
+        <div
+          style={item.style}
+          className={`blockstudio-space${item.class ? ` ${item.class}` : ''} `}
+        >
+          {groupAttributes.map(
+            (itemInner: BlockstudioAttribute, childIndex: number) => {
+              return renderGroupAttribute(
+                itemInner,
+                childIndex,
+                getGroupTransform(itemInner, childIndex),
+              );
+            },
+          )}
+        </div>
+      </Base>
+    );
+  };
+
+  const getTransformedAttribute = (item: Any, index: number) => {
+    const transformedAttributes = transformed?.attributes || [];
+
+    if (item?.id) {
+      return (
+        transformedAttributes.find(
+          (attribute: BlockstudioAttribute) => attribute.id === item.id,
+        ) || transformedAttributes[index]
+      );
+    }
+
+    return transformedAttributes[index];
+  };
 
   return (
     <Draggable
@@ -270,11 +398,17 @@ const DragElement = ({
             })}
           >
             {group.map((e: Any, index: number) => {
-              if (e.options || transformed?.attributes?.[index]?.options) {
+              const transformedAttribute = getTransformedAttribute(e, index);
+
+              if (e.options || transformedAttribute?.options) {
                 e = {
                   ...e,
-                  options: transformed?.attributes?.[index]?.options,
+                  options: transformedAttribute?.options || e.options,
                 };
+              }
+
+              if (e.type === 'group') {
+                return renderGroup(e, index);
               }
 
               return (
@@ -282,7 +416,7 @@ const DragElement = ({
                   {element(
                     e,
                     `${draggableId}.${e.id}`,
-                    transformed?.attributes?.[index] as unknown as boolean,
+                    transformedAttribute as unknown as boolean,
                   )}
                 </Fragment>
               );
@@ -339,14 +473,12 @@ export const Repeater = ({
 
   const createGroup = () => {
     let newGroups: Any[] = [];
+    const attributes = ((item.attributes || []) as Any[]).filter(
+      (attribute) => attribute.type !== 'group' || !attribute.id,
+    );
 
     v.forEach(() => {
-      newGroups = [
-        ...newGroups,
-        (item.attributes || []).filter(
-          (e: { type: string }) => e.type !== 'group',
-        ),
-      ];
+      newGroups = [...newGroups, attributes];
     });
     setGroups(newGroups);
     repeaters = {
