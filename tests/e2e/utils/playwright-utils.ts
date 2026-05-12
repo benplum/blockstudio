@@ -66,6 +66,12 @@ export const waitForCanvasSurface = async (page: Page): Promise<void> => {
     null,
     { timeout: 30000 },
   );
+
+  await page.waitForFunction(
+    () => !document.getElementById('blockstudio-canvas-loader'),
+    null,
+    { timeout: 30000 },
+  );
 };
 
 // Reset page state - navigate to editor and remove all blocks
