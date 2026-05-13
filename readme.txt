@@ -56,6 +56,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 = 7.3.0 =
 * New: bundled UI components under the `bsui/*` namespace
 * New: opt-in `ui.enabled` setting for registering the bundled UI library
+* New: block tag aliases via `blockstudio/block_tags/tag_aliases` for custom authoring prefixes
 * New: bundled `app/*` examples built with Blockstudio UI components and the Interactivity API
 * New: UI component documentation and test harness for the bundled components
 * Fix: file-based page element mapping now runs during HTML parsing and supports attribute-aware custom container mappings

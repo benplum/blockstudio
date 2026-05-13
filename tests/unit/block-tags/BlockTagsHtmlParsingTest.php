@@ -46,6 +46,40 @@ class BlockTagsHtmlParsingTest extends TestCase {
 		$this->assertSame( 'core/group', $blocks[0]['blockName'] );
 	}
 
+	public function test_alias_tags_parse_before_html_fallback(): void {
+		$filter = static function (): array {
+			return array(
+				'dv-card'      => 'theme/card',
+				'dv-paragraph' => 'core/paragraph',
+			);
+		};
+
+		add_filter( 'blockstudio/block_tags/tag_aliases', $filter );
+
+		try {
+			$blocks = Block_Tags::parse_all_elements(
+				'<dv-card title="Feature"><dv-paragraph>Alias child</dv-paragraph></dv-card>'
+			);
+		} finally {
+			remove_filter( 'blockstudio/block_tags/tag_aliases', $filter );
+		}
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'theme/card', $blocks[0]['blockName'] );
+		$this->assertSame( 'Feature', $blocks[0]['attrs']['title'] ?? null );
+		$this->assertCount( 1, $blocks[0]['innerBlocks'] );
+		$this->assertSame( 'core/paragraph', $blocks[0]['innerBlocks'][0]['blockName'] );
+		$this->assertStringContainsString( 'Alias child', $blocks[0]['innerBlocks'][0]['innerHTML'] );
+	}
+
+	public function test_unknown_custom_element_keeps_existing_text_fallback(): void {
+		$blocks = Block_Tags::parse_all_elements( '<dv-unknown>Raw</dv-unknown>' );
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'core/paragraph', $blocks[0]['blockName'] );
+		$this->assertStringContainsString( 'Raw', $blocks[0]['innerHTML'] );
+	}
+
 	public function test_element_mapping_filter_maps_html_elements_to_custom_blocks(): void {
 		$filter = static function ( array $mapping ): array {
 			$mapping['section'] = 'theme/section';

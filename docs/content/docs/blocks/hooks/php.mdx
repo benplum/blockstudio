@@ -194,6 +194,31 @@ add_filter('blockstudio/blocks/components/rich_text/render', function($content, 
 }, 10, 3);
 ```
 
+## Block Tags
+
+### blockstudio/block_tags/tag_aliases
+
+This filter lets you register custom dashed authoring tags that resolve to real
+block names before raw HTML fallback. It is useful when a theme wants a concise
+project-specific tag surface while still rendering standard Blockstudio or core
+blocks.
+
+```php title="functions.php"
+add_filter('blockstudio/block_tags/tag_aliases', function($aliases) {
+  $aliases['theme-button'] = 'bsui/button';
+  $aliases['theme-card'] = 'theme/card';
+
+  return $aliases;
+});
+```
+
+```html title="pages/home/index.php"
+<theme-button href="/download" label="Download" />
+<theme-card title="Fast authoring">
+  <p>Children are parsed as nested blocks.</p>
+</theme-card>
+```
+
 ## Settings
 
 ### path

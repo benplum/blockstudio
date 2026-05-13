@@ -37,6 +37,14 @@ class BlockTagsAllowDenyTest extends TestCase {
 		$this->filter_callbacks[] = array( 'blockstudio/block_tags/deny', $cb );
 	}
 
+	private function set_aliases( array $aliases ): void {
+		$cb = function () use ( $aliases ) {
+			return $aliases;
+		};
+		add_filter( 'blockstudio/block_tags/tag_aliases', $cb );
+		$this->filter_callbacks[] = array( 'blockstudio/block_tags/tag_aliases', $cb );
+	}
+
 	// Deny list
 
 	public function test_deny_leaves_tag_untouched(): void {
@@ -130,6 +138,16 @@ class BlockTagsAllowDenyTest extends TestCase {
 		$this->assertSame( $input, $result );
 	}
 
+	public function test_deny_works_with_alias_syntax(): void {
+		$this->set_aliases( array( 'dv-separator' => 'core/separator' ) );
+		$this->set_deny( array( 'core/separator' ) );
+
+		$input  = '<dv-separator />';
+		$result = Block_Tags::render( $input );
+
+		$this->assertSame( $input, $result );
+	}
+
 	public function test_allow_works_with_block_syntax(): void {
 		$this->set_allow( array( 'core/paragraph' ) );
 
@@ -137,6 +155,22 @@ class BlockTagsAllowDenyTest extends TestCase {
 		$this->assertStringContainsString( '<p>', $p );
 
 		$sep_input = '<block name="core/separator" />';
+		$this->assertSame( $sep_input, Block_Tags::render( $sep_input ) );
+	}
+
+	public function test_allow_works_with_alias_syntax(): void {
+		$this->set_aliases(
+			array(
+				'dv-paragraph' => 'core/paragraph',
+				'dv-separator' => 'core/separator',
+			)
+		);
+		$this->set_allow( array( 'core/paragraph' ) );
+
+		$p = Block_Tags::render( '<dv-paragraph>Text</dv-paragraph>' );
+		$this->assertStringContainsString( '<p>', $p );
+
+		$sep_input = '<dv-separator />';
 		$this->assertSame( $sep_input, Block_Tags::render( $sep_input ) );
 	}
 
