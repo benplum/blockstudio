@@ -69,6 +69,9 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Fix: editor preloads now ignore registered default attributes expanded by Gutenberg before comparing render cache keys
 * Fix: editor render cache now keeps editor and inserter preview renders isolated for blocks that share a client id
 * Fix: PHPStan can now scan explicit external block-library roots for validating `<bs:*>` and `<block>` tags
+* Fix: PHP block templates now execute once per render instead of running a discarded preflight include
+* Enhancement: local anonymous `blockstudio-perf=1` probes now emit Server-Timing headers without injecting the debug panel
+* Enhancement: performance timings now include build discovery, asset processing, registration, and override phases
 
 = 7.2.3 =
 * Fix: duplicate editor asset callbacks no longer emit block editor CSS/JS twice

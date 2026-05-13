@@ -833,8 +833,13 @@ class Build {
 		$registry->set_blade_instance( $instance, $path );
 
 		// Phase 1: Discover blocks using Block_Discovery.
-		$discovery = new Block_Discovery();
-		$results   = $discovery->discover( $path, $instance, $editor );
+		$results = Perf::measure(
+			'build:discovery',
+			static function () use ( $path, $instance, $editor ): array {
+				$discovery = new Block_Discovery();
+				return $discovery->discover( $path, $instance, $editor );
+			}
+		);
 
 		$store        = $results['store'];
 		$registerable = $results['registerable'];
@@ -855,54 +860,59 @@ class Build {
 		}
 
 		// Phase 2: Process assets for each discovered item.
-		foreach ( $store as $name => &$data ) {
-			$file_dir = dirname( $data['path'] );
+		Perf::measure(
+			'build:assets',
+			static function () use ( &$store, $instance, $editor, $registry, &$empty_dist_folders ): void {
+				foreach ( $store as $name => &$data ) {
+					$file_dir = dirname( $data['path'] );
 
-			if ( Settings::get( 'assets/enqueue' ) || $editor ) {
-				$processed_assets = self::process_block_assets(
-					$data,
-					$name,
-					$instance,
-					$editor,
-					$registry
-				);
+					if ( Settings::get( 'assets/enqueue' ) || $editor ) {
+						$processed_assets = self::process_block_assets(
+							$data,
+							$name,
+							$instance,
+							$editor,
+							$registry
+						);
 
-				// Cleanup dist folder.
-				$dist_folder          = $file_dir . '/_dist';
-				$all_processed_assets = Files::get_files_recursively_and_delete_empty_folders(
-					$dist_folder
-				);
+						// Cleanup dist folder.
+						$dist_folder          = $file_dir . '/_dist';
+						$all_processed_assets = Files::get_files_recursively_and_delete_empty_folders(
+							$dist_folder
+						);
 
-				if ( ! $editor ) {
-					foreach ( $all_processed_assets as $file_path ) {
-						if (
-							! in_array( $file_path, $processed_assets, true ) &&
-							file_exists( $file_path )
-						) {
-							unlink( $file_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
+						if ( ! $editor ) {
+							foreach ( $all_processed_assets as $file_path ) {
+								if (
+									! in_array( $file_path, $processed_assets, true ) &&
+									file_exists( $file_path )
+								) {
+									unlink( $file_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
+								}
+							}
+
+							foreach ( $all_processed_assets as $file_path ) {
+								$directory = dirname( $file_path );
+								if (
+									false !== glob( $directory . '/*' ) &&
+									0 !== count( glob( $directory . '/*' ) )
+								) {
+									continue;
+								}
+
+								if ( is_dir( $directory ) ) {
+									rmdir( $directory ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir
+								}
+							}
+
+							if ( Files::is_directory_empty( $dist_folder ) ) {
+								$empty_dist_folders[] = $dist_folder;
+							}
 						}
-					}
-
-					foreach ( $all_processed_assets as $file_path ) {
-						$directory = dirname( $file_path );
-						if (
-							false !== glob( $directory . '/*' ) &&
-							0 !== count( glob( $directory . '/*' ) )
-						) {
-							continue;
-						}
-
-						if ( is_dir( $directory ) ) {
-							rmdir( $directory ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir
-						}
-					}
-
-					if ( Files::is_directory_empty( $dist_folder ) ) {
-						$empty_dist_folders[] = $dist_folder;
 					}
 				}
 			}
-		}
+		);
 		unset( $data ); // Break reference.
 
 		// Phase 2.5: Discover custom fields.
@@ -962,25 +972,30 @@ class Build {
 				$block_lookup[ $reg_name ] = $reg_item['block_json'];
 			}
 
-			foreach ( $registerable as $name => $item ) {
-				if ( $item['classification']['is_native'] ?? false ) {
-					$native_dir = dirname( $item['data']['path'] );
-					if ( ! \WP_Block_Type_Registry::get_instance()->is_registered( $name ) ) {
-						\register_block_type( $native_dir );
-					}
-					continue;
-				}
+			Perf::measure(
+				'build:registration',
+				static function () use ( $registerable, $registry, $block_lookup ): void {
+					foreach ( $registerable as $name => $item ) {
+						if ( $item['classification']['is_native'] ?? false ) {
+							$native_dir = dirname( $item['data']['path'] );
+							if ( ! \WP_Block_Type_Registry::get_instance()->is_registered( $name ) ) {
+								\register_block_type( $native_dir );
+							}
+							continue;
+						}
 
-				self::register_block_type(
-					$item['data'],
-					$item['block_json'],
-					$item['classification'],
-					$item['contents'],
-					$name,
-					$registry,
-					$block_lookup
-				);
-			}
+						self::register_block_type(
+							$item['data'],
+							$item['block_json'],
+							$item['classification'],
+							$item['contents'],
+							$name,
+							$registry,
+							$block_lookup
+						);
+					}
+				}
+			);
 		}
 
 		// Final processing.
@@ -1011,7 +1026,12 @@ class Build {
 		}
 
 		// Apply overrides.
-		self::apply_overrides( $registry );
+		Perf::measure(
+			'build:overrides',
+			static function () use ( $registry ): void {
+				self::apply_overrides( $registry );
+			}
+		);
 
 		// Enqueue Interactivity API if any block needs it.
 		if ( ! self::$interactivity_api_rendered ) {

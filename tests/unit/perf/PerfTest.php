@@ -9,7 +9,7 @@ class PerfTest extends TestCase {
 		// Reset all static state via reflection.
 		$ref = new ReflectionClass( Perf::class );
 
-		foreach ( array( 'active', 'starts', 'metrics', 'groups' ) as $prop ) {
+		foreach ( array( 'active', 'starts', 'metrics', 'groups', 'finalized' ) as $prop ) {
 			$p = $ref->getProperty( $prop );
 			$p->setAccessible( true );
 		}
@@ -18,6 +18,9 @@ class PerfTest extends TestCase {
 		$ref->getProperty( 'starts' )->setValue( null, array() );
 		$ref->getProperty( 'metrics' )->setValue( null, array() );
 		$ref->getProperty( 'groups' )->setValue( null, array() );
+		$ref->getProperty( 'finalized' )->setValue( null, false );
+
+		unset( $_GET['blockstudio-perf'] );
 	}
 
 	// active()
@@ -146,6 +149,34 @@ class PerfTest extends TestCase {
 		$this->assertSame( 1, $groups['beta']['count'] );
 	}
 
+	// measure()
+
+	public function test_measure_returns_callback_value_and_tracks_duration(): void {
+		$this->activate_perf();
+
+		$result = Perf::measure(
+			'callback',
+			static function (): string {
+				usleep( 1000 );
+				return 'done';
+			}
+		);
+
+		$groups = $this->get_static( 'groups' );
+
+		$this->assertSame( 'done', $result );
+		$this->assertArrayHasKey( 'callback', $groups );
+		$this->assertSame( 1, $groups['callback']['count'] );
+		$this->assertGreaterThan( 0, $groups['callback']['dur'] );
+	}
+
+	public function test_measure_without_active_only_returns_callback_value(): void {
+		$result = Perf::measure( 'ignored', static fn (): string => 'done' );
+
+		$this->assertSame( 'done', $result );
+		$this->assertEmpty( $this->get_static( 'groups' ) );
+	}
+
 	// finalize()
 
 	public function test_finalize_injects_panel_html(): void {
@@ -203,6 +234,20 @@ class PerfTest extends TestCase {
 
 		$this->assertStringContainsString( 'render', $result );
 		$this->assertStringContainsString( '2x', $result );
+	}
+
+	public function test_finalize_for_query_probe_does_not_inject_panel_without_editor_capability(): void {
+		$this->activate_perf();
+		$_GET['blockstudio-perf'] = '1';
+
+		Perf::start( 'total' );
+		Perf::track( 'render', 1.0 );
+
+		$html   = '<html><body><p>Page</p></body></html>';
+		$result = Perf::finalize( $html );
+
+		$this->assertSame( $html, $result );
+		$this->assertStringNotContainsString( 'id="blockstudio-perf"', $result );
 	}
 
 	// Helper methods

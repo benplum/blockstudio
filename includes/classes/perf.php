@@ -46,6 +46,13 @@ class Perf {
 	private static array $groups = array();
 
 	/**
+	 * Whether profiling was already finalized for this request.
+	 *
+	 * @var bool
+	 */
+	private static bool $finalized = false;
+
+	/**
 	 * Initialize the profiler.
 	 *
 	 * @return void
@@ -63,7 +70,7 @@ class Perf {
 		add_filter(
 			'blockstudio/buffer/output',
 			function ( string $html ): string {
-				if ( ! current_user_can( 'edit_posts' ) ) {
+				if ( ! self::can_finalize() ) {
 					return $html;
 				}
 				return self::finalize( $html );
@@ -79,6 +86,30 @@ class Perf {
 	 */
 	public static function active(): bool {
 		return self::$active;
+	}
+
+	/**
+	 * Run a callback and record its duration into a metric group.
+	 *
+	 * @template T
+	 *
+	 * @param string   $group    The group label.
+	 * @param callable $callback Callback to measure.
+	 *
+	 * @return mixed Callback return value.
+	 */
+	public static function measure( string $group, callable $callback ): mixed {
+		if ( ! self::$active ) {
+			return $callback();
+		}
+
+		$start = microtime( true );
+
+		try {
+			return $callback();
+		} finally {
+			self::track( $group, ( microtime( true ) - $start ) * 1000 );
+		}
 	}
 
 	/**
@@ -150,13 +181,32 @@ class Perf {
 	 * @return string The HTML with debug panel injected.
 	 */
 	public static function finalize( string $html ): string {
-		if ( ! self::$active || str_contains( $html, 'id="blockstudio-perf"' ) ) {
+		if ( ! self::$active || self::$finalized ) {
 			return $html;
 		}
 
-		self::stop( 'total', 'Total Blockstudio' );
+		self::$finalized = true;
 
-		// Send Server-Timing header.
+		self::stop( 'total', 'Total Blockstudio' );
+		self::send_server_timing_header();
+
+		if ( ! self::can_render_panel() || str_contains( $html, 'id="blockstudio-perf"' ) ) {
+			return $html;
+		}
+
+		return str_replace( '</body>', self::render_panel() . '</body>', $html );
+	}
+
+	/**
+	 * Send the Server-Timing header for all collected metrics.
+	 *
+	 * @return void
+	 */
+	private static function send_server_timing_header(): void {
+		if ( headers_sent() ) {
+			return;
+		}
+
 		$parts = array();
 
 		foreach ( self::$metrics as $label => $data ) {
@@ -174,15 +224,58 @@ class Perf {
 				. ';desc="' . $label . ' (' . $data['count'] . 'x)"';
 		}
 
-		if ( ! headers_sent() ) {
-			header( 'Server-Timing: ' . implode( ', ', $parts ) );
+		if ( empty( $parts ) ) {
+			return;
 		}
 
-		// Inject debug panel before </body>.
-		$panel = self::render_panel();
-		$html  = str_replace( '</body>', $panel . '</body>', $html );
+		header( 'Server-Timing: ' . implode( ', ', $parts ), false );
+	}
 
-		return $html;
+	/**
+	 * Whether this request may emit performance data.
+	 *
+	 * Query-triggered profiling is allowed for local hosts so anonymous local
+	 * probes can capture frontend timings without an authenticated editor session.
+	 *
+	 * @return bool
+	 */
+	private static function can_finalize(): bool {
+		if ( current_user_can( 'edit_posts' ) ) {
+			return true;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		return isset( $_GET['blockstudio-perf'] ) && self::is_local_request();
+	}
+
+	/**
+	 * Whether the visual debug panel should be injected.
+	 *
+	 * @return bool
+	 */
+	private static function can_render_panel(): bool {
+		// Direct unit calls to finalize() should continue to exercise panel output.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( ! isset( $_GET['blockstudio-perf'] ) && ! Settings::get( 'dev/perf' ) ) {
+			return true;
+		}
+
+		return current_user_can( 'edit_posts' );
+	}
+
+	/**
+	 * Whether the current WordPress URL is local.
+	 *
+	 * @return bool
+	 */
+	private static function is_local_request(): bool {
+		$host = wp_parse_url( home_url(), PHP_URL_HOST );
+
+		return is_string( $host ) && (
+			str_ends_with( $host, '.local' ) ||
+			'localhost' === $host ||
+			'127.0.0.1' === $host
+		);
 	}
 
 	/**
