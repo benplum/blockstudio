@@ -288,6 +288,7 @@ class Build {
 			return false;
 		}
 
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Mirrors WordPress core plugin dependency slug normalization.
 		$slug = apply_filters( 'wp_plugin_dependencies_slug', $slug );
 
 		if ( ! is_string( $slug ) ) {
@@ -2054,7 +2055,7 @@ class Build {
 			$block->variations = $variations;
 		}
 
-		$disable_loading = $block_json['blockstudio']['blockEditor']['disableLoading']
+		$disable_loading      = $block_json['blockstudio']['blockEditor']['disableLoading']
 			?? ( Settings::get( 'blockEditor/disableLoading' ) ?? false );
 		$blockstudio_settings = is_array( $block_json['blockstudio'] ?? null )
 			? $block_json['blockstudio']
