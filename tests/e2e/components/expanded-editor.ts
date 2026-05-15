@@ -36,6 +36,10 @@ test.describe('expanded editor', () => {
 
     await expect(trigger).toBeVisible();
     await expect(sidebarFields.first()).toBeVisible();
+    await page.locator('.block-editor-block-card__title').click();
+    await expect(page.locator('.blockstudio-expanded-editor__drawer')).toHaveCount(
+      0,
+    );
     const sidebarFieldCount = await sidebarFields.count();
     expect(sidebarFieldCount).toBeGreaterThan(10);
     const selectedClientId = await page.evaluate(() =>

@@ -41,6 +41,17 @@ export const Styles = () => {
             padding: '0 !important',
           },
         },
+        '.blockstudio-expanded-editor__trigger-container': {
+          minHeight: '24px',
+          paddingRight: '32px',
+          position: 'relative',
+        },
+        '.blockstudio-expanded-editor__trigger-slot': {
+          display: 'inline-flex',
+          position: 'absolute',
+          right: 0,
+          top: '-1px',
+        },
         '@keyframes blockstudio-expanded-editor-drawer-in': {
           from: {
             transform: 'translateX(100%)',

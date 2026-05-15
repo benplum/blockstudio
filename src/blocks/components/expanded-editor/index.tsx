@@ -88,6 +88,7 @@ export const ExpandedEditor = ({
   useEffect(() => {
     if (!hasFields) return;
 
+    let container: HTMLElement | null = null;
     let target: HTMLSpanElement | null = null;
     const frame = window.requestAnimationFrame(() => {
       const inspector = document.querySelector(
@@ -100,15 +101,28 @@ export const ExpandedEditor = ({
 
       if (!title) return;
 
+      container = title.parentElement;
+      if (!container) return;
+
       target = document.createElement('span');
+      target.className = 'blockstudio-expanded-editor__trigger-slot';
       target.dataset.blockstudioExpandedEditorTrigger = clientId;
-      title.appendChild(target);
+      container.classList.add('blockstudio-expanded-editor__trigger-container');
+      container.appendChild(target);
       setTriggerTarget(target);
     });
 
     return () => {
       window.cancelAnimationFrame(frame);
       target?.remove();
+      if (
+        container &&
+        !container.querySelector('.blockstudio-expanded-editor__trigger-slot')
+      ) {
+        container.classList.remove(
+          'blockstudio-expanded-editor__trigger-container',
+        );
+      }
       setTriggerTarget(null);
     };
   }, [clientId, hasFields]);
