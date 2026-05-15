@@ -60,6 +60,41 @@ page:
 }
 ```
 
+## Plugin dependencies
+
+Blocks can depend on active WordPress plugins using the `pluginDependencies`
+key. If one of the listed plugins is inactive, the block is skipped during
+registration.
+
+Dependencies use WordPress plugin slugs:
+
+```json title="block.json"
+{
+  "blockstudio": {
+    "pluginDependencies": [
+      "woocommerce",
+      "advanced-custom-fields"
+    ]
+  }
+}
+```
+
+Use the object form to require a plugin version. Version constraints use the
+same operators as PHP's `version_compare()`; a version without an operator is
+treated as `>=`.
+
+```json title="block.json"
+{
+  "blockstudio": {
+    "pluginDependencies": {
+      "woocommerce": {
+        "version": ">6"
+      }
+    }
+  }
+}
+```
+
 ## Custom icon
 
 Custom SVGs icons for blocks can be registered like so:

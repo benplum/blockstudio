@@ -102,6 +102,15 @@ class Block_Registrar {
 		$classification = $block_data['classification'] ?? array();
 		$is_extend      = $classification['is_extend'] ?? false;
 		$is_override    = $classification['is_override'] ?? false;
+		$blockstudio    = $block_json['blockstudio'] ?? array();
+
+		if (
+			is_array( $blockstudio ) &&
+			array_key_exists( 'pluginDependencies', $blockstudio ) &&
+			! Build::has_active_plugin_dependencies( $blockstudio['pluginDependencies'] )
+		) {
+			return null;
+		}
 
 		$native_path = $is_override && ! ( $classification['is_block'] ?? false )
 			? $block_data['path']
@@ -269,18 +278,21 @@ class Block_Registrar {
 			?? ( Settings::get( 'blockEditor/disableLoading' ) ?? false );
 
 		return array(
-			'attributes'  => $filtered_attributes,
-			'blockEditor' => array(
+			'attributes'         => $filtered_attributes,
+			'blockEditor'        => array(
 				'disableLoading' => $disable_loading,
 			),
-			'conditions'  => $block->blockstudio['conditions'] ?? true,
-			'editor'      => $block->blockstudio['editor'] ?? false,
-			'extend'      => $block->blockstudio['extend'] ?? false,
-			'group'       => $block->blockstudio['group'] ?? false,
-			'icon'        => $block->blockstudio['icon'] ?? null,
-			'refreshOn'   => $block->blockstudio['refreshOn'] ?? false,
-			'transforms'  => $block->blockstudio['transforms'] ?? false,
-			'variations'  => $block->variations ?? false,
+			'conditions'         => $block->blockstudio['conditions'] ?? true,
+			'pluginDependencies' => Build::normalize_plugin_dependencies(
+				$block_json['blockstudio']['pluginDependencies'] ?? array()
+			),
+			'editor'             => $block->blockstudio['editor'] ?? false,
+			'extend'             => $block->blockstudio['extend'] ?? false,
+			'group'              => $block->blockstudio['group'] ?? false,
+			'icon'               => $block->blockstudio['icon'] ?? null,
+			'refreshOn'          => $block->blockstudio['refreshOn'] ?? false,
+			'transforms'         => $block->blockstudio['transforms'] ?? false,
+			'variations'         => $block->variations ?? false,
 		);
 	}
 

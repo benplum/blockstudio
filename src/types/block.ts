@@ -236,6 +236,10 @@ export interface BlockstudioClass {
    */
   component?: boolean;
   /**
+   * WordPress plugin dependencies that must be active before this block is registered.
+   */
+  pluginDependencies?: string[] | { [key: string]: BlockstudioPluginDependency };
+  /**
    * Conditional logic detailing when the field should be displayed in the editor.
    */
   conditions?: Array<BlockstudioCondition[]>;
@@ -272,6 +276,14 @@ export interface BlockstudioClass {
 
 export interface BlockstudioInteractivity {
   enqueue?: boolean;
+}
+
+export interface BlockstudioPluginDependency {
+  /**
+   * Version constraint checked against the active plugin version using version_compare(). A version
+   * without an operator is treated as >=.
+   */
+  version?: string;
 }
 
 export interface BlockstudioAttribute {
@@ -3457,6 +3469,11 @@ const typeMap: any = {
         typ: u(undefined, a(a(r('BlockstudioCondition')))),
       },
       {
+        json: 'pluginDependencies',
+        js: 'pluginDependencies',
+        typ: u(undefined, u(a(''), m(r('BlockstudioPluginDependency')))),
+      },
+      {
         json: 'editor',
         js: 'editor',
         typ: u(undefined, r('BlockstudioEditor')),
@@ -3480,6 +3497,10 @@ const typeMap: any = {
   ),
   BlockstudioInteractivity: o(
     [{ json: 'enqueue', js: 'enqueue', typ: u(undefined, true) }],
+    false,
+  ),
+  BlockstudioPluginDependency: o(
+    [{ json: 'version', js: 'version', typ: u(undefined, '') }],
     false,
   ),
   BlockstudioAttribute: o(
