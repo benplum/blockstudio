@@ -8,10 +8,11 @@ import { cloneDeep, set } from 'lodash-es';
 import { Block } from '@/blocks/components/block';
 import { renderCache } from '@/blocks/components/block/render-cache';
 import { initializeEditorReadinessGate } from '@/blocks/editor-readiness';
+import { ExpandedEditor } from '@/blocks/components/expanded-editor';
 import { Fields } from '@/blocks/components/fields';
 import '@/blocks/filters/custom-class';
 import '@/blocks/filters/default';
-import '@/blocks/filters/extensions';
+import { getMatches } from '@/blocks/filters/extensions';
 import '@/blocks/integrations/seo';
 import { mediaModal } from '@/blocks/functions/media-modal';
 import { store } from '@/blocks/store';
@@ -77,6 +78,7 @@ const registerSingleBlock = (block: BlockstudioBlock) => {
         __unstableMarkNextChangeAsNotPersistent: () => void;
       };
       const [isLoaded, setIsLoaded] = useState(false);
+      const [isExpandedEditorOpen, setIsExpandedEditorOpen] = useState(false);
       const richText = useSelect(
         (select) =>
           (select('blockstudio/blocks') as typeof selectors).getRichText(),
@@ -186,6 +188,8 @@ const registerSingleBlock = (block: BlockstudioBlock) => {
         setTimeout(() => setIsLoaded(true), 100);
       }, []);
 
+      const expandedEditorBlocks = [block, ...getMatches(block.name)];
+
       return (
         <>
           {!isLoaded &&
@@ -205,14 +209,26 @@ const registerSingleBlock = (block: BlockstudioBlock) => {
               document.body,
             )}
           <InspectorControls>
-            <Fields
+            <ExpandedEditor
               {...{
                 attributes,
                 block,
+                blocks: expandedEditorBlocks,
                 clientId,
                 setAttributes,
               }}
+              onOpenChange={setIsExpandedEditorOpen}
             />
+            {!isExpandedEditorOpen && (
+              <Fields
+                {...{
+                  attributes,
+                  block,
+                  clientId,
+                  setAttributes,
+                }}
+              />
+            )}
           </InspectorControls>
           {isLoaded && (
             <Block
