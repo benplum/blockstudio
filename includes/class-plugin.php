@@ -120,6 +120,7 @@ class Plugin {
 		require_once $classes_dir . 'migrate.php';
 		require_once $classes_dir . 'files.php';
 		require_once $classes_dir . 'settings.php';
+		require_once $classes_dir . 'block-editor-policy.php';
 		require_once $classes_dir . 'block.php';
 		require_once $classes_dir . 'render.php';
 		require_once $classes_dir . 'build.php';
@@ -203,6 +204,10 @@ class Plugin {
 
 		if ( class_exists( 'Blockstudio\Ui' ) ) {
 			Ui::init();
+		}
+
+		if ( class_exists( 'Blockstudio\Block_Editor_Policy' ) ) {
+			Block_Editor_Policy::init();
 		}
 
 		add_action(

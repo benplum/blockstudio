@@ -141,6 +141,19 @@ class SettingsTest extends TestCase {
 		$this->assertContains( 'global-styles-css-custom-properties', $vars );
 	}
 
+	public function test_block_editor_policy_defaults(): void {
+		$this->assertSame( array(), Settings::get( 'blockEditor/blocks/allow' ) );
+		$this->assertSame( array(), Settings::get( 'blockEditor/blocks/deny' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/blocks/directory' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/patterns/core' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/patterns/remote' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/patterns/theme' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/patterns/blockstudio' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/media/openverse' ) );
+		$this->assertSame( array(), Settings::get( 'blockEditor/media/imageSizes/allow' ) );
+		$this->assertSame( array(), Settings::get( 'blockEditor/media/imageSizes/deny' ) );
+	}
+
 	public function test_ai_enable_context_generation_from_json(): void {
 		$this->assertTrue( Settings::get( 'ai/enableContextGeneration' ) );
 	}

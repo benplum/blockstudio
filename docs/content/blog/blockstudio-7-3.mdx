@@ -22,6 +22,8 @@ The short version:
   sidebar gets too cramped.
 - **Plugin dependencies**: blocks can require active WordPress plugins, with
   optional version constraints.
+- **Editor policies**: `blockstudio.json` can configure global blocks,
+  patterns, and media behavior using WordPress' PHP-backed editor hooks.
 - **Block tag aliases**: custom aliases for block tag authoring.
 - **Page and editor fixes**: more reliable file-based page parsing, Tailwind
   candidate detection, reset mode, render cache isolation, and editor preloads.
@@ -49,7 +51,12 @@ Once enabled, simple components can be rendered directly:
 ```html
 <block name="bsui/button" label="Save" variant="default"></block>
 <block name="bsui/badge" label="Beta"></block>
-<block name="bsui/input" nameAlt="email" type="email" placeholder="Email"></block>
+<block
+  name="bsui/input"
+  nameAlt="email"
+  type="email"
+  placeholder="Email"
+></block>
 ```
 
 The shorter `bs:` syntax works too:
@@ -176,6 +183,59 @@ The version constraint uses the same comparison model as PHP's
 This is useful for blocks that only make sense when a plugin is available:
 WooCommerce product cards, form integrations, SEO integrations, membership
 components, booking widgets, or admin UI tied to a third-party plugin.
+
+## Editor policies
+
+The `blockstudio.json` file is also becoming more useful as a project-level
+editor policy file.
+
+7.3 adds a PHP-backed `blockEditor` policy layer for settings WordPress already
+exposes through server-side hooks. That means you can define global inserter,
+pattern, and media behavior without shipping one-off theme glue code.
+
+```json title="blockstudio.json"
+{
+  "$schema": "https://blockstudio.dev/schema/blockstudio",
+  "blockEditor": {
+    "blocks": {
+      "allow": ["core/*", "my-theme/*"],
+      "deny": ["core/embed", "core/freeform"],
+      "directory": false,
+      "categories": {
+        "rename": {
+          "text": "Writing",
+          "design": "Layout"
+        },
+        "order": ["my-theme", "text", "media"]
+      }
+    },
+    "patterns": {
+      "core": false,
+      "remote": false,
+      "categories": {
+        "deny": ["gallery"],
+        "order": ["featured", "buttons"]
+      }
+    },
+    "media": {
+      "openverse": false,
+      "imageSizes": {
+        "allow": ["thumbnail", "large"]
+      }
+    }
+  }
+}
+```
+
+The first pass intentionally sticks to things backed by PHP: allowed and denied
+blocks, block directory loading, inserter category labels/order, pattern
+sources and categories, Openverse, image size choices, legacy widget visibility,
+and PHP-registered block style removal.
+
+It does not try to rewrite arbitrary core block defaults. Settings like
+`core/columns.isStackedOnMobile` live inside the block editor's JavaScript
+registration flow, so they need a separate, more explicit API instead of being
+pretended into a JSON file.
 
 ## Block tag aliases
 

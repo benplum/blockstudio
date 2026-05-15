@@ -58,6 +58,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * New: opt-in `ui.enabled` setting for registering the bundled UI library
 * New: block tag aliases via `blockstudio/block_tags/tag_aliases` for custom authoring prefixes
 * New: block-level `pluginDependencies` for registering blocks only when required WordPress plugins and optional version constraints are satisfied
+* New: `blockEditor` policies in `blockstudio.json` for global blocks, patterns, media, category, and legacy widget behavior backed by WordPress PHP hooks
 * New: bundled `app/*` examples built with Blockstudio UI components and the Interactivity API
 * New: UI component documentation and test harness for the bundled components
 * Fix: file-based page element mapping now runs during HTML parsing and supports attribute-aware custom container mappings

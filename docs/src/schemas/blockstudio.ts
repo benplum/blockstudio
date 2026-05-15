@@ -237,6 +237,297 @@ export const blockstudio = {
             'This filter allows you to add stylesheets whose CSS variables should be available for autocompletion in the code field.',
           example: ['my-stylesheet', 'another-stylesheet'],
         },
+        blocks: {
+          type: 'object',
+          description:
+            'Global block editor policies that map to WordPress PHP block editor hooks.',
+          properties: {
+            allow: {
+              type: 'array',
+              default: [],
+              items: {
+                type: 'string',
+              },
+              description:
+                'Block names that are allowed in the inserter. Supports wildcards such as core/*.',
+              descriptionFilter:
+                'This filter allows you to control the block names that are allowed in the inserter.',
+              example: ['core/*', 'acf/*', 'my-theme/*'],
+            },
+            deny: {
+              type: 'array',
+              default: [],
+              items: {
+                type: 'string',
+              },
+              description:
+                'Block names that are removed from the inserter. Supports wildcards such as core/embed.',
+              descriptionFilter:
+                'This filter allows you to remove block names from the inserter.',
+              example: ['core/embed', 'core/freeform'],
+            },
+            directory: {
+              type: 'boolean',
+              default: true,
+              description:
+                'Enable the WordPress block directory assets in the editor.',
+              descriptionFilter:
+                'This filter allows you to enable or disable the WordPress block directory assets in the editor.',
+              example: false,
+            },
+            categories: {
+              type: 'object',
+              description:
+                'Filter, rename, and order block inserter categories by slug.',
+              properties: {
+                allow: {
+                  type: 'array',
+                  default: [],
+                  items: {
+                    type: 'string',
+                  },
+                  description:
+                    'Block category slugs that should remain available. Empty means all categories are allowed.',
+                  descriptionFilter:
+                    'This filter allows you to control which block category slugs remain available.',
+                  example: ['text', 'media', 'design'],
+                },
+                deny: {
+                  type: 'array',
+                  default: [],
+                  items: {
+                    type: 'string',
+                  },
+                  description:
+                    'Block category slugs that should be removed from the inserter.',
+                  descriptionFilter:
+                    'This filter allows you to remove block category slugs from the inserter.',
+                  example: ['embed'],
+                },
+                rename: {
+                  type: 'object',
+                  default: {},
+                  description:
+                    'Map block category slugs to replacement labels.',
+                  descriptionFilter:
+                    'This filter allows you to rename block category labels by slug.',
+                  additionalProperties: {
+                    type: 'string',
+                  },
+                  example: {
+                    text: 'Writing',
+                    design: 'Layout',
+                  },
+                },
+                order: {
+                  type: 'array',
+                  default: [],
+                  items: {
+                    type: 'string',
+                  },
+                  description:
+                    'Block category slugs that should be moved to the beginning of the inserter in the provided order.',
+                  descriptionFilter:
+                    'This filter allows you to order block category slugs in the inserter.',
+                  example: ['my-theme', 'text', 'media'],
+                },
+              },
+              additionalProperties: true,
+            },
+            styles: {
+              type: 'object',
+              description: 'Policies for PHP-registered block styles.',
+              properties: {
+                deny: {
+                  type: 'object',
+                  default: {},
+                  description:
+                    'Map block names to PHP-registered block style names that should be unregistered. Use * as a style name to remove all registered styles for a block.',
+                  descriptionFilter:
+                    'This filter allows you to unregister PHP-registered block styles by block name.',
+                  additionalProperties: {
+                    type: 'array',
+                    items: {
+                      type: 'string',
+                    },
+                  },
+                  example: {
+                    'my-theme/card': ['outline'],
+                    'my-theme/media': ['framed'],
+                  },
+                },
+              },
+              additionalProperties: true,
+            },
+            legacyWidgets: {
+              type: 'object',
+              description: 'Policies for the legacy widget block.',
+              properties: {
+                hide: {
+                  type: 'array',
+                  default: [],
+                  items: {
+                    type: 'string',
+                  },
+                  description:
+                    'Legacy widget IDs that should be hidden from the legacy widget block.',
+                  descriptionFilter:
+                    'This filter allows you to hide additional legacy widgets from the legacy widget block.',
+                  example: ['archives', 'calendar'],
+                },
+              },
+              additionalProperties: true,
+            },
+          },
+          additionalProperties: true,
+        },
+        patterns: {
+          type: 'object',
+          description:
+            'Global pattern inserter policies that map to WordPress PHP pattern hooks.',
+          properties: {
+            core: {
+              type: 'boolean',
+              default: true,
+              description: 'Enable WordPress core block patterns.',
+              descriptionFilter:
+                'This filter allows you to enable or disable WordPress core block patterns.',
+              example: false,
+            },
+            remote: {
+              type: 'boolean',
+              default: true,
+              description:
+                'Enable remote patterns from the WordPress pattern directory.',
+              descriptionFilter:
+                'This filter allows you to enable or disable remote patterns from the WordPress pattern directory.',
+              example: false,
+            },
+            theme: {
+              type: 'boolean',
+              default: true,
+              description: 'Enable theme-provided block patterns.',
+              descriptionFilter:
+                'This filter allows you to enable or disable theme-provided block patterns.',
+              example: false,
+            },
+            blockstudio: {
+              type: 'boolean',
+              default: true,
+              description: 'Enable Blockstudio file-based patterns.',
+              descriptionFilter:
+                'This filter allows you to enable or disable Blockstudio file-based patterns.',
+              example: false,
+            },
+            categories: {
+              type: 'object',
+              description:
+                'Filter, rename, and order block pattern categories by slug.',
+              properties: {
+                allow: {
+                  type: 'array',
+                  default: [],
+                  items: {
+                    type: 'string',
+                  },
+                  description:
+                    'Pattern category slugs that should remain available. Empty means all categories are allowed.',
+                  descriptionFilter:
+                    'This filter allows you to control which pattern category slugs remain available.',
+                  example: ['featured', 'buttons', 'columns'],
+                },
+                deny: {
+                  type: 'array',
+                  default: [],
+                  items: {
+                    type: 'string',
+                  },
+                  description:
+                    'Pattern category slugs that should be removed from the pattern inserter.',
+                  descriptionFilter:
+                    'This filter allows you to remove pattern category slugs from the pattern inserter.',
+                  example: ['gallery'],
+                },
+                rename: {
+                  type: 'object',
+                  default: {},
+                  description:
+                    'Map pattern category slugs to replacement labels.',
+                  descriptionFilter:
+                    'This filter allows you to rename pattern category labels by slug.',
+                  additionalProperties: {
+                    type: 'string',
+                  },
+                  example: {
+                    featured: 'Featured Layouts',
+                  },
+                },
+                order: {
+                  type: 'array',
+                  default: [],
+                  items: {
+                    type: 'string',
+                  },
+                  description:
+                    'Pattern category slugs that should be moved to the beginning of the inserter in the provided order.',
+                  descriptionFilter:
+                    'This filter allows you to order pattern category slugs in the inserter.',
+                  example: ['featured', 'buttons'],
+                },
+              },
+              additionalProperties: true,
+            },
+          },
+          additionalProperties: true,
+        },
+        media: {
+          type: 'object',
+          description: 'Global media policies for the block editor.',
+          properties: {
+            openverse: {
+              type: 'boolean',
+              default: true,
+              description:
+                'Enable the Openverse media category in the block editor media inserter.',
+              descriptionFilter:
+                'This filter allows you to enable or disable the Openverse media category in the block editor media inserter.',
+              example: false,
+            },
+            imageSizes: {
+              type: 'object',
+              description:
+                'Filter image size choices shown in editor media controls.',
+              properties: {
+                allow: {
+                  type: 'array',
+                  default: [],
+                  items: {
+                    type: 'string',
+                  },
+                  description:
+                    'Image size names that should remain available. Empty means all image sizes are allowed.',
+                  descriptionFilter:
+                    'This filter allows you to control which image size names remain available in editor media controls.',
+                  example: ['thumbnail', 'large'],
+                },
+                deny: {
+                  type: 'array',
+                  default: [],
+                  items: {
+                    type: 'string',
+                  },
+                  description:
+                    'Image size names that should be removed from editor media controls.',
+                  descriptionFilter:
+                    'This filter allows you to remove image size names from editor media controls.',
+                  example: ['medium_large'],
+                },
+              },
+              additionalProperties: true,
+            },
+          },
+          additionalProperties: true,
+        },
       },
       additionalProperties: true,
     },
