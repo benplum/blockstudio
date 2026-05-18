@@ -317,6 +317,9 @@ The editor received a set of fixes around preview and preload behavior:
   comparing render cache keys.
 - Editor and inserter preview renders now keep separate cache entries, even
   when they share a client id.
+- `bs_get_group()` now works cleanly with reused custom field groups, including
+  groups whose id matches the custom field name, and only extracts exact group
+  prefixes.
 
 Reset mode was tightened as well. It now neutralizes Gutenberg editor block
 width and vertical margin rules for configured post types, removes WordPress

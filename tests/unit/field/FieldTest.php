@@ -1,6 +1,9 @@
 <?php
 
+use Blockstudio\Attribute_Builder;
+use Blockstudio\Build;
 use Blockstudio\Field;
+use Blockstudio\Field_Registry;
 use PHPUnit\Framework\TestCase;
 
 class FieldTest extends TestCase {
@@ -104,6 +107,7 @@ class FieldTest extends TestCase {
 		$attributes = array(
 			'not_cta_text' => 'Wrong',
 			'cta_text'     => 'Right',
+			'ctaish_text'  => 'Also wrong',
 		);
 
 		$result = Field::group( $attributes, 'cta' );
@@ -136,5 +140,87 @@ class FieldTest extends TestCase {
 		$this->assertArrayHasKey( 'button_text', $result );
 		$this->assertArrayHasKey( 'button_color', $result );
 		$this->assertSame( 'Submit', $result['button_text'] );
+	}
+
+	public function test_group_extracts_reused_custom_field_group_with_matching_name(): void {
+		$registry = Field_Registry::instance();
+		$registry->reset();
+
+		try {
+			$registry->register(
+				'section-header',
+				array(
+					'name'       => 'section-header',
+					'title'      => 'Section Header',
+					'attributes' => array(
+						array(
+							'type'       => 'group',
+							'id'         => 'section-header',
+							'title'      => 'Header',
+							'attributes' => array(
+								array(
+									'id'      => 'kicker',
+									'type'    => 'text',
+									'label'   => 'Kicker',
+									'default' => 'Section Kicker - A Brief Intro',
+								),
+								array(
+									'id'      => 'title',
+									'type'    => 'text',
+									'label'   => 'Title',
+									'default' => 'Section Title - A Captivating Header',
+								),
+								array(
+									'id'      => 'cta',
+									'type'    => 'link',
+									'label'   => 'CTA Link',
+									'default' => array(
+										'url'   => '#',
+										'title' => 'Know More',
+									),
+								),
+							),
+						),
+					),
+				)
+			);
+
+			$fields = array(
+				array(
+					'type' => 'custom/section-header',
+				),
+			);
+
+			Build::expand_custom_fields( $fields );
+
+			$attributes = ( new Attribute_Builder() )->build( $fields );
+
+			$this->assertArrayHasKey( 'section-header_kicker', $attributes );
+			$this->assertArrayHasKey( 'section-header_title', $attributes );
+			$this->assertArrayHasKey( 'section-header_cta', $attributes );
+
+			$group = bs_get_group(
+				array(
+					'section-header_kicker' => $attributes['section-header_kicker']['default'],
+					'section-header_title'  => $attributes['section-header_title']['default'],
+					'section-header_cta'    => $attributes['section-header_cta']['default'],
+				),
+				'section-header'
+			);
+
+			$this->assertSame(
+				array(
+					'kicker' => 'Section Kicker - A Brief Intro',
+					'title'  => 'Section Title - A Captivating Header',
+					'cta'    => array(
+						'url'   => '#',
+						'title' => 'Know More',
+					),
+				),
+				$group
+			);
+		} finally {
+			$registry->reset();
+		}
 	}
 }
