@@ -320,6 +320,8 @@ The editor received a set of fixes around preview and preload behavior:
 - `bs_get_group()` now works cleanly with reused custom field groups, including
   groups whose id matches the custom field name, and only extracts exact group
   prefixes.
+- Link fields with `withCreateSuggestion` now wire the WordPress LinkControl
+  create flow correctly and create draft pages through the REST API.
 
 Reset mode was tightened as well. It now neutralizes Gutenberg editor block
 width and vertical margin rules for configured post types, removes WordPress

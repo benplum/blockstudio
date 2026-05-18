@@ -538,7 +538,7 @@ export interface BlockstudioAttribute {
    */
   textButton?: string;
   /**
-   * Whether to allow creation of link value from suggestion.
+   * Whether unmatched link searches can create a new draft page suggestion.
    */
   withCreateSuggestion?: boolean;
   /**
@@ -890,7 +890,7 @@ export interface AttributeAttribute {
    */
   textButton?: string;
   /**
-   * Whether to allow creation of link value from suggestion.
+   * Whether unmatched link searches can create a new draft page suggestion.
    */
   withCreateSuggestion?: boolean;
   /**
@@ -1285,7 +1285,7 @@ export interface Attribute {
    */
   textButton?: string;
   /**
-   * Whether to allow creation of link value from suggestion.
+   * Whether unmatched link searches can create a new draft page suggestion.
    */
   withCreateSuggestion?: boolean;
   /**

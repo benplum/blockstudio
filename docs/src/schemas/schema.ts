@@ -546,7 +546,8 @@ export const schema = async (extensions = false) => {
       },
       withCreateSuggestion: {
         type: 'boolean',
-        description: 'Whether to allow creation of link value from suggestion.',
+        description:
+          'Whether unmatched link searches can create a new draft page suggestion.',
       },
     },
   };

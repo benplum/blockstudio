@@ -16,6 +16,7 @@
         "type": "link",
         "label": "link",
         "opensInNewTab": true,
+        "withCreateSuggestion": true,
         "default": {
           "id": "google.com",
           "title": "google.com",
