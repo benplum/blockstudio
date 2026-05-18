@@ -59,6 +59,20 @@ use BlockstudioVendor\ScssPhp\ScssPhp\Exception\SassException;
 class Assets {
 
 	/**
+	 * Selector placeholder for block CSS assets.
+	 *
+	 * @var string
+	 */
+	private const SELECTOR_PLACEHOLDER = '%selector%';
+
+	/**
+	 * Temporary selector used while scoped CSS is prefixed.
+	 *
+	 * @var string
+	 */
+	private const SELECTOR_PLACEHOLDER_CLASS = '__blockstudio-selector-placeholder__';
+
+	/**
 	 * Loaded modules.
 	 *
 	 * @var array
@@ -701,11 +715,12 @@ class Assets {
 		$dir  = $file['dirname'];
 		$file = $file['filename'];
 
-		$ext       = pathinfo( $path, PATHINFO_EXTENSION );
-		$is_scoped = str_ends_with( $file, '.scoped' ) || str_ends_with( $file, '-scoped' );
-		$id        = self::get_imported_modification_times(
+		$ext               = pathinfo( $path, PATHINFO_EXTENSION );
+		$is_scoped         = str_ends_with( $file, '.scoped' ) || str_ends_with( $file, '-scoped' );
+		$uses_scoped_class = $is_scoped || ( self::is_css_extension( $ext ) && self::has_selector_placeholder( $path ) );
+		$id                = self::get_imported_modification_times(
 			$path,
-			$is_scoped ? $scoped_class : ''
+			$uses_scoped_class ? $scoped_class : ''
 		);
 
 		if ( Settings::get( 'assets/process/scssFiles' ) && 'scss' === $ext ) {
@@ -1077,6 +1092,64 @@ class Assets {
 	}
 
 	/**
+	 * Check whether a CSS asset contains the selector placeholder.
+	 *
+	 * @param string $path The file path.
+	 *
+	 * @return bool Whether the asset contains the selector placeholder.
+	 */
+	private static function has_selector_placeholder( string $path ): bool {
+		if ( ! is_file( $path ) ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local file.
+		$content = file_get_contents( $path );
+
+		return is_string( $content ) && str_contains( $content, self::SELECTOR_PLACEHOLDER );
+	}
+
+	/**
+	 * Replace the selector placeholder before CSS processing.
+	 *
+	 * @param string $css          The CSS content.
+	 * @param string $scoped_class The scoped class.
+	 * @param bool   $scope_css    Whether this asset will be scoped.
+	 *
+	 * @return string The CSS with selector placeholders replaced.
+	 */
+	private static function replace_selector_placeholder( string $css, string $scoped_class, bool $scope_css ): string {
+		if ( '' === $scoped_class || ! str_contains( $css, self::SELECTOR_PLACEHOLDER ) ) {
+			return $css;
+		}
+
+		$selector = $scope_css
+			? '.' . self::SELECTOR_PLACEHOLDER_CLASS
+			: '.' . $scoped_class;
+
+		return str_replace( self::SELECTOR_PLACEHOLDER, $selector, $css );
+	}
+
+	/**
+	 * Resolve scoped selector placeholders after CSS has been scoped.
+	 *
+	 * @param string $css          The CSS content.
+	 * @param string $scoped_class The scoped class.
+	 *
+	 * @return string The CSS with scoped selector placeholders resolved.
+	 */
+	private static function resolve_scoped_selector_placeholder( string $css, string $scoped_class ): string {
+		if ( '' === $scoped_class || ! str_contains( $css, self::SELECTOR_PLACEHOLDER_CLASS ) ) {
+			return $css;
+		}
+
+		$scoped_selector = '.' . $scoped_class;
+		$placeholder     = '.' . self::SELECTOR_PLACEHOLDER_CLASS;
+
+		return str_replace( $scoped_selector . ' ' . $placeholder, $scoped_selector, $css );
+	}
+
+	/**
 	 * Get configured SCSS import paths.
 	 *
 	 * @return array
@@ -1226,25 +1299,28 @@ class Assets {
 		$file     = pathinfo( $path );
 		$filename = $file['filename'];
 
-		$minify_css        = Settings::get( 'assets/minify/css' );
-		$process_scss      = self::should_process_scss( $path );
-		$scope_css         = str_ends_with( $filename, '.scoped' ) || str_ends_with( $filename, '-scoped' );
-		$compiled_filename = self::get_compiled_filename( $path, $scoped_class );
+		$minify_css               = Settings::get( 'assets/minify/css' );
+		$process_scss             = self::should_process_scss( $path );
+		$scope_css                = str_ends_with( $filename, '.scoped' ) || str_ends_with( $filename, '-scoped' );
+		$has_selector_placeholder = self::has_selector_placeholder( $path );
+		$should_process           = $minify_css || $process_scss || $scope_css || $has_selector_placeholder;
+		$compiled_filename        = self::get_compiled_filename( $path, $scoped_class );
 
 		if (
 			file_exists( $compiled_filename ) &&
-			( $minify_css || $process_scss || $scope_css )
+			$should_process
 		) {
 			return $compiled_filename;
 		}
 
-		if ( ! $minify_css && ! $process_scss && ! $scope_css ) {
+		if ( ! $should_process ) {
 			return;
 		}
 
-		if ( $minify_css || $process_scss || $scope_css ) {
+		if ( $should_process ) {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local file.
 			$data = apply_filters( 'blockstudio/assets/process/css/content', file_get_contents( $path ) );
+			$data = self::replace_selector_placeholder( $data, $scoped_class, $scope_css );
 
 			if ( $process_scss ) {
 				$data = self::compile_scss( $data, $path );
@@ -1252,6 +1328,7 @@ class Assets {
 
 			if ( $scope_css ) {
 				$data = self::prefix_css( $data, '.' . $scoped_class );
+				$data = self::resolve_scoped_selector_placeholder( $data, $scoped_class );
 			}
 
 			if ( $minify_css ) {

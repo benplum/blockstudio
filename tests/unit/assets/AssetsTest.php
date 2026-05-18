@@ -11,18 +11,53 @@ class AssetsTest extends TestCase {
 
 	private array $filter_callbacks = array();
 
+	private array $temporary_directories = array();
+
 	protected function tearDown(): void {
 		foreach ( $this->filter_callbacks as $filter_callback ) {
 			remove_filter( $filter_callback[0], $filter_callback[1], $filter_callback[2] );
 		}
 
+		foreach ( $this->temporary_directories as $temporary_directory ) {
+			$this->remove_directory( $temporary_directory );
+		}
+
 		$this->filter_callbacks = array();
+		$this->temporary_directories = array();
 		Assets::$force_editor_screen = false;
 	}
 
 	private function add_filter( string $name, callable $callback, int $priority = 10, int $args = 1 ): void {
 		add_filter( $name, $callback, $priority, $args );
 		$this->filter_callbacks[] = array( $name, $callback, $priority );
+	}
+
+	private function create_temporary_asset( string $filename, string $content ): string {
+		$directory = sys_get_temp_dir() . '/blockstudio-assets-' . uniqid( '', true );
+		wp_mkdir_p( $directory );
+		$this->temporary_directories[] = $directory;
+
+		$path = $directory . '/' . $filename;
+		file_put_contents( $path, $content );
+
+		return $path;
+	}
+
+	private function remove_directory( string $directory ): void {
+		if ( ! is_dir( $directory ) ) {
+			return;
+		}
+
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator( $directory, \FilesystemIterator::SKIP_DOTS ),
+			\RecursiveIteratorIterator::CHILD_FIRST
+		);
+
+		foreach ( $iterator as $file ) {
+			$file->isDir() ? rmdir( $file->getPathname() ) : unlink( $file->getPathname() );
+		}
+
+		rmdir( $directory );
 	}
 
 	#[RunInSeparateProcess]
@@ -177,6 +212,82 @@ class AssetsTest extends TestCase {
 
 	public function test_is_css_extension_returns_false_for_js(): void {
 		$this->assertFalse( Assets::is_css_extension( 'js' ) );
+	}
+
+	public function test_process_css_replaces_selector_placeholder_in_css_asset(): void {
+		$path = $this->create_temporary_asset(
+			'style.css',
+			'%selector% { color: red; } %selector%.hero { display: grid; } %selector% > h1 { color: blue; }'
+		);
+
+		$compiled = Assets::process( $path, 'bs-test' );
+
+		$this->assertIsString( $compiled );
+		$this->assertFileExists( $compiled );
+
+		$css = file_get_contents( $compiled );
+
+		$this->assertMatchesRegularExpression( '/\.bs-test\s*\{\s*color:\s*red;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\.hero\s*\{\s*display:\s*grid;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\s*>\s*h1\s*\{\s*color:\s*blue;?\s*\}/', $css );
+		$this->assertStringNotContainsString( '%selector%', $css );
+	}
+
+	public function test_process_css_replaces_selector_placeholder_before_scss_compile(): void {
+		$path = $this->create_temporary_asset(
+			'style.scss',
+			'$color: red; %selector% { color: $color; }'
+		);
+
+		$compiled = Assets::process( $path, 'bs-test' );
+
+		$this->assertIsString( $compiled );
+		$this->assertFileExists( $compiled );
+
+		$css = file_get_contents( $compiled );
+
+		$this->assertMatchesRegularExpression( '/\.bs-test\s*\{\s*color:\s*red;?\s*\}/', $css );
+		$this->assertStringNotContainsString( '%selector%', $css );
+	}
+
+	public function test_process_css_keeps_scoped_selector_placeholder_on_root_selector(): void {
+		$path = $this->create_temporary_asset(
+			'style.scoped.css',
+			'%selector% { color: red; } %selector%.hero { display: grid; } %selector% > h1 { color: blue; } .title { color: black; }'
+		);
+
+		$compiled = Assets::process( $path, 'bs-test' );
+
+		$this->assertIsString( $compiled );
+		$this->assertFileExists( $compiled );
+
+		$css = file_get_contents( $compiled );
+
+		$this->assertMatchesRegularExpression( '/\.bs-test\s*\{\s*color:\s*red;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\.hero\s*\{\s*display:\s*grid;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\s*>\s*h1\s*\{\s*color:\s*blue;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\s+\.title\s*\{/', $css );
+		$this->assertStringNotContainsString( '.bs-test .bs-test', $css );
+		$this->assertStringNotContainsString( '__blockstudio-selector-placeholder__', $css );
+	}
+
+	public function test_process_css_keeps_scoped_selector_placeholder_after_scss_compile(): void {
+		$path = $this->create_temporary_asset(
+			'style.scoped.scss',
+			'$color: red; %selector%.hero { color: $color; } .title { color: blue; }'
+		);
+
+		$compiled = Assets::process( $path, 'bs-test' );
+
+		$this->assertIsString( $compiled );
+		$this->assertFileExists( $compiled );
+
+		$css = file_get_contents( $compiled );
+
+		$this->assertMatchesRegularExpression( '/\.bs-test\.hero\s*\{\s*color:\s*red;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\s+\.title\s*\{/', $css );
+		$this->assertStringNotContainsString( '.bs-test .bs-test', $css );
+		$this->assertStringNotContainsString( '__blockstudio-selector-placeholder__', $css );
 	}
 
 	public function test_get_id_returns_formatted_string(): void {

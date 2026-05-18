@@ -34,6 +34,8 @@ At the most basic level, you can manually render the code field content in your 
 
 To avoid conflicts with other blocks, you can use the `%selector%` variable inside the code field alongside [useBlockProps](/docs/blocks/react-components/useblockprops) in your rendering template.
 
+In code fields, `%selector%` targets the individual block instance. In CSS and SCSS files, `%selector%` targets the block's shared scoped class instead.
+
 ### Example
 
 Let's imagine that we want to target the `h1` tag from the example above in our code field.
@@ -57,7 +59,7 @@ The final output will be something like this:
   <h1>My block</h1>
 </div>
 <style>
-  [data-assets="c9abe0d95c2b"] h1 {
+  [data-assets='c9abe0d95c2b'] h1 {
     color: red;
   }
 </style>

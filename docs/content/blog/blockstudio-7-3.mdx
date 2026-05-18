@@ -20,6 +20,8 @@ The short version:
   into larger interfaces.
 - **Expanded Editor**: a wider drawer for editing Blockstudio fields when the
   sidebar gets too cramped.
+- **Scoped asset selectors**: CSS and SCSS assets can use `%selector%` to target
+  the block wrapper class directly.
 - **Plugin dependencies**: blocks can require active WordPress plugins, with
   optional version constraints.
 - **Editor policies**: `blockstudio.json` can configure global blocks,
@@ -142,6 +144,38 @@ changes made in the expanded editor update the selected block just like changes
 made in the normal sidebar.
 
 Use it when the sidebar is fine for scanning, but too cramped for actual input.
+
+## Scoped asset selectors
+
+Blockstudio already had `%selector%` support for code fields. In 7.3, block CSS
+and SCSS assets can use the same authoring pattern.
+
+In a CSS file, `%selector%` expands to the block's scoped class:
+
+```css title="style.scoped.css"
+%selector% {
+  --hero-gap: var(--wp--preset--spacing--space-10);
+}
+
+%selector%.hero {
+  border-bottom: 1px solid currentColor;
+}
+
+.hero__title {
+  color: red;
+}
+```
+
+That makes it possible to style the actual wrapper element:
+
+```php title="index.php"
+<section class="hero <?php echo bs_get_scoped_class($b['name']); ?>">
+  <h1 class="hero__title">Hero</h1>
+</section>
+```
+
+Regular selectors in `*.scoped.css` still target descendants. `%selector%` is
+the explicit hook for the block root.
 
 ## Plugin dependencies
 
