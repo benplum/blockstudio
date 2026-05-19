@@ -2,6 +2,7 @@
   "title": "Attributes",
   "pages": [
     "registering",
+    "expanded-editor",
     "rendering",
     "filtering",
     "disabling",
