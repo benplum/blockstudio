@@ -1,7 +1,7 @@
 ---
 title: Blockstudio 7.3
-description: Bundled UI components, an expanded editor, plugin dependencies, block tag aliases, and a more reliable page parsing pipeline.
-date: 2026-05-15
+description: Bundled UI components, expanded editing, plugin dependencies, editor policies, and a more reliable parsing pipeline.
+date: 2026-05-19
 author: Dennis
 ---
 
@@ -27,6 +27,8 @@ The short version:
 - **Editor policies**: `blockstudio.json` can configure global blocks,
   patterns, and media behavior using WordPress' PHP-backed editor hooks.
 - **Block tag aliases**: custom aliases for block tag authoring.
+- **Static analysis and docs**: better PHPStan coverage for external block
+  libraries, plus generated docs for settings and hooks.
 - **Page and editor fixes**: more reliable file-based page parsing, Tailwind
   candidate detection, reset mode, render cache isolation, and editor preloads.
 
@@ -73,16 +75,23 @@ Blockstudio do not need to recreate buttons, dialogs, tabs, selects, form
 fields, menus, toolbars, and feedback components in every project.
 
 The first component set includes layout, actions, inputs, overlays, navigation,
-feedback, and form primitives:
+feedback, form, and data-display primitives:
 
-- `bsui/button`, `bsui/button-group`, `bsui/toggle`, `bsui/toolbar`
+- `bsui/button`, `bsui/button-group`, `bsui/toggle`, `bsui/toggle-group`,
+  `bsui/toolbar`
 - `bsui/input`, `bsui/textarea`, `bsui/select`, `bsui/checkbox`,
-  `bsui/radio-group`, `bsui/slider`, `bsui/switch`
+  `bsui/radio-group`, `bsui/slider`, `bsui/switch`, `bsui/number-field`,
+  `bsui/password-input`, `bsui/phone-input`, `bsui/otp-input`,
+  `bsui/date-input`, `bsui/time-picker`
 - `bsui/dialog`, `bsui/drawer`, `bsui/popover`, `bsui/menu`,
-  `bsui/tooltip`
-- `bsui/tabs`, `bsui/accordion`, `bsui/breadcrumb`, `bsui/pagination`
-- `bsui/card`, `bsui/table`, `bsui/stack`, `bsui/separator`
-- `bsui/form`, `bsui/field`, `bsui/field-group`
+  `bsui/context-menu`, `bsui/menubar`, `bsui/tooltip`, `bsui/alert-dialog`
+- `bsui/tabs`, `bsui/accordion`, `bsui/breadcrumb`, `bsui/pagination`,
+  `bsui/navigation-menu`
+- `bsui/card`, `bsui/table`, `bsui/stack`, `bsui/separator`,
+  `bsui/aspect-ratio`, `bsui/badge`, `bsui/avatar`, `bsui/progress`,
+  `bsui/meter`, `bsui/skeleton`, `bsui/spinner`, `bsui/kbd`
+- `bsui/form`, `bsui/field`, `bsui/field-group`, `bsui/file-upload`,
+  `bsui/color-picker`, `bsui/rating`
 
 Many of these are compound blocks. A `bsui/tabs` block owns the interactive
 state, while child blocks such as `bsui/tabs-list`, `bsui/tabs-trigger`, and
@@ -125,9 +134,9 @@ state, and places where UI components meet RPC or database-backed features.
 </block>
 ```
 
-The UI library also has its own documentation and test harness, so component
-behavior is not just a collection of templates. It is something the framework
-can keep verifying as it grows.
+The UI library also has its own documentation, visual coverage, and interaction
+test harness. Component behavior is not just a collection of templates. It is
+something the framework can keep verifying as it grows.
 
 ## Expanded Editor
 
@@ -292,6 +301,21 @@ canonical block name internally.
 This is especially useful when composing UI-heavy templates where the canonical
 block names are correct, but not always the nicest authoring surface.
 
+## Static analysis and generated docs
+
+The PHPStan extension gained support for explicit external block-library scan
+roots. That means a project can validate `<bs:*>` and `<block>` tags against
+blocks that live outside the current plugin or theme, while keeping those roots
+registry-only for analysis.
+
+The schema checks were also extended around page metadata and
+`pluginDependencies`, so invalid release-time configuration is easier to catch
+before it reaches WordPress.
+
+Documentation generation now includes filter references for settings and PHP
+hooks. That matters more as `blockstudio.json` becomes a real project policy
+file instead of just a few scattered toggles.
+
 ## Page and editor reliability
 
 7.3 also includes a set of fixes around file-based pages, editor rendering, and
@@ -322,11 +346,17 @@ The editor received a set of fixes around preview and preload behavior:
   prefixes.
 - Link fields with `withCreateSuggestion` now wire the WordPress LinkControl
   create flow correctly and create draft pages through the REST API.
+- PHP block templates now execute once per render instead of running a discarded
+  preflight include.
 
 Reset mode was tightened as well. It now neutralizes Gutenberg editor block
 width and vertical margin rules for configured post types, removes WordPress
 iframe content/reset styles where needed, and gives Blockstudio cleaner
 hover/selection overlays.
+
+The regression coverage for complex InnerBlocks patterns was also expanded to
+include nested Blockstudio blocks, so the editor render path is checked against
+the pattern insertion cases that are hardest to see manually.
 
 ## Performance tooling
 
@@ -343,9 +373,10 @@ The main theme of 7.3 is composition.
 
 UI components make it easier to compose application interfaces. Expanded Editor
 makes it easier to edit larger blocks. Plugin dependencies let blocks describe
-the plugin context they need. Block tag aliases make template authoring nicer.
-The parser and editor fixes make those compositions more reliable once they
-move through WordPress.
+the plugin context they need. Editor policies move project-level block editor
+rules into `blockstudio.json`. Block tag aliases make template authoring nicer.
+The parser, PHPStan, and editor fixes make those compositions more reliable once
+they move through WordPress.
 
 Blockstudio is still file-based. Blocks are still folders. Templates still do
 the work. But the framework now has a stronger UI layer on top of that

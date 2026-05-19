@@ -56,12 +56,14 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 = 7.3.0 =
 * New: bundled UI components under the `bsui/*` namespace
 * New: opt-in `ui.enabled` setting for registering the bundled UI library
+* New: Expanded Editor drawer for editing Blockstudio fields outside the cramped inspector sidebar
 * New: block tag aliases via `blockstudio/block_tags/tag_aliases` for custom authoring prefixes
 * New: block-level `pluginDependencies` for registering blocks only when required WordPress plugins and optional version constraints are satisfied
 * New: `blockEditor` policies in `blockstudio.json` for global blocks, patterns, media, category, and legacy widget behavior backed by WordPress PHP hooks
 * New: `%selector%` support in block CSS and SCSS assets for targeting the scoped block wrapper class
 * New: bundled `app/*` examples built with Blockstudio UI components and the Interactivity API
 * New: UI component documentation and test harness for the bundled components
+* Enhancement: PHP hook and settings documentation now includes generated filter references
 * Fix: file-based page element mapping now runs during HTML parsing and supports attribute-aware custom container mappings
 * Fix: `bs:` page tags now resolve hyphenated block namespaces correctly, such as `custom-theme/card`
 * Fix: generic non-core container tags now serialize valid `innerContent` when they do not provide wrapper markup
