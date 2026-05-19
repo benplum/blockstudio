@@ -11,17 +11,53 @@ class AssetsTest extends TestCase {
 
 	private array $filter_callbacks = array();
 
+	private array $temporary_directories = array();
+
 	protected function tearDown(): void {
 		foreach ( $this->filter_callbacks as $filter_callback ) {
 			remove_filter( $filter_callback[0], $filter_callback[1], $filter_callback[2] );
 		}
 
+		foreach ( $this->temporary_directories as $temporary_directory ) {
+			$this->remove_directory( $temporary_directory );
+		}
+
 		$this->filter_callbacks = array();
+		$this->temporary_directories = array();
+		Assets::$force_editor_screen = false;
 	}
 
 	private function add_filter( string $name, callable $callback, int $priority = 10, int $args = 1 ): void {
 		add_filter( $name, $callback, $priority, $args );
 		$this->filter_callbacks[] = array( $name, $callback, $priority );
+	}
+
+	private function create_temporary_asset( string $filename, string $content ): string {
+		$directory = sys_get_temp_dir() . '/blockstudio-assets-' . uniqid( '', true );
+		wp_mkdir_p( $directory );
+		$this->temporary_directories[] = $directory;
+
+		$path = $directory . '/' . $filename;
+		file_put_contents( $path, $content );
+
+		return $path;
+	}
+
+	private function remove_directory( string $directory ): void {
+		if ( ! is_dir( $directory ) ) {
+			return;
+		}
+
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator( $directory, \FilesystemIterator::SKIP_DOTS ),
+			\RecursiveIteratorIterator::CHILD_FIRST
+		);
+
+		foreach ( $iterator as $file ) {
+			$file->isDir() ? rmdir( $file->getPathname() ) : unlink( $file->getPathname() );
+		}
+
+		rmdir( $directory );
 	}
 
 	#[RunInSeparateProcess]
@@ -178,6 +214,82 @@ class AssetsTest extends TestCase {
 		$this->assertFalse( Assets::is_css_extension( 'js' ) );
 	}
 
+	public function test_process_css_replaces_selector_placeholder_in_css_asset(): void {
+		$path = $this->create_temporary_asset(
+			'style.css',
+			'%selector% { color: red; } %selector%.hero { display: grid; } %selector% > h1 { color: blue; }'
+		);
+
+		$compiled = Assets::process( $path, 'bs-test' );
+
+		$this->assertIsString( $compiled );
+		$this->assertFileExists( $compiled );
+
+		$css = file_get_contents( $compiled );
+
+		$this->assertMatchesRegularExpression( '/\.bs-test\s*\{\s*color:\s*red;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\.hero\s*\{\s*display:\s*grid;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\s*>\s*h1\s*\{\s*color:\s*blue;?\s*\}/', $css );
+		$this->assertStringNotContainsString( '%selector%', $css );
+	}
+
+	public function test_process_css_replaces_selector_placeholder_before_scss_compile(): void {
+		$path = $this->create_temporary_asset(
+			'style.scss',
+			'$color: red; %selector% { color: $color; }'
+		);
+
+		$compiled = Assets::process( $path, 'bs-test' );
+
+		$this->assertIsString( $compiled );
+		$this->assertFileExists( $compiled );
+
+		$css = file_get_contents( $compiled );
+
+		$this->assertMatchesRegularExpression( '/\.bs-test\s*\{\s*color:\s*red;?\s*\}/', $css );
+		$this->assertStringNotContainsString( '%selector%', $css );
+	}
+
+	public function test_process_css_keeps_scoped_selector_placeholder_on_root_selector(): void {
+		$path = $this->create_temporary_asset(
+			'style.scoped.css',
+			'%selector% { color: red; } %selector%.hero { display: grid; } %selector% > h1 { color: blue; } .title { color: black; }'
+		);
+
+		$compiled = Assets::process( $path, 'bs-test' );
+
+		$this->assertIsString( $compiled );
+		$this->assertFileExists( $compiled );
+
+		$css = file_get_contents( $compiled );
+
+		$this->assertMatchesRegularExpression( '/\.bs-test\s*\{\s*color:\s*red;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\.hero\s*\{\s*display:\s*grid;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\s*>\s*h1\s*\{\s*color:\s*blue;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\s+\.title\s*\{/', $css );
+		$this->assertStringNotContainsString( '.bs-test .bs-test', $css );
+		$this->assertStringNotContainsString( '__blockstudio-selector-placeholder__', $css );
+	}
+
+	public function test_process_css_keeps_scoped_selector_placeholder_after_scss_compile(): void {
+		$path = $this->create_temporary_asset(
+			'style.scoped.scss',
+			'$color: red; %selector%.hero { color: $color; } .title { color: blue; }'
+		);
+
+		$compiled = Assets::process( $path, 'bs-test' );
+
+		$this->assertIsString( $compiled );
+		$this->assertFileExists( $compiled );
+
+		$css = file_get_contents( $compiled );
+
+		$this->assertMatchesRegularExpression( '/\.bs-test\.hero\s*\{\s*color:\s*red;?\s*\}/', $css );
+		$this->assertMatchesRegularExpression( '/\.bs-test\s+\.title\s*\{/', $css );
+		$this->assertStringNotContainsString( '.bs-test .bs-test', $css );
+		$this->assertStringNotContainsString( '__blockstudio-selector-placeholder__', $css );
+	}
+
 	public function test_get_id_returns_formatted_string(): void {
 		$block = array( 'name' => 'test/my-block' );
 		$id    = Assets::get_id( 'style.css', $block );
@@ -261,6 +373,215 @@ class AssetsTest extends TestCase {
 
 		$this->assertStringContainsString( 'sage-blade-render', $result );
 		$this->assertStringContainsString( "id='{$expected_asset_id}'", $result );
+	}
+
+	public function test_maybe_reset_editor_styles_removes_wordpress_iframe_styles_without_editor_enhancements(): void {
+		$this->add_filter(
+			'blockstudio/settings/assets/reset/enabled',
+			static function () {
+				return true;
+			}
+		);
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return false;
+			}
+		);
+
+		$assets   = new Assets();
+		$settings = array(
+			'__unstableResolvedAssets' => array(
+				'styles' => implode(
+					'',
+					array(
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/dist/block-library/style.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/dist/block-library/editor.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/common.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/content.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/reset.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/classic.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/classic-themes.min.css?ver=6.9.4">',
+						'<style>.keep{display:block}</style>',
+					)
+				),
+			),
+		);
+
+		$result = $assets->maybe_reset_editor_styles( $settings );
+		$styles = $result['__unstableResolvedAssets']['styles'];
+
+		$this->assertStringNotContainsString( 'block-library/style.min.css', $styles );
+		$this->assertStringNotContainsString( 'block-library/editor.min.css', $styles );
+		$this->assertStringNotContainsString( 'common.min.css', $styles );
+		$this->assertStringNotContainsString( 'content.min.css', $styles );
+		$this->assertStringNotContainsString( 'reset.min.css', $styles );
+		$this->assertStringNotContainsString( 'classic.min.css', $styles );
+		$this->assertStringNotContainsString( 'classic-themes.min.css', $styles );
+		$this->assertStringContainsString( '<style>.keep{display:block}</style>', $styles );
+		$this->assertStringNotContainsString( 'blockstudio-editor-enhance', $styles );
+		$this->assertStringNotContainsString( ':focus-visible{outline:none!important', $styles );
+		$this->assertStringNotContainsString( '.is-hovered:not(.has-child-selected)::after', $styles );
+		$this->assertStringNotContainsString( '.is-selected::after{border-color:#7c3aed}', $styles );
+	}
+
+	public function test_maybe_reset_editor_styles_adds_editor_enhancements_when_enabled(): void {
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return true;
+			}
+		);
+
+		$assets   = new Assets();
+		$settings = array(
+			'__unstableResolvedAssets' => array(
+				'styles' => implode(
+					'',
+					array(
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/dist/block-library/style.min.css?ver=6.9.4">',
+						'<link rel="stylesheet" href="https://example.test/wp-includes/css/common.min.css?ver=6.9.4">',
+						'<style>.keep{display:block}</style>',
+					)
+				),
+			),
+		);
+
+		$result = $assets->maybe_reset_editor_styles( $settings );
+		$styles = $result['__unstableResolvedAssets']['styles'];
+
+		$this->assertStringContainsString( 'block-library/style.min.css', $styles );
+		$this->assertStringContainsString( 'common.min.css', $styles );
+		$this->assertStringContainsString( '<style>.keep{display:block}</style>', $styles );
+		$this->assertStringContainsString( 'blockstudio-editor-enhance', $styles );
+		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-locked{overflow:hidden!important}', $styles );
+		$this->assertStringContainsString( 'body.blockstudio-editor-enhance-locked{position:fixed!important', $styles );
+		$this->assertStringContainsString( 'right:var(--blockstudio-editor-enhance-scrollbar-width,0px)!important;width:auto!important', $styles );
+		$this->assertStringContainsString( '.editor-styles-wrapper .blockstudio-block{transition:opacity .25s ease}', $styles );
+		$this->assertStringContainsString( '.blockstudio-editor-enhance-pending:not(.blockstudio-editor-enhance-ready) .blockstudio-block{visibility:hidden;opacity:0;pointer-events:none}', $styles );
+		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-pending:not(.blockstudio-editor-enhance-ready)::before', $styles );
+		$this->assertStringContainsString( 'left:calc(50% - (var(--blockstudio-editor-enhance-scrollbar-width,0px) / 2))', $styles );
+		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-pending.blockstudio-editor-enhance-ready::before{opacity:0;visibility:hidden}', $styles );
+		$this->assertStringContainsString( 'blockstudio-editor-enhance-spin', $styles );
+		$this->assertStringContainsString( ':focus-visible{outline:none!important', $styles );
+		$this->assertStringContainsString( ':where(.wp-block,.blockstudio-block){position:relative}', $styles );
+		$this->assertStringContainsString( '.is-hovered:not(.has-child-selected)::after', $styles );
+		$this->assertStringContainsString( '.is-highlighted:not(.has-child-selected)::after', $styles );
+		$this->assertStringContainsString( '.is-selected::after{content:"";position:absolute;inset:0;border:1px solid rgb(142 142 142 / .65)', $styles );
+		$this->assertStringContainsString( '.is-selected::after{border-color:#7c3aed}', $styles );
+		$this->assertStringNotContainsString( '.has-child-selected{outline', $styles );
+		$this->assertStringNotContainsString( '.is-highlighted{outline', $styles );
+	}
+
+	public function test_render_parent_editor_enhancement_styles_outputs_parent_lock_css_when_enabled(): void {
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return true;
+			}
+		);
+
+		Assets::$force_editor_screen = true;
+		$assets                      = new Assets();
+
+		ob_start();
+		$assets->render_parent_editor_enhancement_styles();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'id="blockstudio-editor-enhance-parent"', $output );
+		$this->assertStringContainsString( 'html.blockstudio-editor-enhance-locked{overflow:hidden!important}', $output );
+		$this->assertStringContainsString( 'body.blockstudio-editor-enhance-locked{position:fixed!important', $output );
+		$this->assertStringContainsString( 'right:var(--blockstudio-editor-enhance-scrollbar-width,0px)!important;width:auto!important', $output );
+		$this->assertStringNotContainsString( '.blockstudio-block{visibility:hidden}', $output );
+	}
+
+	public function test_add_parent_editor_enhancement_body_class_locks_parent_body_when_enabled(): void {
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return true;
+			}
+		);
+
+		Assets::$force_editor_screen = true;
+		$assets                      = new Assets();
+
+		$classes = $assets->add_parent_editor_enhancement_body_class( 'wp-admin block-editor-page' );
+
+		$this->assertStringContainsString( 'wp-admin block-editor-page', $classes );
+		$this->assertStringContainsString( 'blockstudio-editor-enhance-locked', $classes );
+		$this->assertSame(
+			$classes,
+			$assets->add_parent_editor_enhancement_body_class( $classes )
+		);
+	}
+
+	public function test_add_parent_editor_enhancement_body_class_does_not_lock_parent_body_when_disabled(): void {
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return false;
+			}
+		);
+
+		Assets::$force_editor_screen = true;
+		$assets                      = new Assets();
+
+		$classes = $assets->add_parent_editor_enhancement_body_class( 'wp-admin block-editor-page' );
+
+		$this->assertSame( 'wp-admin block-editor-page', $classes );
+	}
+
+	public function test_maybe_fullwidth_editor_removes_classic_styles_and_neutralizes_block_widths(): void {
+		$this->add_filter(
+			'blockstudio/settings/assets/reset/full_width',
+			static function () {
+				return array( 'page' );
+			}
+		);
+
+		$assets   = new Assets();
+		$settings = array(
+			'__unstableResolvedAssets' => array(
+				'styles' => '<link rel="stylesheet" href="classic.css"><style>.keep{display:block}</style>',
+			),
+		);
+		$context  = (object) array(
+			'post' => (object) array(
+				'post_type' => 'page',
+			),
+		);
+
+		$result = $assets->maybe_fullwidth_editor( $settings, $context );
+		$styles = $result['__unstableResolvedAssets']['styles'];
+
+		$this->assertStringNotContainsString( 'classic.css', $styles );
+		$this->assertStringContainsString( 'blockstudio-fullwidth-editor', $styles );
+		$this->assertStringContainsString( '.editor-styles-wrapper :where(.blockstudio-block):not([class*="max-w-"]){max-width:none}', $styles );
+		$this->assertStringContainsString( 'margin-left:0!important;margin-right:0!important', $styles );
+	}
+
+	public function test_maybe_fullwidth_editor_leaves_unconfigured_post_types_unchanged(): void {
+		$this->add_filter(
+			'blockstudio/settings/assets/reset/full_width',
+			static function () {
+				return array( 'page' );
+			}
+		);
+
+		$assets   = new Assets();
+		$settings = array(
+			'__unstableResolvedAssets' => array(
+				'styles' => '<link rel="stylesheet" href="classic.css"><style>.keep{display:block}</style>',
+			),
+		);
+		$context  = (object) array(
+			'post' => (object) array(
+				'post_type' => 'post',
+			),
+		);
+
+		$this->assertSame( $settings, $assets->maybe_fullwidth_editor( $settings, $context ) );
 	}
 
 	public function test_compile_scss_supports_bootstrap_prelude(): void {

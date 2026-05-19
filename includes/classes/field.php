@@ -59,11 +59,12 @@ class Field {
 	 * @return array Filtered attributes with group prefix removed from keys.
 	 */
 	public static function group( $attributes, $group ): array {
-		$g = array();
+		$g      = array();
+		$prefix = $group . '_';
+
 		foreach ( $attributes as $k => $v ) {
-			if ( 0 === strpos( $k, $group ) ) {
-				$len       = strlen( $group . '_' );
-				$key       = substr( $k, $len );
+			if ( str_starts_with( $k, $prefix ) ) {
+				$key       = substr( $k, strlen( $prefix ) );
 				$g[ $key ] = $v;
 			}
 		}

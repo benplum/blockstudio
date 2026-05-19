@@ -61,10 +61,14 @@ Both `<block>` and `<bs:>` tag syntaxes are validated across PHP, Twig, and
 Blade templates.
 
 ```html
-<bs:mytheme-hero title="Hello" />          <!-- OK -->
-<bs:mytheme-nonexistent />                 <!-- Error: unknown block -->
-<bs:mytheme-hero title="Hi" badattr="" />  <!-- Error: unknown attribute -->
-<block name="core/separator" />            <!-- OK (core blocks always valid) -->
+<bs:mytheme-hero title="Hello" />
+<!-- OK -->
+<bs:mytheme-nonexistent />
+<!-- Error: unknown block -->
+<bs:mytheme-hero title="Hi" badattr="" />
+<!-- Error: unknown attribute -->
+<block name="core/separator" />
+<!-- OK (core blocks always valid) -->
 ```
 
 Attributes with `data-*` and `html-*` prefixes are pass-through and never
@@ -124,71 +128,95 @@ allowed. Non-blockstudio hooks are ignored.
 The extension validates every Blockstudio schema file in the project.
 
 **block.json**:
+
 - Missing `name` field
 - Missing field `type`
 - Missing `id` on value fields that require one
 - Unknown field types
 - `select`/`radio`/`checkbox` without `options` or `populate`
 - Duplicate field IDs
+- Invalid `pluginDependencies` declarations
 
 Container fields like `group` and `tabs`, plus `custom/*` field references, can
 omit `id` when they only expand or wrap other fields.
 
 **field.json** (custom reusable fields):
+
 - Missing `name`
 - Missing field `type`
 - Missing `id` on value fields that require one
 - Unknown field types
 
 **Extension JSON** (block extensions in `extensions/`):
+
 - Missing `name` (target block)
 - Missing `blockstudio` key
 - Missing `blockstudio.extend` key
 
 **page.json** (file-based pages):
+
 - Missing `title`
 - Missing `slug`
 - Invalid `postStatus` values
 
 **db.php**:
+
 - Missing `fields` array
 - Invalid field types
 - Supports both legacy arrays and `Blockstudio\\Db\\Schema` / `Blockstudio\\Db\\Field`
 
 **rpc.php**:
+
 - Invalid HTTP methods
 - Wrong `public` value (must be `true`, `false`, or `'open'`)
 - Supports both legacy arrays and attributed object returns
 
 **cron.php**:
+
 - Missing `schedule` on configured tasks
 - Missing `callback` on configured tasks
 - Supports both legacy arrays and attributed object returns
 
 **blockstudio.json**:
+
 - Shorthand booleans like `"tailwind": true` (must use the nested object
   format `{"enabled": true, "config": ""}`)
+
+## Configuration
+
+The extension discovers Blockstudio files in the analyzed project by default.
+When a project renders blocks from a library outside the project root, add that
+library path to `blockstudioScanRoots` so `<bs:*>` and `<block>` tags can be
+validated against those external block definitions too.
+
+```yaml title="phpstan.neon"
+parameters:
+  blockstudioScanRoots:
+    - vendor/acme/block-library/blocks
+```
+
+To ignore files, use PHPStan's standard `excludePaths` configuration.
 
 ## Field type shapes
 
 The extension maps every Blockstudio field type to a concrete PHP type:
 
-| Field type | PHP type |
-|---|---|
-| `text`, `textarea`, `richtext`, `wysiwyg`, `code` | `string` |
-| `date`, `datetime`, `classes`, `html-tag`, `unit`, `gradient` | `string` |
-| `number`, `range` | `int\|float` |
-| `toggle` | `bool` |
-| `select`, `radio`, `checkbox` (single) | `string\|int` |
-| `select`, `checkbox` (multiple) | `list<string\|int>` |
-| `color` | `array{value: string, opacity: float\|null}` |
-| `link` | `array{href: string, title: string\|null, target: string\|null, opensInNewTab: bool\|null}` |
-| `icon` | `array{set: string, subSet: string, icon: string}` |
-| `files` (single) | `array{id: int, url: string, alt: string\|null, mime_type: string\|null}` |
-| `files` (multiple) | `list<array{id: int, url: string, ...}>` |
-| `group` | Flattened with underscore prefix: `cta_text`, `cta_url` |
-| `repeater` | `list<array{...child fields...}>` |
-| `tabs` | Flattened into parent scope |
+| Field type                                                    | PHP type                                                                                    |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `text`, `textarea`, `richtext`, `wysiwyg`, `code`             | `string`                                                                                    |
+| `date`, `datetime`, `classes`, `html-tag`, `unit`, `gradient` | `string`                                                                                    |
+| `number`, `range`                                             | `int\|float`                                                                                |
+| `toggle`                                                      | `bool`                                                                                      |
+| `select`, `radio`, `checkbox` (single)                        | `string\|int`                                                                               |
+| `select`, `checkbox` (multiple)                               | `list<string\|int>`                                                                         |
+| `color`                                                       | `array{value: string, opacity: float\|null}`                                                |
+| `link`                                                        | `array{href: string, title: string\|null, target: string\|null, opensInNewTab: bool\|null}` |
+| `icon`                                                        | `array{set: string, subSet: string, icon: string}`                                          |
+| `files` (single)                                              | `array{id: int, url: string, alt: string\|null, mime_type: string\|null}`                   |
+| `files` (multiple)                                            | `list<array{id: int, url: string, ...}>`                                                    |
+| `group`                                                       | Flattened with underscore prefix: `cta_text`, `cta_url`                                     |
+| `repeater`                                                    | `list<array{...child fields...}>`                                                           |
+| `tabs`                                                        | Flattened into parent scope                                                                 |
 
 ## API stubs
 

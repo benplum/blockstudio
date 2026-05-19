@@ -98,6 +98,11 @@ npm run build            # Generate + build
 
 **Schema-driven docs:** Field types and settings filters are auto-generated from local schemas in `docs/src/schemas/`. Generated content is injected between `{/* GENERATED_*_START */}` and `{/* GENERATED_*_END */}` markers in MDX files.
 
+## Changelog Policy
+
+- `readme.txt` changelog entries are release-facing. Do not add entries for iterative changes to unreleased 7.3 behavior.
+- Only update the changelog when documenting a release boundary or a change that should be visible to users upgrading from a previous published version.
+
 ## Comment Policy
 
 - Internal code: no JSDoc. Comments only for why, not what.
@@ -121,6 +126,7 @@ npm run build            # Generate + build
 6. **One class at a time** - migrate and test incrementally
 7. **Avoid direct `npx` for routine flows** - prefer `npm run` scripts from package.json
 8. **E2E CI gate** - Add `[e2e]` to commit messages when changes affect plugin functionality. Omit for docs/UI-only changes.
+9. **Durable guidance only** - Add instructions here only when they are general, valid, and repeatedly useful for the repo. Do not add one-off preferences, temporary decisions, or task-specific snippets.
 
 ## Commands
 

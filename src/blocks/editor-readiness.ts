@@ -1,0 +1,252 @@
+import { select, subscribe } from '@wordpress/data';
+
+type EditorBlock = {
+  clientId: string;
+  name: string;
+  innerBlocks?: EditorBlock[];
+};
+
+const PENDING_CLASS = 'blockstudio-editor-enhance-pending';
+const READY_CLASS = 'blockstudio-editor-enhance-ready';
+const LOCKED_CLASS = 'blockstudio-editor-enhance-locked';
+const SCROLLBAR_WIDTH_PROPERTY =
+  '--blockstudio-editor-enhance-scrollbar-width';
+const SETTLE_DELAY_MS = 1000;
+const REVEAL_AFTER_UNLOCK_DELAY_MS = 250;
+const REVEAL_TRANSITION_MS = 250;
+const MAX_WAIT_MS = 4000;
+
+const expectedClientIds = new Set<string>();
+const renderedClientIds = new Set<string>();
+
+let enabled = false;
+let ready = false;
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
+let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+let revealTimer: ReturnType<typeof setTimeout> | null = null;
+let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
+let unsubscribe: (() => void) | null = null;
+let classSyncDeadline = 0;
+
+const editorEnhanceEnabled = (): boolean =>
+  window.blockstudioAdmin?.options?.blockEditor?.enhance === true;
+
+const blockTypes = (): Set<string> =>
+  new Set(
+    Object.values(window.blockstudioAdmin?.data?.blocksNative ?? {}).map(
+      (block) => block.name,
+    ),
+  );
+
+const editorDocument = (): Document | null => {
+  const frame = document.querySelector(
+    'iframe[name="editor-canvas"]',
+  ) as HTMLIFrameElement | null;
+
+  if (frame) {
+    return frame.contentDocument;
+  }
+
+  return document.querySelector('.editor-styles-wrapper') ? document : null;
+};
+
+const parentBodyTargets = (): HTMLElement[] =>
+  [document.documentElement, document.body].filter(
+    (target): target is HTMLElement => Boolean(target),
+  );
+
+const uniqueDocuments = (): Document[] => {
+  const doc = editorDocument();
+  return [document, doc].filter(
+    (target, index, targets): target is Document =>
+      Boolean(target) && targets.indexOf(target) === index,
+  );
+};
+
+const scrollbarWidth = (doc: Document): number => {
+  const view = doc.defaultView;
+  if (!view) return 0;
+
+  return Math.max(0, view.innerWidth - doc.documentElement.clientWidth);
+};
+
+const setScrollbarCompensation = () => {
+  uniqueDocuments().forEach((doc) => {
+    const width = `${scrollbarWidth(doc)}px`;
+    [doc.documentElement, doc.body].forEach((target) => {
+      target?.style.setProperty(SCROLLBAR_WIDTH_PROPERTY, width);
+    });
+  });
+};
+
+const clearScrollbarCompensation = () => {
+  uniqueDocuments().forEach((doc) => {
+    [doc.documentElement, doc.body].forEach((target) => {
+      target?.style.removeProperty(SCROLLBAR_WIDTH_PROPERTY);
+    });
+  });
+};
+
+const retryClassSync = (callback: () => void) => {
+  if (Date.now() > classSyncDeadline) return;
+  window.setTimeout(callback, 50);
+};
+
+const editorWrapper = (): HTMLElement | null =>
+  editorDocument()?.querySelector('.editor-styles-wrapper') ?? null;
+
+const editorBodyTargets = (): HTMLElement[] => {
+  const doc = editorDocument();
+  if (!doc) return [];
+
+  return [doc.documentElement, doc.body].filter(
+    (target): target is HTMLElement => Boolean(target),
+  );
+};
+
+const allEditorBlocks = (): EditorBlock[] => {
+  const store = select('core/block-editor') as
+    | { getBlocks?: () => EditorBlock[] }
+    | undefined;
+  return store?.getBlocks?.() ?? [];
+};
+
+const flattenBlockstudioClientIds = (
+  blocks: EditorBlock[],
+  allowedTypes: Set<string>,
+): string[] =>
+  blocks.flatMap((block) => [
+    ...(allowedTypes.has(block.name) ? [block.clientId] : []),
+    ...flattenBlockstudioClientIds(block.innerBlocks ?? [], allowedTypes),
+  ]);
+
+const setPendingClass = () => {
+  const wrapper = editorWrapper();
+  const bodyTargets = editorBodyTargets();
+  if (!wrapper || !bodyTargets.length) {
+    if (!ready) retryClassSync(setPendingClass);
+    return;
+  }
+  if (ready) return;
+  setScrollbarCompensation();
+  [...parentBodyTargets(), ...bodyTargets].forEach((target) => {
+    target.classList.add(LOCKED_CLASS);
+    target.classList.add(PENDING_CLASS);
+    target.classList.remove(READY_CLASS);
+  });
+  wrapper.classList.add(PENDING_CLASS);
+  wrapper.classList.remove(READY_CLASS);
+};
+
+const setReadyClass = (): boolean => {
+  const wrapper = editorWrapper();
+  const bodyTargets = editorBodyTargets();
+  if (!wrapper || !bodyTargets.length) {
+    retryClassSync(revealContent);
+    return false;
+  }
+  [...parentBodyTargets(), ...bodyTargets].forEach((target) => {
+    target.classList.add(READY_CLASS);
+  });
+  wrapper.classList.remove(PENDING_CLASS);
+  wrapper.classList.add(READY_CLASS);
+  return true;
+};
+
+const unlockEditorBody = () => {
+  [...parentBodyTargets(), ...editorBodyTargets()].forEach((target) => {
+    target.classList.add(READY_CLASS);
+  });
+  [...parentBodyTargets(), ...editorBodyTargets()].forEach((target) => {
+    target.classList.remove(LOCKED_CLASS);
+  });
+  clearScrollbarCompensation();
+};
+
+const cleanupPendingClass = () => {
+  cleanupTimer = null;
+  const wrapper = editorWrapper();
+  [...parentBodyTargets(), ...editorBodyTargets()].forEach((target) => {
+    target.classList.remove(PENDING_CLASS);
+  });
+  wrapper?.classList.remove(PENDING_CLASS);
+};
+
+const revealContent = () => {
+  revealTimer = null;
+  if (!setReadyClass()) return;
+  cleanupTimer = setTimeout(cleanupPendingClass, REVEAL_TRANSITION_MS);
+};
+
+const complete = () => {
+  ready = true;
+  if (settleTimer) {
+    clearTimeout(settleTimer);
+    settleTimer = null;
+  }
+  if (fallbackTimer) {
+    clearTimeout(fallbackTimer);
+    fallbackTimer = null;
+  }
+  if (revealTimer) {
+    clearTimeout(revealTimer);
+    revealTimer = null;
+  }
+  if (cleanupTimer) {
+    clearTimeout(cleanupTimer);
+    cleanupTimer = null;
+  }
+  unsubscribe?.();
+  unsubscribe = null;
+  unlockEditorBody();
+  revealTimer = setTimeout(revealContent, REVEAL_AFTER_UNLOCK_DELAY_MS);
+};
+
+const scheduleReveal = () => {
+  if (ready || settleTimer) return;
+  settleTimer = setTimeout(complete, SETTLE_DELAY_MS);
+};
+
+const updateExpectedClientIds = () => {
+  if (!enabled || ready) return;
+
+  expectedClientIds.clear();
+  flattenBlockstudioClientIds(allEditorBlocks(), blockTypes()).forEach(
+    (clientId) => expectedClientIds.add(clientId),
+  );
+
+  if (expectedClientIds.size === 0) {
+    scheduleReveal();
+    return;
+  }
+
+  const allRendered = [...expectedClientIds].every((clientId) =>
+    renderedClientIds.has(clientId),
+  );
+  if (allRendered) {
+    scheduleReveal();
+  }
+};
+
+export const initializeEditorReadinessGate = () => {
+  if (enabled || !editorEnhanceEnabled()) return;
+  enabled = true;
+  classSyncDeadline =
+    Date.now() +
+    MAX_WAIT_MS +
+    SETTLE_DELAY_MS +
+    REVEAL_AFTER_UNLOCK_DELAY_MS +
+    REVEAL_TRANSITION_MS;
+
+  setPendingClass();
+  updateExpectedClientIds();
+
+  unsubscribe = subscribe(updateExpectedClientIds);
+  fallbackTimer = setTimeout(complete, MAX_WAIT_MS);
+};
+
+export const markEditorBlockRendered = (clientId: string) => {
+  if (!enabled || ready) return;
+  renderedClientIds.add(clientId);
+  updateExpectedClientIds();
+};

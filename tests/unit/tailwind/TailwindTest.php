@@ -1,6 +1,7 @@
 <?php
 
 use Blockstudio\Tailwind;
+use Blockstudio\Page_Registry;
 use Blockstudio\Settings;
 use PHPUnit\Framework\TestCase;
 
@@ -68,6 +69,59 @@ class TailwindTest extends TestCase {
 		$second = $tailwind->compile( $first );
 
 		$this->assertSame( $first, $second );
+	}
+
+	public function test_compile_editor_css_includes_registered_page_template_candidates(): void {
+		$cb = function () {
+			return true;
+		};
+		add_filter( 'blockstudio/settings/tailwind/enabled', $cb );
+		$this->reset_settings();
+
+		$registry       = Page_Registry::instance();
+		$existing_pages = $registry->get_pages();
+		$existing_posts = $registry->get_synced_posts();
+		$existing_paths = $registry->get_paths();
+		$template_path  = tempnam( sys_get_temp_dir(), 'blockstudio-page-tailwind' );
+
+		$this->assertIsString( $template_path );
+
+		try {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writing a temporary fixture for this test.
+			file_put_contents( $template_path, '<div class="gap-14 lg:gap-16"></div>' );
+
+			$registry->register(
+				'tailwind-page-template-test',
+				array(
+					'name'          => 'tailwind-page-template-test',
+					'template_path' => $template_path,
+					'source_path'   => 'tailwind-page-template-test',
+				)
+			);
+
+			$css = Tailwind::compile_editor_css();
+
+			$this->assertStringContainsString( '.gap-14', $css );
+			$this->assertStringContainsString( '.lg\\:gap-16', $css );
+		} finally {
+			if ( is_string( $template_path ) && file_exists( $template_path ) ) {
+				unlink( $template_path );
+			}
+
+			$registry->reset();
+			foreach ( $existing_paths as $path ) {
+				$registry->add_path( $path );
+			}
+			foreach ( $existing_pages as $name => $page ) {
+				$registry->register( $name, $page );
+			}
+			foreach ( $existing_posts as $source_path => $post_id ) {
+				$registry->set_synced_post( $source_path, $post_id );
+			}
+
+			remove_filter( 'blockstudio/settings/tailwind/enabled', $cb );
+			$this->reset_settings();
+		}
 	}
 
 	public function test_scoped_tailwind_compiles_arbitrary_length_font_size(): void {

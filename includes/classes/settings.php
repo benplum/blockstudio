@@ -27,6 +27,11 @@ namespace Blockstudio;
  * - assets/process/scssFiles: Enable .scss file compilation
  * - editor/formatOnSave: Auto-format code in editor
  * - tailwind/enabled: Enable Tailwind CSS integration
+ * - ui/enabled: Enable bundled UI components
+ * - blockEditor/enhance: Add Blockstudio editor hover and selection affordances
+ * - blockEditor/blocks: Configure global block inserter policy
+ * - blockEditor/patterns: Configure global pattern inserter policy
+ * - blockEditor/media: Configure global block editor media policy
  * - dev/grab/enabled: Enable frontend element grabber
  * - dev/canvas/enabled: Enable the canvas
  * - users/ids: Array of user IDs allowed to use editor
@@ -96,10 +101,50 @@ class Settings {
 			'enabled' => false,
 			'config'  => '',
 		),
+		'ui'          => array(
+			'enabled' => false,
+		),
 		'blockEditor' => array(
 			'disableLoading' => false,
+			'enhance'        => false,
 			'cssClasses'     => array(),
 			'cssVariables'   => array(),
+			'blocks'         => array(
+				'allow'         => array(),
+				'deny'          => array(),
+				'directory'     => true,
+				'categories'    => array(
+					'allow'  => array(),
+					'deny'   => array(),
+					'rename' => array(),
+					'order'  => array(),
+				),
+				'styles'        => array(
+					'deny' => array(),
+				),
+				'legacyWidgets' => array(
+					'hide' => array(),
+				),
+			),
+			'patterns'       => array(
+				'core'        => true,
+				'remote'      => true,
+				'theme'       => true,
+				'blockstudio' => true,
+				'categories'  => array(
+					'allow'  => array(),
+					'deny'   => array(),
+					'rename' => array(),
+					'order'  => array(),
+				),
+			),
+			'media'          => array(
+				'openverse'  => true,
+				'imageSizes' => array(
+					'allow' => array(),
+					'deny'  => array(),
+				),
+			),
 		),
 		'ai'          => array(
 			'enableContextGeneration' => false,

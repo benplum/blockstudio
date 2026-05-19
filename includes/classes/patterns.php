@@ -39,6 +39,13 @@ class Patterns {
 			return;
 		}
 
+		Settings::get_instance();
+
+		if ( false === Settings::get( 'blockEditor/patterns/blockstudio' ) ) {
+			self::$initialized = true;
+			return;
+		}
+
 		$paths = self::get_paths();
 
 		/**

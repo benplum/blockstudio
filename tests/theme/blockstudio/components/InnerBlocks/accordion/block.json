@@ -1,0 +1,16 @@
+{
+  "$schema": "https://blockstudio.dev/schema/block",
+  "name": "blockstudio/component-innerblocks-accordion",
+  "title": "InnerBlocks Accordion",
+  "category": "text",
+  "icon": "star-filled",
+  "blockstudio": {
+    "attributes": [
+      {
+        "id": "singleOpen",
+        "type": "toggle",
+        "default": false
+      }
+    ]
+  }
+}

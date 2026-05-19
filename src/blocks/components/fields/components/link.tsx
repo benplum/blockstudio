@@ -1,5 +1,6 @@
 // @ts-ignore
 import { __experimentalLinkControl as LinkControl } from '@wordpress/block-editor';
+import apiFetch from '@wordpress/api-fetch';
 import {
   Button,
   Modal,
@@ -11,9 +12,34 @@ import { BlockstudioAttribute } from '@/types/block';
 import { __ } from '@/utils/__';
 
 type Link = {
+  id?: number | string;
   url: string;
   title?: string;
   opensInNewTab?: boolean;
+  type?: string;
+};
+
+type CreatedPage = {
+  id: number;
+  link?: string;
+};
+
+const createPageSuggestion = async (title: string): Promise<Link> => {
+  const page = await apiFetch<CreatedPage>({
+    path: '/wp/v2/pages',
+    method: 'POST',
+    data: {
+      status: 'draft',
+      title,
+    },
+  });
+
+  return {
+    id: page.id,
+    title,
+    type: 'page',
+    url: page.link || `?page_id=${page.id}`,
+  };
 };
 
 export const LinkModal = ({
@@ -22,6 +48,7 @@ export const LinkModal = ({
   opensInNewTab,
   setOpen,
   value = '',
+  withCreateSuggestion,
   ...rest
 }: {
   onChange: (link: Link) => void;
@@ -29,6 +56,7 @@ export const LinkModal = ({
   opensInNewTab: boolean;
   setOpen: (open: boolean) => void;
   value: string | NonNullable<unknown>;
+  withCreateSuggestion?: boolean;
 }) => {
   return (
     <Modal
@@ -38,6 +66,10 @@ export const LinkModal = ({
     >
       <LinkControl
         {...rest}
+        withCreateSuggestion={withCreateSuggestion}
+        createSuggestion={
+          withCreateSuggestion ? createPageSuggestion : undefined
+        }
         value={value}
         onChange={(link: Link) => onChange(link)}
         onRemove={(link: Link) => onRemove(link)}

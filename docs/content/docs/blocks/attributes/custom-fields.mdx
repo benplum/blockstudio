@@ -65,6 +65,39 @@ Reference a custom field using the `custom/{name}` type:
 
 This expands inline to the fields defined in the custom field definition. The expanded fields use their original IDs (`heading`, `description`, `enabled`).
 
+Custom fields can also reuse complete group definitions:
+
+```json title="fields/section-header/field.json"
+{
+  "name": "section-header",
+  "attributes": [
+    {
+      "id": "section-header",
+      "type": "group",
+      "title": "Header",
+      "attributes": [
+        { "id": "kicker", "type": "text", "label": "Kicker" },
+        { "id": "title", "type": "text", "label": "Title" }
+      ]
+    }
+  ]
+}
+```
+
+```json title="block.json"
+{
+  "blockstudio": {
+    "attributes": [
+      { "type": "custom/section-header" }
+    ]
+  }
+}
+```
+
+The group children are stored as `section-header_kicker`,
+`section-header_title`, and so on. In templates, use `bs_get_group()` to
+extract them into a clean group object.
+
 ## ID Structure
 
 Use `idStructure` to prefix or transform field IDs. The `{id}` placeholder is replaced with the original field ID:

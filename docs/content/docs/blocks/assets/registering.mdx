@@ -7,19 +7,22 @@ description: Automatically enqueue CSS and JavaScript files for your blocks.
 
 Blockstudio will automatically enqueue all files ending with `.css`, `.scss` and `.js` when your block is being used on a page. It is possible to define how assets are being enqueued by using one of the following file names. The `*` is a wildcard that can be replaced with any string of your choice.
 
-| Pattern | Behavior |
-|---------|----------|
-| `*.(s)css` | Enqueues as a `<link>` tag in the editor and on the frontend |
-| `*.inline.(s)css` | Enqueues contents in an inline `<style>` tag in the editor and on the frontend |
-| `*.editor.(s)css` | Enqueues as a `<link>` tag in the editor only |
+Inside block CSS and SCSS files, `%selector%` expands to the block's scoped wrapper class. This lets you target the same element that receives `bs_get_scoped_class()`, even when the file is not a scoped asset.
+
+| Pattern           | Behavior                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| `*.(s)css`        | Enqueues as a `<link>` tag in the editor and on the frontend                          |
+| `*.inline.(s)css` | Enqueues contents in an inline `<style>` tag in the editor and on the frontend        |
+| `*.editor.(s)css` | Enqueues as a `<link>` tag in the editor only                                         |
 | `*.scoped.(s)css` | Enqueues scoped contents in an inline `<style>` tag in the editor and on the frontend |
-| `*.js` | Enqueues as a `<script>` tag in the editor and on the frontend |
-| `*.inline.js` | Enqueues contents in an inline `<script>` tag in the editor and on the frontend |
-| `*.editor.js` | Enqueues as a `<script>` tag in the editor only |
-| `*.view.js` | Enqueues as a `<script>` tag on the frontend only |
+| `*.js`            | Enqueues as a `<script>` tag in the editor and on the frontend                        |
+| `*.inline.js`     | Enqueues contents in an inline `<script>` tag in the editor and on the frontend       |
+| `*.editor.js`     | Enqueues as a `<script>` tag in the editor only                                       |
+| `*.view.js`       | Enqueues as a `<script>` tag on the frontend only                                     |
 
 <Callout>
-The dash notation (`*-inline.css`, `*-editor.css`, etc.) is still supported for backward compatibility but is deprecated. Use dot notation for new blocks.
+  The dash notation (`*-inline.css`, `*-editor.css`, etc.) is still supported
+  for backward compatibility but is deprecated. Use dot notation for new blocks.
 </Callout>
 
 ## Inline
@@ -35,14 +38,21 @@ Inline styles and scripts have the big advantage that they are directly rendered
 Scoped styles are also inlined, but are prefixed with an ID that is unique to each block. Use the `bs_get_scoped_class` function to add the class to your template.
 
 ```php title="index.php"
-<div class="<?php echo bs_get_scoped_class($b["name"]) ?>">
-  <h1>Scope me!</h1>
-  <p>Scope me too!</p>
-</div>
+<section class="hero <?php echo bs_get_scoped_class($b['name']); ?>">
+  <h1 class="hero__title">Scope me!</h1>
+</section>
 ```
 
 ```css title="style.scoped.css"
-h1 {
+%selector% {
+  --hero-gap: var(--wp--preset--spacing--space-10);
+}
+
+%selector%.hero {
+  border-bottom: 1px solid currentColor;
+}
+
+.hero__title {
   color: red;
 }
 ```
@@ -51,19 +61,25 @@ The above will result in the following scoped style:
 
 ```html
 <style>
-  .bs-62df71e6cc9a h1 {
-      color: red;
+  .bs-62df71e6cc9a {
+    --hero-gap: var(--wp--preset--spacing--space-10);
   }
-  .bs-62df71e6cc9a p {
-      color: blue;
+
+  .bs-62df71e6cc9a.hero {
+    border-bottom: 1px solid currentColor;
+  }
+
+  .bs-62df71e6cc9a .hero__title {
+    color: red;
   }
 </style>
 
-<div class="bs-62df71e6cc9a">
-  <h1>Scope me!</h1>
-  <p>Scope me too!</p>
-</div>
+<section class="hero bs-62df71e6cc9a">
+  <h1 class="hero__title">Scope me!</h1>
+</section>
 ```
+
+Regular selectors inside a scoped file still target descendants of the scoped wrapper. Use `%selector%` when you want to style the wrapper itself.
 
 ## Global
 

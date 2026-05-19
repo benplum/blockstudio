@@ -1513,15 +1513,11 @@ class Block {
 			if ( $editor ) {
 				@eval( ' ?>' . $editor . '<?php ' ); // phpcs:ignore Squiz.PHP.Eval.Discouraged, WordPress.PHP.NoSilencedErrors.Discouraged
 			} else {
-				ob_start();
-				$render = include $path;
-				$render = trim( (string) $render );
-				ob_end_clean();
-
 				if ( $is_preview ) {
 					echo Assets::get_preview_assets( $block_data ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 				}
-				include $path;
+				$render = include $path;
+				$render = trim( (string) $render );
 				if ( $is_preview ) {
 					echo Assets::get_preview_assets( $block_data, false ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 				}

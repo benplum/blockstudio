@@ -177,6 +177,40 @@ Group fields prefix their child attribute IDs with the group name. Use `bs_get_g
 
 This strips the group prefix from attribute keys. For example, `$a['settings_title']` becomes `$group['title']`.
 
+The helper also works when the group comes from a reused custom field:
+
+```json title="fields/section-header/field.json"
+{
+  "name": "section-header",
+  "attributes": [
+    {
+      "id": "section-header",
+      "type": "group",
+      "attributes": [
+        { "id": "kicker", "type": "text" },
+        { "id": "title", "type": "text" }
+      ]
+    }
+  ]
+}
+```
+
+```json title="block.json"
+{
+  "blockstudio": {
+    "attributes": [
+      { "type": "custom/section-header" }
+    ]
+  }
+}
+```
+
+```twig title="index.twig"
+{% set sectionHeader = fn('bs_get_group', a, 'section-header') %}
+<p>{{ sectionHeader.kicker }}</p>
+<h2>{{ sectionHeader.title }}</h2>
+```
+
 ### Repeater
 
 Loop through repeater items:

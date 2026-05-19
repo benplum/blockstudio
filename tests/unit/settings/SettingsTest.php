@@ -72,6 +72,10 @@ class SettingsTest extends TestCase {
 		$this->assertStringContainsString( '--color-weird', Settings::get( 'tailwind/config' ) );
 	}
 
+	public function test_ui_enabled_keeps_default(): void {
+		$this->assertFalse( Settings::get( 'ui/enabled' ) );
+	}
+
 	public function test_assets_enqueue_from_json(): void {
 		$this->assertTrue( Settings::get( 'assets/enqueue' ) );
 	}
@@ -121,6 +125,10 @@ class SettingsTest extends TestCase {
 		$this->assertFalse( Settings::get( 'blockEditor/disableLoading' ) );
 	}
 
+	public function test_block_editor_enhance_from_json(): void {
+		$this->assertTrue( Settings::get( 'blockEditor/enhance' ) );
+	}
+
 	public function test_block_editor_css_classes_from_json(): void {
 		$classes = Settings::get( 'blockEditor/cssClasses' );
 		$this->assertIsArray( $classes );
@@ -131,6 +139,19 @@ class SettingsTest extends TestCase {
 		$vars = Settings::get( 'blockEditor/cssVariables' );
 		$this->assertIsArray( $vars );
 		$this->assertContains( 'global-styles-css-custom-properties', $vars );
+	}
+
+	public function test_block_editor_policy_defaults(): void {
+		$this->assertSame( array(), Settings::get( 'blockEditor/blocks/allow' ) );
+		$this->assertSame( array(), Settings::get( 'blockEditor/blocks/deny' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/blocks/directory' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/patterns/core' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/patterns/remote' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/patterns/theme' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/patterns/blockstudio' ) );
+		$this->assertTrue( Settings::get( 'blockEditor/media/openverse' ) );
+		$this->assertSame( array(), Settings::get( 'blockEditor/media/imageSizes/allow' ) );
+		$this->assertSame( array(), Settings::get( 'blockEditor/media/imageSizes/deny' ) );
 	}
 
 	public function test_ai_enable_context_generation_from_json(): void {
@@ -331,6 +352,14 @@ class SettingsTest extends TestCase {
 		$this->assertTrue( Settings::get( 'blockEditor/disableLoading' ) );
 	}
 
+	public function test_snake_case_filter_works_for_block_editor_enhance(): void {
+		$this->add_filter( 'blockstudio/settings/block_editor/enhance', function () {
+			return true;
+		} );
+
+		$this->assertTrue( Settings::get( 'blockEditor/enhance' ) );
+	}
+
 	public function test_camel_case_filter_still_works_for_backwards_compat(): void {
 		$this->add_filter( 'blockstudio/settings/blockEditor/disableLoading', function () {
 			return true;
@@ -380,7 +409,7 @@ class SettingsTest extends TestCase {
 
 	public function test_get_all_contains_top_level_keys(): void {
 		$all  = Settings::get_all();
-		$keys = array( 'users', 'assets', 'editor', 'tailwind', 'blockEditor', 'ai', 'blockTags', 'dev' );
+		$keys = array( 'users', 'assets', 'editor', 'tailwind', 'ui', 'blockEditor', 'ai', 'blockTags', 'dev' );
 		foreach ( $keys as $key ) {
 			$this->assertArrayHasKey( $key, $all, "Missing top-level key: {$key}" );
 		}
@@ -422,6 +451,7 @@ class SettingsTest extends TestCase {
 	public function test_get_filters_contains_top_level_keys(): void {
 		$filters = Settings::get_filters();
 		$this->assertArrayHasKey( 'tailwind', $filters );
+		$this->assertArrayHasKey( 'ui', $filters );
 		$this->assertArrayHasKey( 'assets', $filters );
 		$this->assertArrayHasKey( 'dev', $filters );
 	}

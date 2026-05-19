@@ -1,6 +1,7 @@
 <?php
 
 use Blockstudio\Build;
+use Blockstudio\Files;
 use PHPUnit\Framework\TestCase;
 
 class BuildTest extends TestCase {
@@ -167,6 +168,191 @@ class BuildTest extends TestCase {
 
 	public function test_has_interactivity_empty_interactivity_array(): void {
 		$this->assertFalse( Build::has_interactivity( array( 'interactivity' => array() ) ) );
+	}
+
+	// plugin dependencies()
+
+	public function test_normalize_plugin_dependencies_filters_empty_values_and_duplicates(): void {
+		$this->assertSame(
+			array(
+				'woocommerce' => array(),
+			),
+			Build::normalize_plugin_dependencies(
+				array(
+					' woocommerce ',
+					'advanced-custom-fields/acf.php',
+					'woocommerce',
+					'',
+					42,
+				)
+			)
+		);
+	}
+
+	public function test_normalize_plugin_dependencies_accepts_version_constraints(): void {
+		$this->assertSame(
+			array(
+				'woocommerce' => array(
+					'version' => '>6',
+				),
+				'advanced-custom-fields' => array(),
+			),
+			Build::normalize_plugin_dependencies(
+				array(
+					'woocommerce'            => array(
+						'version' => ' >6 ',
+					),
+					'advanced-custom-fields' => array(),
+				)
+			)
+		);
+	}
+
+	public function test_plugin_dependency_version_constraints_use_version_compare(): void {
+		$this->assertTrue( Build::is_plugin_dependency_version_compatible( '6.1.0', '>6' ) );
+		$this->assertTrue( Build::is_plugin_dependency_version_compatible( '6.1.0', '6' ) );
+		$this->assertTrue( Build::is_plugin_dependency_version_compatible( '6.1.0', '>=6.1' ) );
+		$this->assertFalse( Build::is_plugin_dependency_version_compatible( '6.0.0', '>6.0.0' ) );
+		$this->assertFalse( Build::is_plugin_dependency_version_compatible( '', '>6' ) );
+	}
+
+	public function test_has_active_plugin_dependencies_accepts_slugs_and_version_constraints(): void {
+		$active_plugins = get_option( 'active_plugins', array() );
+		$slug           = 'blockstudio-dependency-test-plugin';
+		$plugin_dir     = WP_PLUGIN_DIR . '/' . $slug;
+		$plugin_file    = $slug . '/' . $slug . '.php';
+
+		wp_mkdir_p( $plugin_dir );
+		file_put_contents(
+			$plugin_dir . '/' . $slug . '.php',
+			"<?php\n/**\n * Plugin Name: Blockstudio Dependency Test Plugin\n * Version: 6.2.0\n */\n"
+		);
+		wp_cache_delete( 'plugins', 'plugins' );
+
+		update_option(
+			'active_plugins',
+			array(
+				$plugin_file,
+			)
+		);
+
+		try {
+			$this->assertTrue(
+				Build::has_active_plugin_dependencies( array( $slug ) )
+			);
+			$this->assertTrue(
+				Build::has_active_plugin_dependencies(
+					array(
+						$slug => array(
+							'version' => '>6',
+						),
+					)
+				)
+			);
+			$this->assertFalse(
+				Build::has_active_plugin_dependencies(
+					array(
+						$slug => array(
+							'version' => '>7',
+						),
+					)
+				)
+			);
+			$this->assertFalse(
+				Build::has_active_plugin_dependencies( array( 'missing-plugin' ) )
+			);
+			$this->assertFalse(
+				Build::has_active_plugin_dependencies( array( $slug, 'missing-plugin' ) )
+			);
+		} finally {
+			update_option( 'active_plugins', $active_plugins );
+
+			if ( is_dir( $plugin_dir ) ) {
+				Files::delete_all_files( $plugin_dir );
+			}
+
+			wp_cache_delete( 'plugins', 'plugins' );
+		}
+	}
+
+	public function test_blocks_with_missing_or_unmet_plugin_dependencies_are_skipped_during_registration(): void {
+		$active_plugins   = get_option( 'active_plugins', array() );
+		$tmp_dir          = BLOCKSTUDIO_DIR . '/.tmp-tests/blockstudio-build-dependencies-test-' . uniqid();
+		$missing_dir      = $tmp_dir . '/dependency-block';
+		$version_dir      = $tmp_dir . '/version-block';
+		$missing_name     = 'blockstudio-test/dependency-block';
+		$version_name     = 'blockstudio-test/version-block';
+		$plugin_slug      = 'blockstudio-version-test-plugin';
+		$plugin_dir       = WP_PLUGIN_DIR . '/' . $plugin_slug;
+		$plugin_file      = $plugin_slug . '/' . $plugin_slug . '.php';
+
+		wp_mkdir_p( $plugin_dir );
+		file_put_contents(
+			$plugin_dir . '/' . $plugin_slug . '.php',
+			"<?php\n/**\n * Plugin Name: Blockstudio Version Test Plugin\n * Version: 6.2.0\n */\n"
+		);
+		wp_cache_delete( 'plugins', 'plugins' );
+
+		update_option( 'active_plugins', array( $plugin_file ) );
+
+		mkdir( $missing_dir, 0755, true );
+		file_put_contents(
+			$missing_dir . '/block.json',
+			wp_json_encode(
+				array(
+					'name'        => $missing_name,
+					'title'       => 'Dependency Block',
+					'blockstudio' => array(
+						'pluginDependencies' => array( 'missing-plugin-for-blockstudio-tests' ),
+					),
+				)
+			)
+		);
+		file_put_contents( $missing_dir . '/index.php', '<?php // render' );
+
+		mkdir( $version_dir, 0755, true );
+		file_put_contents(
+			$version_dir . '/block.json',
+			wp_json_encode(
+				array(
+					'name'        => $version_name,
+					'title'       => 'Version Block',
+					'blockstudio' => array(
+						'pluginDependencies' => array(
+							$plugin_slug => array(
+								'version' => '>7',
+							),
+						),
+					),
+				)
+			)
+		);
+		file_put_contents( $version_dir . '/index.php', '<?php // render' );
+
+		try {
+			Build::init(
+				array(
+					'dir' => $tmp_dir,
+				)
+			);
+
+			$this->assertArrayNotHasKey( $missing_name, Build::blocks() );
+			$this->assertArrayNotHasKey( $missing_name, Build::data() );
+			$this->assertArrayNotHasKey( $version_name, Build::blocks() );
+			$this->assertArrayNotHasKey( $version_name, Build::data() );
+		} finally {
+			update_option( 'active_plugins', $active_plugins );
+
+			if ( is_dir( $tmp_dir ) ) {
+				Files::delete_all_files( $tmp_dir );
+			}
+
+			if ( is_dir( $plugin_dir ) ) {
+				Files::delete_all_files( $plugin_dir );
+			}
+
+			wp_cache_delete( 'plugins', 'plugins' );
+		}
 	}
 
 	// refresh_blocks()

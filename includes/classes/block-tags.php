@@ -2,9 +2,10 @@
 /**
  * Block Tags class.
  *
- * Unified renderer for block tags in content. Supports two syntaxes:
+ * Unified renderer for block tags in content. Supports three syntaxes:
  *   <bs:namespace-block attr="value" />
  *   <block name="namespace/block" attr="value" />
+ *   <custom-tag attr="value" />
  *
  * Renders both Blockstudio blocks (via Block::render) and core WordPress
  * blocks (via Html_Parser + render_block). Page-level rendering is opt-in
@@ -105,10 +106,12 @@ class Block_Tags {
 			return $content ?? '';
 		}
 
+		$aliases   = self::get_tag_aliases();
 		$has_bs    = false !== strpos( $content, '<bs:' );
 		$has_block = false !== strpos( $content, '<block ' );
+		$has_alias = self::has_alias_tags( $content, $aliases );
 
-		if ( ! $has_bs && ! $has_block ) {
+		if ( ! $has_bs && ! $has_block && ! $has_alias ) {
 			return $content;
 		}
 
@@ -118,6 +121,11 @@ class Block_Tags {
 
 		do {
 			$previous = $content;
+
+			if ( $has_alias ) {
+				$content = self::replace_paired_alias_tags( $content, $aliases );
+				$content = self::replace_self_closing_alias_tags( $content, $aliases );
+			}
 
 			if ( $has_bs ) {
 				$content = self::replace_paired_bs_tags( $content, $blocks );
@@ -131,11 +139,114 @@ class Block_Tags {
 
 			$has_bs    = false !== strpos( $content, '<bs:' );
 			$has_block = false !== strpos( $content, '<block ' );
-		} while ( $content !== $previous && ( $has_bs || $has_block ) );
+			$has_alias = self::has_alias_tags( $content, $aliases );
+		} while ( $content !== $previous && ( $has_bs || $has_block || $has_alias ) );
 
 		Perf::stop( 'block-tags', 'Block Tags' );
 
 		return $content;
+	}
+
+	// -------------------------------------------------------------------------
+	// <custom-tag> alias syntax
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Replace paired alias tags.
+	 *
+	 * @param string               $content The content to process.
+	 * @param array<string,string> $aliases Custom tag => block name map.
+	 *
+	 * @return string Processed content.
+	 */
+	private static function replace_paired_alias_tags( string $content, array $aliases ): string {
+		$offset = 0;
+
+		// phpcs:ignore Generic.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition
+		while ( false !== ( $open_pos = self::find_next_alias_tag( $content, $offset, $aliases ) ) ) {
+			$parsed_open = self::parse_alias_open_tag( $content, $open_pos, $aliases );
+			if ( null === $parsed_open ) {
+				$offset = $open_pos + 1;
+				continue;
+			}
+
+			$tag_name   = $parsed_open['tag_name'];
+			$block_name = $parsed_open['block_name'];
+			$tag_end    = $parsed_open['name_end'];
+			$gt_pos     = self::find_closing_angle( $content, $tag_end );
+
+			if ( false === $gt_pos ) {
+				break;
+			}
+
+			if ( '/' === $content[ $gt_pos - 1 ] ) {
+				$offset = $gt_pos + 1;
+				continue;
+			}
+
+			$close_tag = '</' . $tag_name . '>';
+			$close_pos = self::find_matching_close( $content, $gt_pos, '<' . $tag_name, $close_tag );
+
+			if ( false === $close_pos ) {
+				$offset = $gt_pos + 1;
+				continue;
+			}
+
+			$attr_string   = trim( substr( $content, $tag_end, $gt_pos - $tag_end ) );
+			$inner_content = substr( $content, $gt_pos + 1, $close_pos - $gt_pos - 1 );
+			$attributes    = self::parse_attributes( $attr_string );
+			$block_name    = self::check_allow_deny( $block_name );
+
+			if ( ! $block_name ) {
+				$offset = $close_pos + strlen( $close_tag );
+				continue;
+			}
+
+			$rendered    = self::render_block( $block_name, $attributes, $inner_content );
+			$full_length = $close_pos + strlen( $close_tag ) - $open_pos;
+			$content     = substr_replace( $content, $rendered, $open_pos, $full_length );
+			$offset      = $open_pos + strlen( $rendered );
+		}
+
+		return $content;
+	}
+
+	/**
+	 * Replace self-closing alias tags.
+	 *
+	 * @param string               $content The content to process.
+	 * @param array<string,string> $aliases Custom tag => block name map.
+	 *
+	 * @return string Processed content.
+	 */
+	private static function replace_self_closing_alias_tags( string $content, array $aliases ): string {
+		if ( empty( $aliases ) ) {
+			return $content;
+		}
+
+		$pattern = '/<([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(\s[^>]*)?\s*\/>/si';
+
+		return preg_replace_callback(
+			$pattern,
+			function ( $matches ) use ( $aliases ) {
+				$tag_name = strtolower( $matches[1] );
+
+				if ( ! isset( $aliases[ $tag_name ] ) ) {
+					return $matches[0];
+				}
+
+				$attr_string = trim( $matches[2] ?? '' );
+				$attributes  = self::parse_attributes( $attr_string );
+				$block_name  = self::check_allow_deny( $aliases[ $tag_name ] );
+
+				if ( ! $block_name ) {
+					return $matches[0];
+				}
+
+				return self::render_block( $block_name, $attributes );
+			},
+			$content
+		) ?? $content;
 	}
 
 	// -------------------------------------------------------------------------
@@ -329,6 +440,122 @@ class Block_Tags {
 	// -------------------------------------------------------------------------
 
 	/**
+	 * Return custom tag aliases for block tag parsing.
+	 *
+	 * Alias keys are lowercase custom-element names such as "dv-button".
+	 * Alias values are canonical block names such as "bsui/button".
+	 *
+	 * @return array<string,string>
+	 */
+	private static function get_tag_aliases(): array {
+		$aliases = apply_filters( 'blockstudio/block_tags/tag_aliases', array() );
+
+		if ( ! is_array( $aliases ) ) {
+			return array();
+		}
+
+		$normalized = array();
+
+		foreach ( $aliases as $tag_name => $block_name ) {
+			if ( ! is_string( $tag_name ) || ! is_string( $block_name ) ) {
+				continue;
+			}
+
+			$tag_name   = strtolower( trim( $tag_name ) );
+			$block_name = trim( $block_name );
+
+			if (
+				! preg_match( '/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/', $tag_name )
+				|| '' === $block_name
+				|| false === strpos( $block_name, '/' )
+			) {
+				continue;
+			}
+
+			$normalized[ $tag_name ] = $block_name;
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Whether content contains any configured alias tags.
+	 *
+	 * @param string               $content Content to inspect.
+	 * @param array<string,string> $aliases Custom tag => block name map.
+	 *
+	 * @return bool True when any alias opening tag appears.
+	 */
+	private static function has_alias_tags( string $content, array $aliases ): bool {
+		foreach ( $aliases as $tag_name => $_block_name ) {
+			if ( false !== strpos( $content, '<' . $tag_name ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Find the next configured alias tag opening.
+	 *
+	 * @param string               $content Content to scan.
+	 * @param int                  $offset  Start offset.
+	 * @param array<string,string> $aliases Custom tag => block name map.
+	 *
+	 * @return int|false Tag position, or false when none exists.
+	 */
+	private static function find_next_alias_tag( string $content, int $offset, array $aliases ) {
+		if ( empty( $aliases ) ) {
+			return false;
+		}
+
+		$len = strlen( $content );
+
+		// phpcs:ignore Generic.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition
+		while ( $offset < $len && false !== ( $pos = strpos( $content, '<', $offset ) ) ) {
+			if ( null !== self::parse_alias_open_tag( $content, $pos, $aliases ) ) {
+				return $pos;
+			}
+
+			$offset = $pos + 1;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Parse an alias opening tag at a given position.
+	 *
+	 * @param string               $content Content to parse.
+	 * @param int                  $pos     Position of the opening <.
+	 * @param array<string,string> $aliases Custom tag => block name map.
+	 *
+	 * @return array{tag_name:string,block_name:string,name_end:int}|null
+	 */
+	private static function parse_alias_open_tag( string $content, int $pos, array $aliases ): ?array {
+		if ( '<' !== ( $content[ $pos ] ?? '' ) || '/' === ( $content[ $pos + 1 ] ?? '' ) ) {
+			return null;
+		}
+
+		$remaining = substr( $content, $pos, 80 );
+		if ( ! preg_match( '/^<([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(?=[\s>\/])/i', $remaining, $matches ) ) {
+			return null;
+		}
+
+		$tag_name = strtolower( $matches[1] );
+		if ( ! isset( $aliases[ $tag_name ] ) ) {
+			return null;
+		}
+
+		return array(
+			'tag_name'   => $tag_name,
+			'block_name' => $aliases[ $tag_name ],
+			'name_end'   => $pos + 1 + strlen( $matches[1] ),
+		);
+	}
+
+	/**
 	 * Resolve a bs: tag name to a block name.
 	 *
 	 * First hyphen maps to namespace separator. Checks both Blockstudio
@@ -340,22 +567,27 @@ class Block_Tags {
 	 * @return string|false The full block name or false if not found.
 	 */
 	private static function resolve_bs_tag_name( string $tag_name, array $blocks ) {
-		$pos = strpos( $tag_name, '-' );
+		$pos = 0;
+		while ( true ) {
+			$pos = strpos( $tag_name, '-', $pos );
 
-		if ( false === $pos ) {
-			return false;
+			if ( false === $pos ) {
+				break;
+			}
+
+			$full_name = substr_replace( $tag_name, '/', $pos, 1 );
+
+			$is_registered = isset( $blocks[ $full_name ] )
+				|| \WP_Block_Type_Registry::get_instance()->is_registered( $full_name );
+
+			if ( $is_registered ) {
+				return self::check_allow_deny( $full_name );
+			}
+
+			++$pos;
 		}
 
-		$full_name = substr_replace( $tag_name, '/', $pos, 1 );
-
-		$is_registered = isset( $blocks[ $full_name ] )
-			|| \WP_Block_Type_Registry::get_instance()->is_registered( $full_name );
-
-		if ( ! $is_registered ) {
-			return false;
-		}
-
-		return self::check_allow_deny( $full_name );
+		return false;
 	}
 
 	/**
@@ -498,28 +730,48 @@ class Block_Tags {
 			return array();
 		}
 
-		$blocks = array();
-		$offset = 0;
-		$len    = strlen( $content );
+		$blocks  = array();
+		$offset  = 0;
+		$len     = strlen( $content );
+		$aliases = self::get_tag_aliases();
 
 		while ( $offset < $len ) {
-			$bs_pos    = strpos( $content, '<bs:', $offset );
-			$block_pos = strpos( $content, '<block ', $offset );
+			$bs_pos     = strpos( $content, '<bs:', $offset );
+			$block_pos  = strpos( $content, '<block ', $offset );
+			$alias_pos  = self::find_next_alias_tag( $content, $offset, $aliases );
+			$candidates = array();
 
-			if ( false === $bs_pos && false === $block_pos ) {
+			if ( false !== $bs_pos ) {
+				$candidates[] = array(
+					'pos'  => $bs_pos,
+					'type' => 'bs',
+				);
+			}
+			if ( false !== $block_pos ) {
+				$candidates[] = array(
+					'pos'  => $block_pos,
+					'type' => 'block',
+				);
+			}
+			if ( false !== $alias_pos ) {
+				$candidates[] = array(
+					'pos'  => $alias_pos,
+					'type' => 'alias',
+				);
+			}
+
+			if ( empty( $candidates ) ) {
 				break;
 			}
 
-			if ( false === $bs_pos ) {
-				$pos   = $block_pos;
-				$is_bs = false;
-			} elseif ( false === $block_pos ) {
-				$pos   = $bs_pos;
-				$is_bs = true;
-			} else {
-				$is_bs = $bs_pos < $block_pos;
-				$pos   = $is_bs ? $bs_pos : $block_pos;
-			}
+			usort(
+				$candidates,
+				static fn( array $a, array $b ): int => $a['pos'] <=> $b['pos']
+			);
+
+			$pos   = $candidates[0]['pos'];
+			$type  = $candidates[0]['type'];
+			$is_bs = 'bs' === $type;
 
 			$tag_name = '';
 			if ( $is_bs ) {
@@ -535,6 +787,15 @@ class Block_Tags {
 				}
 				$block_name = substr_replace( $tag_name, '/', strpos( $tag_name, '-' ), 1 );
 				$attr_start = $tag_end;
+			} elseif ( 'alias' === $type ) {
+				$parsed_alias = self::parse_alias_open_tag( $content, $pos, $aliases );
+				if ( null === $parsed_alias ) {
+					$offset = $pos + 1;
+					continue;
+				}
+				$tag_name   = $parsed_alias['tag_name'];
+				$block_name = $parsed_alias['block_name'];
+				$attr_start = $parsed_alias['name_end'];
 			} else {
 				$attr_start = $pos + 6;
 				$block_name = null;
@@ -550,7 +811,7 @@ class Block_Tags {
 			$attr_string     = trim( substr( $content, $attr_start, $attr_end - $attr_start ) );
 			$attrs           = self::parse_attributes( $attr_string );
 
-			if ( ! $is_bs ) {
+			if ( 'block' === $type ) {
 				$block_name = $attrs['name'] ?? '';
 				unset( $attrs['name'] );
 			}
@@ -565,6 +826,9 @@ class Block_Tags {
 				if ( $is_bs ) {
 					$close_tag = '</bs:' . $tag_name . '>';
 					$open_tag  = '<bs:' . $tag_name;
+				} elseif ( 'alias' === $type ) {
+					$close_tag = '</' . $tag_name . '>';
+					$open_tag  = '<' . $tag_name;
 				} else {
 					$close_tag = '</block>';
 					$open_tag  = '<block ';
@@ -616,6 +880,23 @@ class Block_Tags {
 	);
 
 	/**
+	 * HTML elements that should parse their inner HTML as child blocks when
+	 * mapped to a custom block.
+	 *
+	 * @var array<string, bool>
+	 */
+	private static array $html_container_tags = array(
+		'blockquote' => true,
+		'details'    => true,
+		'div'        => true,
+		'figure'     => true,
+		'ol'         => true,
+		'section'    => true,
+		'table'      => true,
+		'ul'         => true,
+	);
+
+	/**
 	 * Self-closing HTML tags.
 	 *
 	 * @var array<string, bool>
@@ -625,6 +906,39 @@ class Block_Tags {
 		'img' => true,
 		'br'  => true,
 	);
+
+	/**
+	 * Return the HTML element to block mapping.
+	 *
+	 * Mapping values may be block names or callables. Callable mappings receive
+	 * the element attributes, inner HTML, and tag name, and must return a block
+	 * name string.
+	 *
+	 * @return array<string, string|callable>
+	 */
+	private static function get_html_tag_map(): array {
+		$mapping = apply_filters( 'blockstudio/parser/element_mapping', self::$html_tag_map, null );
+
+		return is_array( $mapping ) ? $mapping : self::$html_tag_map;
+	}
+
+	/**
+	 * Resolve one HTML tag to a target block name.
+	 *
+	 * @param mixed  $mapping_value Block name string or callable mapper.
+	 * @param string $html_tag      HTML tag name.
+	 * @param array  $attrs         Parsed element attributes.
+	 * @param string $inner         Inner HTML.
+	 *
+	 * @return string Target block name, or empty string to skip.
+	 */
+	private static function resolve_html_block_name( mixed $mapping_value, string $html_tag, array $attrs, string $inner ): string {
+		if ( is_callable( $mapping_value ) ) {
+			$mapping_value = call_user_func( $mapping_value, $attrs, $inner, $html_tag );
+		}
+
+		return is_string( $mapping_value ) ? $mapping_value : '';
+	}
 
 	/**
 	 * Parse all elements including raw HTML tags (for pages/patterns).
@@ -641,9 +955,11 @@ class Block_Tags {
 			return array();
 		}
 
-		$blocks = array();
-		$offset = 0;
-		$len    = strlen( $content );
+		$blocks  = array();
+		$offset  = 0;
+		$len     = strlen( $content );
+		$map     = self::get_html_tag_map();
+		$aliases = self::get_tag_aliases();
 
 		while ( $offset < $len ) {
 			// Find next tag of any kind.
@@ -667,6 +983,38 @@ class Block_Tags {
 			}
 
 			// Check what kind of tag.
+			$parsed_alias = self::parse_alias_open_tag( $content, $tag_pos, $aliases );
+			if ( null !== $parsed_alias ) {
+				$result = self::parse_single_alias_tag( $content, $tag_pos, $parsed_alias );
+
+				if ( null !== $result ) {
+					$block_arr = $result['block'];
+
+					if ( ! empty( $result['inner'] ) ) {
+						$is_container = ! str_starts_with( $block_arr['blockName'], 'core/' );
+
+						if ( $is_container ) {
+							$inner_blocks = self::parse_all_elements( $result['inner'] );
+							$original_ic  = $block_arr['innerContent'];
+							$has_wrapper  = ! empty( $original_ic ) && is_string( $original_ic[0] );
+							$new_ic       = $has_wrapper ? array( $original_ic[0] ) : array();
+							foreach ( $inner_blocks as $ib ) {
+								$new_ic[] = null;
+							}
+							if ( $has_wrapper ) {
+								$new_ic[] = end( $original_ic );
+							}
+							$block_arr['innerBlocks']  = $inner_blocks;
+							$block_arr['innerContent'] = $new_ic;
+						}
+					}
+
+					$blocks[] = $block_arr;
+					$offset   = $result['offset'];
+					continue;
+				}
+			}
+
 			if ( '<bs:' === substr( $content, $tag_pos, 4 ) || '<block ' === substr( $content, $tag_pos, 7 ) ) {
 				$is_bs  = '<bs:' === substr( $content, $tag_pos, 4 );
 				$result = self::parse_single_block_tag( $content, $tag_pos, $is_bs );
@@ -700,13 +1048,14 @@ class Block_Tags {
 						if ( $is_container ) {
 							$inner_blocks = self::parse_all_elements( $result['inner'] );
 							$original_ic  = $block_arr['innerContent'];
-							$open_tag     = ! empty( $original_ic ) ? $original_ic[0] : '';
-							$close_tag    = ! empty( $original_ic ) ? end( $original_ic ) : '';
-							$new_ic       = array( $open_tag );
+							$has_wrapper  = ! empty( $original_ic ) && is_string( $original_ic[0] );
+							$new_ic       = $has_wrapper ? array( $original_ic[0] ) : array();
 							foreach ( $inner_blocks as $ib ) {
 								$new_ic[] = null;
 							}
-							$new_ic[]                  = $close_tag;
+							if ( $has_wrapper ) {
+								$new_ic[] = end( $original_ic );
+							}
 							$block_arr['innerBlocks']  = $inner_blocks;
 							$block_arr['innerContent'] = $new_ic;
 						}
@@ -734,10 +1083,10 @@ class Block_Tags {
 
 			// Raw HTML element.
 			$tag_match = array();
-			if ( preg_match( '/^<([a-z][a-z0-9]*)/i', substr( $content, $tag_pos, 20 ), $tag_match ) ) {
+			if ( preg_match( '/^<([a-z][a-z0-9]*)/i', substr( $content, $tag_pos, 80 ), $tag_match ) ) {
 				$html_tag = strtolower( $tag_match[1] );
 
-				if ( isset( self::$html_tag_map[ $html_tag ] ) ) {
+				if ( isset( $map[ $html_tag ] ) ) {
 					$gt_pos = self::find_closing_angle( $content, $tag_pos + 1 );
 					if ( false === $gt_pos ) {
 						$offset = $tag_pos + 1;
@@ -750,7 +1099,7 @@ class Block_Tags {
 					$attr_string = trim( substr( $content, $attr_start, $attr_end - $attr_start ) );
 					$attrs       = self::parse_attributes( $attr_string );
 					$inner       = '';
-					$block_name  = self::$html_tag_map[ $html_tag ];
+					$block_name  = '';
 
 					if ( ! $is_void ) {
 						$close_tag = '</' . $html_tag . '>';
@@ -767,9 +1116,18 @@ class Block_Tags {
 						$offset = $gt_pos + 1;
 					}
 
+					$block_name = self::resolve_html_block_name( $map[ $html_tag ], $html_tag, $attrs, $inner );
+					if ( '' === $block_name ) {
+						continue;
+					}
+
 					// Heading level from tag name.
-					if ( 'core/heading' === $block_name ) {
+					if ( preg_match( '/^h[1-6]$/', $html_tag ) ) {
 						$attrs['level'] = (int) substr( $html_tag, 1 );
+
+						if ( 'core/heading' !== $block_name && '' !== trim( $inner ) && ! isset( $attrs['content'] ) ) {
+							$attrs['content'] = trim( $inner );
+						}
 					}
 
 					// Ordered list.
@@ -813,19 +1171,22 @@ class Block_Tags {
 
 					// For container HTML elements, recursively parse with parse_all_elements.
 					$container_blocks = array( 'core/group', 'core/quote' );
-					if ( in_array( $block_name, $container_blocks, true ) && '' !== $inner ) {
+					$is_container     = in_array( $block_name, $container_blocks, true )
+						|| ( isset( self::$html_container_tags[ $html_tag ] ) && ! str_starts_with( $block_name, 'core/' ) );
+					if ( $is_container && '' !== $inner ) {
 						$inner_blocks = self::parse_all_elements( $inner );
 						$block_array  = self::build_block_array( $block_name, $attrs, '' );
 
-						// Rebuild innerContent using the wrapper from the trait renderer.
+						// Rebuild innerContent using wrapper fragments when the renderer provides them.
 						$original_ic = $block_array['innerContent'];
-						$open_tag    = ! empty( $original_ic ) ? $original_ic[0] : '';
-						$close_tag   = ! empty( $original_ic ) ? end( $original_ic ) : '';
-						$new_ic      = array( $open_tag );
+						$has_wrapper = ! empty( $original_ic ) && is_string( $original_ic[0] );
+						$new_ic      = $has_wrapper ? array( $original_ic[0] ) : array();
 						foreach ( $inner_blocks as $ib ) {
 							$new_ic[] = null;
 						}
-						$new_ic[]                    = $close_tag;
+						if ( $has_wrapper ) {
+							$new_ic[] = end( $original_ic );
+						}
 						$block_array['innerBlocks']  = $inner_blocks;
 						$block_array['innerContent'] = $new_ic;
 						$blocks[]                    = $block_array;
@@ -837,7 +1198,7 @@ class Block_Tags {
 			}
 
 			// Unknown HTML tag: create core/html block.
-			if ( preg_match( '/^<([a-z][a-z0-9]*)/i', substr( $content, $tag_pos, 20 ), $unk_match ) ) {
+			if ( preg_match( '/^<([a-z][a-z0-9]*)/i', substr( $content, $tag_pos, 80 ), $unk_match ) ) {
 				$unk_tag = strtolower( $unk_match[1] );
 				$gt_pos  = self::find_closing_angle( $content, $tag_pos + 1 );
 				if ( false !== $gt_pos ) {
@@ -876,6 +1237,50 @@ class Block_Tags {
 	}
 
 	/**
+	 * Parse a single alias tag at the given position.
+	 *
+	 * @param string $content      The content string.
+	 * @param int    $pos          Position of the opening <.
+	 * @param array  $parsed_alias Parsed alias metadata.
+	 *
+	 * @return array{block: array, inner: string, offset: int}|null Parsed block and new offset, or null.
+	 */
+	private static function parse_single_alias_tag( string $content, int $pos, array $parsed_alias ): ?array {
+		$tag_name   = $parsed_alias['tag_name'];
+		$block_name = $parsed_alias['block_name'];
+		$attr_start = $parsed_alias['name_end'];
+		$gt_pos     = self::find_closing_angle( $content, $attr_start );
+
+		if ( false === $gt_pos ) {
+			return null;
+		}
+
+		$is_self_closing = ( '/' === $content[ $gt_pos - 1 ] );
+		$attr_end        = $is_self_closing ? $gt_pos - 1 : $gt_pos;
+		$attr_string     = trim( substr( $content, $attr_start, $attr_end - $attr_start ) );
+		$attrs           = self::parse_attributes( $attr_string );
+		$inner           = '';
+		$offset          = $gt_pos + 1;
+
+		if ( ! $is_self_closing ) {
+			$close_tag = '</' . $tag_name . '>';
+			$open_tag  = '<' . $tag_name;
+			$close_pos = self::find_matching_close( $content, $gt_pos, $open_tag, $close_tag );
+			if ( false === $close_pos ) {
+				return null;
+			}
+			$inner  = substr( $content, $gt_pos + 1, $close_pos - $gt_pos - 1 );
+			$offset = $close_pos + strlen( $close_tag );
+		}
+
+		return array(
+			'block'  => self::build_block_array( $block_name, $attrs, $inner ),
+			'inner'  => $inner,
+			'offset' => $offset,
+		);
+	}
+
+	/**
 	 * Parse a single <block> or <bs:> tag at the given position.
 	 *
 	 * @param string $content The content string.
@@ -898,7 +1303,10 @@ class Block_Tags {
 			if ( '' === $tag_name || false === strpos( $tag_name, '-' ) ) {
 				return null;
 			}
-			$block_name = substr_replace( $tag_name, '/', strpos( $tag_name, '-' ), 1 );
+			$block_name = self::resolve_bs_tag_name( $tag_name, Build::blocks() );
+			if ( ! $block_name ) {
+				$block_name = substr_replace( $tag_name, '/', strpos( $tag_name, '-' ), 1 );
+			}
 			$attr_start = $tag_end;
 		} else {
 			$attr_start = $pos + 6;
@@ -1531,8 +1939,10 @@ class Block_Tags {
 		if ( isset( $bs_blocks[ $block_name ] ) ) {
 			// Pre-process all nested tags for Blockstudio blocks.
 			if ( '' !== $inner_content ) {
+				$aliases    = self::get_tag_aliases();
 				$has_nested = false !== strpos( $inner_content, '<bs:' )
-					|| false !== strpos( $inner_content, '<block ' );
+					|| false !== strpos( $inner_content, '<block ' )
+					|| self::has_alias_tags( $inner_content, $aliases );
 				if ( $has_nested ) {
 					$inner_content = self::render( $inner_content );
 				}

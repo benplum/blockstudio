@@ -30,6 +30,23 @@ class BlockTagsParserTest extends TestCase {
 		$this->assertSame( 'core/separator', $blocks[0]['blockName'] );
 	}
 
+	public function test_self_closing_alias_tag(): void {
+		$filter = static function (): array {
+			return array( 'dv-separator' => 'core/separator' );
+		};
+
+		add_filter( 'blockstudio/block_tags/tag_aliases', $filter );
+
+		try {
+			$blocks = Block_Tags::parse_inner_blocks( '<dv-separator />' );
+		} finally {
+			remove_filter( 'blockstudio/block_tags/tag_aliases', $filter );
+		}
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'core/separator', $blocks[0]['blockName'] );
+	}
+
 	public function test_paired_bs_tag(): void {
 		$blocks = Block_Tags::parse_inner_blocks( '<bs:core-paragraph>Hello</bs:core-paragraph>' );
 		$this->assertCount( 1, $blocks );
@@ -42,6 +59,29 @@ class BlockTagsParserTest extends TestCase {
 		$this->assertCount( 1, $blocks );
 		$this->assertSame( 'core/paragraph', $blocks[0]['blockName'] );
 		$this->assertStringContainsString( 'World', $blocks[0]['innerHTML'] );
+	}
+
+	public function test_paired_alias_tag_with_nested_alias_tag(): void {
+		$filter = static function (): array {
+			return array(
+				'dv-group'     => 'core/group',
+				'dv-paragraph' => 'core/paragraph',
+			);
+		};
+
+		add_filter( 'blockstudio/block_tags/tag_aliases', $filter );
+
+		try {
+			$blocks = Block_Tags::parse_inner_blocks( '<dv-group><dv-paragraph>Inside</dv-paragraph></dv-group>' );
+		} finally {
+			remove_filter( 'blockstudio/block_tags/tag_aliases', $filter );
+		}
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'core/group', $blocks[0]['blockName'] );
+		$this->assertCount( 1, $blocks[0]['innerBlocks'] );
+		$this->assertSame( 'core/paragraph', $blocks[0]['innerBlocks'][0]['blockName'] );
+		$this->assertStringContainsString( 'Inside', $blocks[0]['innerBlocks'][0]['innerHTML'] );
 	}
 
 	// -------------------------------------------------------------------------

@@ -46,6 +46,115 @@ class BlockTagsHtmlParsingTest extends TestCase {
 		$this->assertSame( 'core/group', $blocks[0]['blockName'] );
 	}
 
+	public function test_alias_tags_parse_before_html_fallback(): void {
+		$filter = static function (): array {
+			return array(
+				'dv-card'      => 'theme/card',
+				'dv-paragraph' => 'core/paragraph',
+			);
+		};
+
+		add_filter( 'blockstudio/block_tags/tag_aliases', $filter );
+
+		try {
+			$blocks = Block_Tags::parse_all_elements(
+				'<dv-card title="Feature"><dv-paragraph>Alias child</dv-paragraph></dv-card>'
+			);
+		} finally {
+			remove_filter( 'blockstudio/block_tags/tag_aliases', $filter );
+		}
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'theme/card', $blocks[0]['blockName'] );
+		$this->assertSame( 'Feature', $blocks[0]['attrs']['title'] ?? null );
+		$this->assertCount( 1, $blocks[0]['innerBlocks'] );
+		$this->assertSame( 'core/paragraph', $blocks[0]['innerBlocks'][0]['blockName'] );
+		$this->assertStringContainsString( 'Alias child', $blocks[0]['innerBlocks'][0]['innerHTML'] );
+	}
+
+	public function test_unknown_custom_element_keeps_existing_text_fallback(): void {
+		$blocks = Block_Tags::parse_all_elements( '<dv-unknown>Raw</dv-unknown>' );
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'core/paragraph', $blocks[0]['blockName'] );
+		$this->assertStringContainsString( 'Raw', $blocks[0]['innerHTML'] );
+	}
+
+	public function test_element_mapping_filter_maps_html_elements_to_custom_blocks(): void {
+		$filter = static function ( array $mapping ): array {
+			$mapping['section'] = 'theme/section';
+			$mapping['h1']      = 'theme/heading';
+			$mapping['img']     = 'theme/image';
+
+			return $mapping;
+		};
+
+		add_filter( 'blockstudio/parser/element_mapping', $filter );
+
+		try {
+			$blocks = Block_Tags::parse_all_elements(
+				'<section variant="hero"><h1 class="h1">Title</h1><img src="hero.png" alt="Hero" /></section>'
+			);
+		} finally {
+			remove_filter( 'blockstudio/parser/element_mapping', $filter );
+		}
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'theme/section', $blocks[0]['blockName'] );
+		$this->assertSame( 'hero', $blocks[0]['attrs']['variant'] );
+		$this->assertCount( 2, $blocks[0]['innerBlocks'] );
+
+		$heading = $blocks[0]['innerBlocks'][0];
+		$this->assertSame( 'theme/heading', $heading['blockName'] );
+		$this->assertSame( 1, $heading['attrs']['level'] );
+		$this->assertSame( 'Title', $heading['attrs']['content'] );
+		$this->assertSame( 'h1', $heading['attrs']['class'] );
+
+		$image = $blocks[0]['innerBlocks'][1];
+		$this->assertSame( 'theme/image', $image['blockName'] );
+		$this->assertSame( 'hero.png', $image['attrs']['src'] );
+		$this->assertSame( 'Hero', $image['attrs']['alt'] );
+	}
+
+	public function test_element_mapping_filter_supports_attribute_aware_mappers(): void {
+		$filter = static function ( array $mapping ): array {
+			$mapping['div'] = static function ( array $attrs ): string {
+				if ( isset( $attrs['width'] ) ) {
+					return 'theme/row';
+				}
+
+				if ( isset( $attrs['gap'] ) ) {
+					return 'theme/flow';
+				}
+
+				return 'theme/div';
+			};
+
+			return $mapping;
+		};
+
+		add_filter( 'blockstudio/parser/element_mapping', $filter );
+
+		try {
+			$blocks = Block_Tags::parse_all_elements(
+				'<div width="wide"><div gap="1rem"><p>Inside</p></div></div>'
+			);
+		} finally {
+			remove_filter( 'blockstudio/parser/element_mapping', $filter );
+		}
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'theme/row', $blocks[0]['blockName'] );
+		$this->assertSame( 'wide', $blocks[0]['attrs']['width'] );
+		$this->assertCount( 1, $blocks[0]['innerBlocks'] );
+
+		$flow = $blocks[0]['innerBlocks'][0];
+		$this->assertSame( 'theme/flow', $flow['blockName'] );
+		$this->assertSame( '1rem', $flow['attrs']['gap'] );
+		$this->assertCount( 1, $flow['innerBlocks'] );
+		$this->assertSame( 'core/paragraph', $flow['innerBlocks'][0]['blockName'] );
+	}
+
 	public function test_blockquote_becomes_quote(): void {
 		$blocks = Block_Tags::parse_all_elements( '<blockquote><p>Quoted</p></blockquote>' );
 		$this->assertSame( 'core/quote', $blocks[0]['blockName'] );
@@ -292,6 +401,30 @@ class BlockTagsHtmlParsingTest extends TestCase {
 		$this->assertSame( 'core/paragraph', $blocks[0]['innerBlocks'][0]['blockName'] );
 		$this->assertSame( 'core/heading', $blocks[0]['innerBlocks'][1]['blockName'] );
 		$this->assertSame( 'core/paragraph', $blocks[0]['innerBlocks'][2]['blockName'] );
+		$this->assertCount( 3, $blocks[0]['innerContent'] );
+		$this->assertSame( array( null, null, null ), $blocks[0]['innerContent'] );
+	}
+
+	public function test_bs_syntax_resolves_hyphenated_namespaces(): void {
+		register_block_type(
+			'custom-theme/panel',
+			array(
+				'render_callback' => static fn (): string => '',
+			)
+		);
+
+		try {
+			$blocks = Block_Tags::parse_all_elements(
+				'<bs:custom-theme-panel><p>Panel content</p></bs:custom-theme-panel>'
+			);
+		} finally {
+			unregister_block_type( 'custom-theme/panel' );
+		}
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'custom-theme/panel', $blocks[0]['blockName'] );
+		$this->assertCount( 1, $blocks[0]['innerBlocks'] );
+		$this->assertSame( array( null ), $blocks[0]['innerContent'] );
 	}
 
 	public function test_non_core_block_with_attributes_and_inner_content(): void {

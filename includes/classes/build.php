@@ -92,6 +92,298 @@ class Build {
 	}
 
 	/**
+	 * Normalize plugin dependencies from blockstudio.pluginDependencies.
+	 *
+	 * @param mixed $plugin_dependencies The dependency list from block.json.
+	 *
+	 * @return array<string, array{version?: string}> Dependencies keyed by plugin slug.
+	 */
+	public static function normalize_plugin_dependencies( $plugin_dependencies ): array {
+		if ( ! is_array( $plugin_dependencies ) ) {
+			return array();
+		}
+
+		$normalized = array();
+
+		if ( array_is_list( $plugin_dependencies ) ) {
+			foreach ( $plugin_dependencies as $dependency ) {
+				$slug = self::sanitize_plugin_dependency_slug( $dependency );
+
+				if ( false === $slug ) {
+					continue;
+				}
+
+				$normalized[ $slug ] = array();
+			}
+
+			return $normalized;
+		}
+
+		foreach ( $plugin_dependencies as $slug => $dependency ) {
+			$slug = self::sanitize_plugin_dependency_slug( $slug );
+
+			if ( false === $slug ) {
+				continue;
+			}
+
+			$normalized[ $slug ] = array();
+
+			if ( is_array( $dependency ) && isset( $dependency['version'] ) && is_string( $dependency['version'] ) ) {
+				$version = trim( $dependency['version'] );
+
+				if ( '' !== $version ) {
+					$normalized[ $slug ]['version'] = $version;
+				}
+			}
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Check whether all plugin dependencies are active.
+	 *
+	 * @param mixed $plugin_dependencies The dependency list from block.json.
+	 *
+	 * @return bool Whether all dependencies are active.
+	 */
+	public static function has_active_plugin_dependencies( $plugin_dependencies ): bool {
+		$plugin_dependencies = self::normalize_plugin_dependencies( $plugin_dependencies );
+
+		if ( empty( $plugin_dependencies ) ) {
+			return true;
+		}
+
+		$active_plugins = self::get_active_plugin_dependency_data();
+
+		foreach ( $plugin_dependencies as $slug => $dependency ) {
+			if ( ! isset( $active_plugins[ $slug ] ) ) {
+				return false;
+			}
+
+			if (
+				! empty( $dependency['version'] ) &&
+				! self::is_plugin_dependency_version_compatible(
+					$active_plugins[ $slug ]['version'] ?? '',
+					$dependency['version']
+				)
+			) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Check whether an installed plugin version satisfies a dependency constraint.
+	 *
+	 * @param string $installed_version The installed plugin version.
+	 * @param string $constraint        The version constraint.
+	 *
+	 * @return bool Whether the installed version satisfies the constraint.
+	 */
+	public static function is_plugin_dependency_version_compatible(
+		string $installed_version,
+		string $constraint
+	): bool {
+		$installed_version = trim( $installed_version );
+		$constraint        = trim( $constraint );
+
+		if ( '' === $constraint ) {
+			return true;
+		}
+
+		if ( '' === $installed_version ) {
+			return false;
+		}
+
+		$operator = '>=';
+		$version  = $constraint;
+
+		if ( preg_match( '/^(>=|<=|==|!=|<>|>|<|=|gt|ge|lt|le|eq|ne)\s*(.+)$/i', $constraint, $matches ) ) {
+			$operator = strtolower( $matches[1] );
+			$version  = trim( $matches[2] );
+		}
+
+		$operators = array(
+			'gt' => '>',
+			'ge' => '>=',
+			'lt' => '<',
+			'le' => '<=',
+			'eq' => '==',
+			'ne' => '!=',
+			'='  => '==',
+		);
+
+		$operator = $operators[ $operator ] ?? $operator;
+
+		if ( '' === $version ) {
+			return false;
+		}
+
+		return version_compare( $installed_version, $version, $operator );
+	}
+
+	/**
+	 * Get active plugin data keyed by WordPress plugin slug.
+	 *
+	 * @return array<string, array{file: string, version: string}> Active plugin data.
+	 */
+	private static function get_active_plugin_dependency_data(): array {
+		if ( ! function_exists( 'get_plugins' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		$active_plugins = (array) get_option( 'active_plugins', array() );
+
+		if ( is_multisite() ) {
+			$network_plugins = get_site_option( 'active_sitewide_plugins', array() );
+
+			if ( is_array( $network_plugins ) ) {
+				$active_plugins = array_merge( $active_plugins, array_keys( $network_plugins ) );
+			}
+		}
+
+		$installed_plugins = get_plugins();
+		$plugins           = array();
+
+		foreach ( $active_plugins as $plugin_file ) {
+			if ( ! is_string( $plugin_file ) ) {
+				continue;
+			}
+
+			$plugin_file = trim( str_replace( '\\', '/', $plugin_file ), " \t\n\r\0\x0B/" );
+
+			if ( '' === $plugin_file ) {
+				continue;
+			}
+
+			$slug = self::plugin_file_to_slug( $plugin_file );
+
+			$plugins[ $slug ] = array(
+				'file'    => $plugin_file,
+				'version' => $installed_plugins[ $plugin_file ]['Version'] ?? '',
+			);
+		}
+
+		return $plugins;
+	}
+
+	/**
+	 * Sanitize a plugin dependency slug the same way WordPress core does.
+	 *
+	 * @param mixed $slug The plugin slug.
+	 *
+	 * @return string|false The sanitized slug, or false when invalid.
+	 */
+	private static function sanitize_plugin_dependency_slug( $slug ): string|false {
+		if ( ! is_string( $slug ) ) {
+			return false;
+		}
+
+		$slug = trim( $slug );
+
+		if ( '' === $slug ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Mirrors WordPress core plugin dependency slug normalization.
+		$slug = apply_filters( 'wp_plugin_dependencies_slug', $slug );
+
+		if ( ! is_string( $slug ) ) {
+			return false;
+		}
+
+		$slug = trim( $slug );
+
+		if ( preg_match( '/^[a-z0-9]+(-[a-z0-9]+)*$/mu', $slug ) ) {
+			return $slug;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Convert an active plugin filepath to its WordPress dependency slug.
+	 *
+	 * @param string $plugin_file The plugin file relative to the plugins directory.
+	 *
+	 * @return string The plugin slug.
+	 */
+	private static function plugin_file_to_slug( string $plugin_file ): string {
+		if ( 'hello.php' === $plugin_file ) {
+			return 'hello-dolly';
+		}
+
+		return str_contains( $plugin_file, '/' )
+			? dirname( $plugin_file )
+			: str_replace( '.php', '', $plugin_file );
+	}
+
+	/**
+	 * Check whether a block.json entry may register for the active plugins.
+	 *
+	 * @param array $block_json The block.json data.
+	 *
+	 * @return bool Whether plugin dependencies are satisfied.
+	 */
+	private static function has_satisfied_plugin_dependencies( array $block_json ): bool {
+		$blockstudio = $block_json['blockstudio'] ?? array();
+
+		if ( ! is_array( $blockstudio ) || ! array_key_exists( 'pluginDependencies', $blockstudio ) ) {
+			return true;
+		}
+
+		return self::has_active_plugin_dependencies( $blockstudio['pluginDependencies'] );
+	}
+
+	/**
+	 * Remove discovered blocks whose plugin dependencies are not active.
+	 *
+	 * @param array $store           Discovered block data.
+	 * @param array $registerable    Discovered registration data.
+	 * @param array $overrides       Discovered overrides.
+	 * @param array $block_json_data Discovered block.json data.
+	 *
+	 * @return void
+	 */
+	private static function filter_missing_plugin_dependencies(
+		array &$store,
+		array &$registerable,
+		array &$overrides,
+		array $block_json_data
+	): void {
+		$skipped = array();
+
+		foreach ( $block_json_data as $name => $block_json ) {
+			if ( ! is_array( $block_json ) || self::has_satisfied_plugin_dependencies( $block_json ) ) {
+				continue;
+			}
+
+			$skipped[ $name ] = true;
+		}
+
+		if ( empty( $skipped ) ) {
+			return;
+		}
+
+		foreach ( array_keys( $skipped ) as $name ) {
+			unset( $store[ $name ], $registerable[ $name ] );
+		}
+
+		foreach ( $overrides as $override_key => $override_info ) {
+			$name = is_array( $override_info )
+				? ( $override_info['name'] ?? $override_key )
+				: $override_key;
+
+			if ( isset( $skipped[ $name ] ) ) {
+				unset( $overrides[ $override_key ] );
+			}
+		}
+	}
+
+	/**
 	 * Filter deep array everything but a given string.
 	 *
 	 * @since 3.1.1
@@ -833,12 +1125,24 @@ class Build {
 		$registry->set_blade_instance( $instance, $path );
 
 		// Phase 1: Discover blocks using Block_Discovery.
-		$discovery = new Block_Discovery();
-		$results   = $discovery->discover( $path, $instance, $editor );
+		$results = Perf::measure(
+			'build:discovery',
+			static function () use ( $path, $instance, $editor ): array {
+				$discovery = new Block_Discovery();
+				return $discovery->discover( $path, $instance, $editor );
+			}
+		);
 
 		$store        = $results['store'];
 		$registerable = $results['registerable'];
 		$overrides    = $results['overrides'];
+
+		self::filter_missing_plugin_dependencies(
+			$store,
+			$registerable,
+			$overrides,
+			$results['block_json_data'] ?? array()
+		);
 
 		// Register blade templates.
 		foreach ( $results['blade_templates'] as $blade_instance => $templates ) {
@@ -855,54 +1159,59 @@ class Build {
 		}
 
 		// Phase 2: Process assets for each discovered item.
-		foreach ( $store as $name => &$data ) {
-			$file_dir = dirname( $data['path'] );
+		Perf::measure(
+			'build:assets',
+			static function () use ( &$store, $instance, $editor, $registry, &$empty_dist_folders ): void {
+				foreach ( $store as $name => &$data ) {
+					$file_dir = dirname( $data['path'] );
 
-			if ( Settings::get( 'assets/enqueue' ) || $editor ) {
-				$processed_assets = self::process_block_assets(
-					$data,
-					$name,
-					$instance,
-					$editor,
-					$registry
-				);
+					if ( Settings::get( 'assets/enqueue' ) || $editor ) {
+						$processed_assets = self::process_block_assets(
+							$data,
+							$name,
+							$instance,
+							$editor,
+							$registry
+						);
 
-				// Cleanup dist folder.
-				$dist_folder          = $file_dir . '/_dist';
-				$all_processed_assets = Files::get_files_recursively_and_delete_empty_folders(
-					$dist_folder
-				);
+						// Cleanup dist folder.
+						$dist_folder          = $file_dir . '/_dist';
+						$all_processed_assets = Files::get_files_recursively_and_delete_empty_folders(
+							$dist_folder
+						);
 
-				if ( ! $editor ) {
-					foreach ( $all_processed_assets as $file_path ) {
-						if (
-							! in_array( $file_path, $processed_assets, true ) &&
-							file_exists( $file_path )
-						) {
-							unlink( $file_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
+						if ( ! $editor ) {
+							foreach ( $all_processed_assets as $file_path ) {
+								if (
+									! in_array( $file_path, $processed_assets, true ) &&
+									file_exists( $file_path )
+								) {
+									unlink( $file_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
+								}
+							}
+
+							foreach ( $all_processed_assets as $file_path ) {
+								$directory = dirname( $file_path );
+								if (
+									false !== glob( $directory . '/*' ) &&
+									0 !== count( glob( $directory . '/*' ) )
+								) {
+									continue;
+								}
+
+								if ( is_dir( $directory ) ) {
+									rmdir( $directory ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir
+								}
+							}
+
+							if ( Files::is_directory_empty( $dist_folder ) ) {
+								$empty_dist_folders[] = $dist_folder;
+							}
 						}
-					}
-
-					foreach ( $all_processed_assets as $file_path ) {
-						$directory = dirname( $file_path );
-						if (
-							false !== glob( $directory . '/*' ) &&
-							0 !== count( glob( $directory . '/*' ) )
-						) {
-							continue;
-						}
-
-						if ( is_dir( $directory ) ) {
-							rmdir( $directory ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir
-						}
-					}
-
-					if ( Files::is_directory_empty( $dist_folder ) ) {
-						$empty_dist_folders[] = $dist_folder;
 					}
 				}
 			}
-		}
+		);
 		unset( $data ); // Break reference.
 
 		// Phase 2.5: Discover custom fields.
@@ -962,25 +1271,30 @@ class Build {
 				$block_lookup[ $reg_name ] = $reg_item['block_json'];
 			}
 
-			foreach ( $registerable as $name => $item ) {
-				if ( $item['classification']['is_native'] ?? false ) {
-					$native_dir = dirname( $item['data']['path'] );
-					if ( ! \WP_Block_Type_Registry::get_instance()->is_registered( $name ) ) {
-						\register_block_type( $native_dir );
-					}
-					continue;
-				}
+			Perf::measure(
+				'build:registration',
+				static function () use ( $registerable, $registry, $block_lookup ): void {
+					foreach ( $registerable as $name => $item ) {
+						if ( $item['classification']['is_native'] ?? false ) {
+							$native_dir = dirname( $item['data']['path'] );
+							if ( ! \WP_Block_Type_Registry::get_instance()->is_registered( $name ) ) {
+								\register_block_type( $native_dir );
+							}
+							continue;
+						}
 
-				self::register_block_type(
-					$item['data'],
-					$item['block_json'],
-					$item['classification'],
-					$item['contents'],
-					$name,
-					$registry,
-					$block_lookup
-				);
-			}
+						self::register_block_type(
+							$item['data'],
+							$item['block_json'],
+							$item['classification'],
+							$item['contents'],
+							$name,
+							$registry,
+							$block_lookup
+						);
+					}
+				}
+			);
 		}
 
 		// Final processing.
@@ -1011,7 +1325,12 @@ class Build {
 		}
 
 		// Apply overrides.
-		self::apply_overrides( $registry );
+		Perf::measure(
+			'build:overrides',
+			static function () use ( $registry ): void {
+				self::apply_overrides( $registry );
+			}
+		);
 
 		// Enqueue Interactivity API if any block needs it.
 		if ( ! self::$interactivity_api_rendered ) {
@@ -1083,6 +1402,13 @@ class Build {
 
 			$discovery = new Block_Discovery();
 			$results   = $discovery->discover( $path, $instance, false );
+
+			self::filter_missing_plugin_dependencies(
+				$results['store'],
+				$results['registerable'],
+				$results['overrides'],
+				$results['block_json_data'] ?? array()
+			);
 
 			$refresh_lookup = array();
 			foreach ( $results['registerable'] as $reg_name => $reg_item ) {
@@ -1729,24 +2055,30 @@ class Build {
 			$block->variations = $variations;
 		}
 
-		$disable_loading = $block_json['blockstudio']['blockEditor']['disableLoading']
+		$disable_loading      = $block_json['blockstudio']['blockEditor']['disableLoading']
 			?? ( Settings::get( 'blockEditor/disableLoading' ) ?? false );
+		$blockstudio_settings = is_array( $block_json['blockstudio'] ?? null )
+			? $block_json['blockstudio']
+			: array();
 
 		$block->blockstudio = array(
-			'attributes'    => $filtered_attributes,
-			'blockEditor'   => array(
+			'attributes'         => $filtered_attributes,
+			'blockEditor'        => array(
 				'disableLoading' => $disable_loading,
 			),
-			'component'     => $classification['is_component'] ?? false,
-			'conditions'    => $block->blockstudio['conditions'] ?? true,
-			'editor'        => $block->blockstudio['editor'] ?? false,
-			'extend'        => $block->blockstudio['extend'] ?? false,
-			'group'         => $block->blockstudio['group'] ?? false,
-			'icon'          => $block->blockstudio['icon'] ?? null,
-			'interactivity' => $block->blockstudio['interactivity'] ?? false,
-			'refreshOn'     => $block->blockstudio['refreshOn'] ?? false,
-			'transforms'    => $block->blockstudio['transforms'] ?? false,
-			'variations'    => $block->variations ?? false,
+			'component'          => $classification['is_component'] ?? false,
+			'conditions'         => $block->blockstudio['conditions'] ?? true,
+			'pluginDependencies' => self::normalize_plugin_dependencies(
+				$blockstudio_settings['pluginDependencies'] ?? array()
+			),
+			'editor'             => $block->blockstudio['editor'] ?? false,
+			'extend'             => $block->blockstudio['extend'] ?? false,
+			'group'              => $block->blockstudio['group'] ?? false,
+			'icon'               => $block->blockstudio['icon'] ?? null,
+			'interactivity'      => $block->blockstudio['interactivity'] ?? false,
+			'refreshOn'          => $block->blockstudio['refreshOn'] ?? false,
+			'transforms'         => $block->blockstudio['transforms'] ?? false,
+			'variations'         => $block->variations ?? false,
 		);
 
 		if ( $is_override ) {

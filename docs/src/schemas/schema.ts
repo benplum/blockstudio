@@ -546,7 +546,8 @@ export const schema = async (extensions = false) => {
       },
       withCreateSuggestion: {
         type: 'boolean',
-        description: 'Whether to allow creation of link value from suggestion.',
+        description:
+          'Whether unmatched link searches can create a new draft page suggestion.',
       },
     },
   };
@@ -1149,6 +1150,36 @@ export const schema = async (extensions = false) => {
               type: 'boolean',
               description:
                 'Whether this block is a component. Components go through the full Blockstudio pipeline but do not appear in the editor inserter. They can only be rendered via block tags or bs_render_block().',
+            },
+            pluginDependencies: {
+              anyOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    pattern: '^[a-z0-9]+(-[a-z0-9]+)*$',
+                  },
+                },
+                {
+                  type: 'object',
+                  propertyNames: {
+                    pattern: '^[a-z0-9]+(-[a-z0-9]+)*$',
+                  },
+                  additionalProperties: {
+                    type: 'object',
+                    properties: {
+                      version: {
+                        type: 'string',
+                        description:
+                          'Version constraint checked against the active plugin version using version_compare(). A version without an operator is treated as >=.',
+                      },
+                    },
+                    additionalProperties: false,
+                  },
+                },
+              ],
+              description:
+                'WordPress plugin dependencies that must be active before this block is registered. Use WordPress plugin slugs.',
             },
             override: {
               type: 'boolean',

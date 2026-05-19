@@ -21,6 +21,7 @@
   },
   "blockEditor": {
     "disableLoading": false,
+    "enhance": true,
     "cssClasses": ["wp-block-library-theme"],
     "cssVariables": ["global-styles-css-custom-properties"]
   },

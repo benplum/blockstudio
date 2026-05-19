@@ -20,7 +20,13 @@ final class ProjectScanner
 
     private bool $scanned = false;
 
-    public function __construct(private readonly string $currentWorkingDirectory) {}
+    /**
+     * @param list<string> $additionalScanRoots
+     */
+    public function __construct(
+        private readonly string $currentWorkingDirectory,
+        private readonly array $additionalScanRoots = []
+    ) {}
 
     /**
      * @return list<string>
@@ -71,20 +77,25 @@ final class ProjectScanner
         }
         $this->scanned = true;
 
-        $roots = $this->getScanRoots();
-
-        foreach ($roots as $root) {
+        foreach ($this->getProjectScanRoots() as $root) {
             if (!is_dir($root)) {
                 continue;
             }
-            $this->walkDirectory($root);
+            $this->walkDirectory($root, true);
+        }
+
+        foreach ($this->additionalScanRoots as $root) {
+            if (!is_dir($root)) {
+                continue;
+            }
+            $this->walkDirectory($root, false);
         }
     }
 
     /**
      * @return list<string>
      */
-    private function getScanRoots(): array
+    private function getProjectScanRoots(): array
     {
         $candidates = [
             $this->currentWorkingDirectory . '/blockstudio',
@@ -93,10 +104,13 @@ final class ProjectScanner
             $this->currentWorkingDirectory,
         ];
 
-        return array_values(array_unique($candidates));
+        return array_values(array_unique(array_filter(
+            $candidates,
+            static fn(string $path): bool => $path !== ''
+        )));
     }
 
-    private function walkDirectory(string $dir): void
+    private function walkDirectory(string $dir, bool $includeInProjectPaths): void
     {
         if ($this->shouldSkipDirectory($dir)) {
             return;
@@ -124,10 +138,13 @@ final class ProjectScanner
                 continue;
             }
             $path = $file->getPathname();
-            if (in_array($path, $this->blockJsonPaths, true)) {
-                continue;
+
+            if ($includeInProjectPaths) {
+                if (in_array($path, $this->blockJsonPaths, true)) {
+                    continue;
+                }
+                $this->blockJsonPaths[] = $path;
             }
-            $this->blockJsonPaths[] = $path;
 
             $name = $this->extractBlockName($path);
             if ($name !== null) {

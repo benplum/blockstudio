@@ -14,6 +14,7 @@ import { getAttributes } from '@/blocks/components/block/utils/get-attributes';
 import { getInnerHTML as getFirstElementContent } from '@/blocks/components/block/utils/get-first-element-content';
 import { getRegex } from '@/blocks/components/block/utils/get-regex';
 import { Placeholder } from '@/blocks/components/placeholder';
+import { markEditorBlockRendered } from '@/blocks/editor-readiness';
 import { dispatch } from '@/blocks/utils/dispatch';
 import {
   Any,
@@ -40,6 +41,46 @@ interface RenderState {
   hasMarkup: boolean;
   hasBlockProps: boolean | null;
 }
+
+const getDocumentFrameElement = (): HTMLElement | null => {
+  try {
+    return window.frameElement instanceof HTMLElement
+      ? window.frameElement
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const isPreviewFrameElement = (frameElement: HTMLElement | null): boolean =>
+  !!frameElement &&
+  (
+    frameElement.classList.contains('block-editor-block-preview__content-iframe') ||
+    !!frameElement.closest('.block-editor-block-preview')
+  );
+
+const getDocumentRenderMode = (): 'editor' | 'preview' => {
+  const frameElement = getDocumentFrameElement();
+
+  if (frameElement?.getAttribute('name') === 'editor-canvas') {
+    return 'editor';
+  }
+
+  if (isPreviewFrameElement(frameElement)) {
+    return 'preview';
+  }
+
+  if (
+    typeof document !== 'undefined' &&
+    document.documentElement.classList.contains(
+      'block-editor-block-preview__content-iframe',
+    )
+  ) {
+    return 'preview';
+  }
+
+  return 'editor';
+};
 
 export const Block = ({
   attributes,
@@ -178,6 +219,7 @@ export const Block = ({
   }
 
   const firstRenderDone = useRef<boolean | null>(null);
+  const renderedModeRef = useRef<'editor' | 'preview' | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
   const attributesRef = useRef(attributes);
   const prevContextRef = useRef(JSON.stringify(context));
@@ -200,12 +242,19 @@ export const Block = ({
       return { markup: null, hasMarkup: false, hasBlockProps: null };
     }
 
-    const preloaded = renderCache.claimPreloaded(block.name, clientId);
+    const mode = getDocumentRenderMode();
+    const preloaded = renderCache.claimPreloaded(
+      block.name,
+      clientId,
+      attributes,
+      mode,
+    );
 
     if (preloaded) {
-      const hash = computeHash(block.name, attributes, 'editor');
+      const hash = computeHash(block.name, attributes, mode);
       renderCache.set(hash, preloaded, block.name);
       firstRenderDone.current = true;
+      renderedModeRef.current = mode;
       return computeRender(preloaded);
     }
 
@@ -222,21 +271,60 @@ export const Block = ({
     });
   };
 
-  const updateRender = (rendered: string) => {
+  const updateRender = (rendered: string, mode?: 'editor' | 'preview') => {
+    if (mode) {
+      renderedModeRef.current = mode;
+    }
+
     setRenderState(computeRender(rendered));
   };
 
-  const getPostParams = () => ({
-    blockstudioMode: ref.current?.closest(
-      '.block-editor-block-preview__content-iframe',
-    )
+  const getRenderMode = (): 'editor' | 'preview' => {
+    const frameElement = getDocumentFrameElement();
+    if (frameElement?.getAttribute('name') === 'editor-canvas') {
+      return 'editor';
+    }
+
+    return ref.current?.closest('.block-editor-block-preview__content-iframe')
       ? 'preview'
-      : 'editor',
+      : getDocumentRenderMode();
+  };
+
+  const getPostParams = (mode: 'editor' | 'preview' = getRenderMode()) => ({
+    blockstudioMode: mode,
     postId,
     contextPostId: attributes.blockstudio?.contextBlock?.postId || postId,
     contextPostType:
       attributes.blockstudio?.contextBlock?.postType || postType,
   });
+
+  const renderForMode = (mode: 'editor' | 'preview') => {
+    const hash = computeHash(block.name, attributes, mode);
+    const cached = renderCache.get(hash);
+
+    if (cached) {
+      updateRender(cached, mode);
+      loaded();
+      firstRenderDone.current = true;
+      return;
+    }
+
+    batchFetcher
+      .requestRender(
+        clientId,
+        block.name,
+        attributes,
+        context,
+        getPostParams(mode),
+      )
+      .then((rendered) => {
+        updateRender(rendered, mode);
+        loaded();
+        firstRenderDone.current = true;
+      })
+      .catch(() => {
+      });
+  };
 
   const fetchSingle = (event: CustomEvent | false = false) => {
     if (event) {
@@ -249,8 +337,9 @@ export const Block = ({
       }
     }
 
+    const renderMode = getRenderMode();
     const params = new URLSearchParams({
-      ...getPostParams(),
+      ...getPostParams(renderMode),
     }).toString();
 
     apiFetch({
@@ -263,9 +352,9 @@ export const Block = ({
     })
       .then((response) => {
         const res = response as { rendered: string };
-        const hash = computeHash(block.name, attributes, getPostParams().blockstudioMode);
+        const hash = computeHash(block.name, attributes, renderMode);
         renderCache.set(hash, res.rendered, block.name);
-        updateRender(res.rendered);
+        updateRender(res.rendered, renderMode);
       })
       .then(() => {
         loaded();
@@ -275,43 +364,44 @@ export const Block = ({
   const debouncedFetchSingle = useDebounce(fetchSingle, 500);
 
   useEffect(function onMount() {
-    const isPreview = !!ref.current?.closest(
-      '.block-editor-block-preview__content-iframe',
-    );
-    setIsInPreview(isPreview);
+    const mode = getRenderMode();
+    setIsInPreview(mode === 'preview');
 
     if (disableLoading) return;
 
-    if (firstRenderDone.current && renderState.hasMarkup) {
+    if (
+      firstRenderDone.current &&
+      renderState.hasMarkup &&
+      renderedModeRef.current === mode
+    ) {
       loaded();
       return;
     }
 
-    const mode = isPreview ? 'preview' : 'editor';
-    const hash = computeHash(block.name, attributes, mode);
-    const cached = renderCache.get(hash);
-    if (cached) {
-      updateRender(cached);
-      loaded();
-      firstRenderDone.current = true;
-      return;
-    }
+    renderForMode(mode);
+  }, [disableLoading]);
 
-    batchFetcher
-      .requestRender(
-        clientId,
-        block.name,
-        attributes,
-        context,
-        getPostParams(),
-      )
-      .then((rendered) => {
-        updateRender(rendered);
-        loaded();
-        firstRenderDone.current = true;
-      })
-      .catch(() => {
-      });
+  useEffect(function onPreviewModeDetected() {
+    if (disableLoading) return;
+
+    const syncPreviewMode = () => {
+      if (getDocumentRenderMode() !== 'preview') {
+        return;
+      }
+
+      setIsInPreview(true);
+      renderForMode('preview');
+    };
+
+    syncPreviewMode();
+
+    const observer = new MutationObserver(syncPreviewMode);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    return () => observer.disconnect();
   }, [disableLoading]);
 
   useEffect(
@@ -323,20 +413,22 @@ export const Block = ({
         }
       });
 
-      if (
-        JSON.stringify(attributesRef.current) === JSON.stringify(newAttributes)
-      ) {
+      const mode = getRenderMode();
+      const previousHash = computeHash(block.name, attributesRef.current, mode);
+      const nextHash = computeHash(block.name, newAttributes, mode);
+
+      if (previousHash === nextHash) {
+        attributesRef.current = newAttributes as BlockstudioBlockAttributes;
         return;
       }
       attributesRef.current = newAttributes as BlockstudioBlockAttributes;
 
       if (!firstRenderDone.current) return;
 
-      const hash = computeHash(block.name, newAttributes, getPostParams().blockstudioMode);
-      const cached = renderCache.get(hash);
+      const cached = renderCache.get(nextHash);
 
       if (cached) {
-        updateRender(cached);
+        updateRender(cached, mode);
         loaded();
         return;
       }
@@ -377,6 +469,7 @@ export const Block = ({
     function onMarkupChange() {
       setTimeout(() => {
         if (disableLoading) return;
+        markEditorBlockRendered(clientId);
         dispatch(block, 'rendered');
         dispatch(false as unknown as BlockstudioBlock, 'rendered');
       });
@@ -386,6 +479,11 @@ export const Block = ({
 
   return (
     <>
+      <span
+        ref={ref}
+        data-blockstudio-render-marker=""
+        style={{ display: 'none' }}
+      />
       {disableLoading ? (
         <div
           {...blockProps}
@@ -405,7 +503,6 @@ export const Block = ({
         )
       ) : (
         <div
-          ref={ref}
           css={css({
             display: 'flex',
             width: '100%',

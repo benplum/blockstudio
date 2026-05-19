@@ -3,7 +3,7 @@ Contributors: dnnsjsk
 Requires at least: 6.7
 Tested up to: 7.0.0
 Requires PHP: 8.2
-Stable tag: 7.2.3
+Stable tag: 7.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -52,6 +52,34 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * [Getting Started](https://blockstudio.dev/docs/getting-started)
 
 == Changelog ==
+
+= 7.3.0 =
+* New: bundled UI components under the `bsui/*` namespace
+* New: opt-in `ui.enabled` setting for registering the bundled UI library
+* New: Expanded Editor drawer for editing Blockstudio fields outside the cramped inspector sidebar
+* New: block tag aliases via `blockstudio/block_tags/tag_aliases` for custom authoring prefixes
+* New: block-level `pluginDependencies` for registering blocks only when required WordPress plugins and optional version constraints are satisfied
+* New: `blockEditor` policies in `blockstudio.json` for global blocks, patterns, media, category, and legacy widget behavior backed by WordPress PHP hooks
+* New: `%selector%` support in block CSS and SCSS assets for targeting the scoped block wrapper class
+* New: bundled `app/*` examples built with Blockstudio UI components and the Interactivity API
+* New: UI component documentation and test harness for the bundled components
+* Enhancement: PHP hook and settings documentation now includes generated filter references
+* Fix: file-based page element mapping now runs during HTML parsing and supports attribute-aware custom container mappings
+* Fix: `bs:` page tags now resolve hyphenated block namespaces correctly, such as `custom-theme/card`
+* Fix: generic non-core container tags now serialize valid `innerContent` when they do not provide wrapper markup
+* Fix: editor Tailwind CSS now includes class candidates from file-based page templates
+* Fix: full-width reset now neutralizes Gutenberg editor block width and vertical margin rules for configured post types
+* Fix: reset mode now removes WordPress iframe content/reset styles and provides clean Blockstudio hover/selection overlays
+* Fix: editor preloads now preserve RichText wrapper classes for repeated blocks of the same type
+* Fix: editor preloads now match blocks whose default field values are expanded by Gutenberg but omitted from saved block markup
+* Fix: editor preloads now ignore registered default attributes expanded by Gutenberg before comparing render cache keys
+* Fix: editor render cache now keeps editor and inserter preview renders isolated for blocks that share a client id
+* Fix: `bs_get_group()` now extracts reused custom field groups by exact group prefix
+* Fix: link fields with `withCreateSuggestion` now create draft pages instead of crashing the editor
+* Fix: PHPStan can now scan explicit external block-library roots for validating `<bs:*>` and `<block>` tags
+* Fix: PHP block templates now execute once per render instead of running a discarded preflight include
+* Enhancement: local anonymous `blockstudio-perf=1` probes now emit Server-Timing headers without injecting the debug panel
+* Enhancement: performance timings now include build discovery, asset processing, registration, and override phases
 
 = 7.2.3 =
 * Fix: duplicate editor asset callbacks no longer emit block editor CSS/JS twice
@@ -204,6 +232,8 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * New: code field popout option to open editor in separate window
 * New: devtools grabber for copying block template paths on the frontend (hold Cmd+C)
 * New: assets/reset setting to remove WordPress core block styles on the frontend and in the editor
+* New: blockEditor/enhance setting to opt into Blockstudio editor hover and selection affordances
+* Enhancement: blockEditor/enhance now waits for preloaded React blocks before revealing the editor canvas
 * Enhancement: apiVersion 3 support. Blocks now render correctly in the iframed editor (site editor, responsive previews)
 * Enhancement: all PHP hooks now use snake_case naming (old camelCase names still supported)
 * Enhancement: compiled Tailwind CSS now injected into the block editor alongside the CDN

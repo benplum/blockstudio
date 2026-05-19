@@ -1,0 +1,7 @@
+{
+  "name": "test-pattern-innerblocks-nested-blockstudio",
+  "title": "InnerBlocks Nested Blockstudio Pattern",
+  "description": "Pattern with a complex InnerBlocks wrapper and a nested Blockstudio InnerBlocks block",
+  "categories": ["featured"],
+  "keywords": ["test", "innerblocks"]
+}

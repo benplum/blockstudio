@@ -59,6 +59,20 @@ use BlockstudioVendor\ScssPhp\ScssPhp\Exception\SassException;
 class Assets {
 
 	/**
+	 * Selector placeholder for block CSS assets.
+	 *
+	 * @var string
+	 */
+	private const SELECTOR_PLACEHOLDER = '%selector%';
+
+	/**
+	 * Temporary selector used while scoped CSS is prefixed.
+	 *
+	 * @var string
+	 */
+	private const SELECTOR_PLACEHOLDER_CLASS = '__blockstudio-selector-placeholder__';
+
+	/**
 	 * Loaded modules.
 	 *
 	 * @var array
@@ -90,6 +104,8 @@ class Assets {
 		add_action( 'wp_enqueue_scripts', array( $this, 'maybe_reset_styles' ), 999 );
 		add_action( 'admin_enqueue_scripts', array( $this, 'maybe_reset_styles' ), 999 );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'maybe_reset_styles' ), 999 );
+		add_action( 'admin_head', array( $this, 'render_parent_editor_enhancement_styles' ) );
+		add_filter( 'admin_body_class', array( $this, 'add_parent_editor_enhancement_body_class' ) );
 		add_filter( 'block_editor_settings_all', array( $this, 'maybe_reset_editor_styles' ) );
 		add_filter( 'block_editor_settings_all', array( $this, 'maybe_fullwidth_editor' ), 10, 2 );
 		add_filter(
@@ -192,28 +208,81 @@ class Assets {
 	}
 
 	/**
-	 * Remove WordPress reset styles from the block editor iframe.
+	 * Get parent editor enhancement styles.
+	 *
+	 * These styles run in the parent editor document. The iframe receives the full
+	 * enhancement stylesheet through block_editor_settings_all.
+	 *
+	 * @return string Parent document enhancement styles.
+	 */
+	public static function get_parent_editor_enhancement_styles(): string {
+		return 'html.blockstudio-editor-enhance-locked{overflow:hidden!important}body.blockstudio-editor-enhance-locked{position:fixed!important;top:0!important;bottom:0!important;left:0!important;right:var(--blockstudio-editor-enhance-scrollbar-width,0px)!important;width:auto!important;overflow:hidden!important}';
+	}
+
+	/**
+	 * Render parent editor enhancement styles.
+	 *
+	 * @return void
+	 */
+	public function render_parent_editor_enhancement_styles(): void {
+		if ( ! Settings::get( 'blockEditor/enhance' ) || ! self::is_editor_screen() ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Static stylesheet.
+		echo '<style id="blockstudio-editor-enhance-parent">' . self::get_parent_editor_enhancement_styles() . '</style>';
+	}
+
+	/**
+	 * Lock the parent editor body as soon as WordPress renders it.
+	 *
+	 * The editor client removes the class after preloaded blocks have rendered.
+	 *
+	 * @param string $classes Admin body classes.
+	 *
+	 * @return string Modified admin body classes.
+	 */
+	public function add_parent_editor_enhancement_body_class( string $classes ): string {
+		if ( ! Settings::get( 'blockEditor/enhance' ) || ! self::is_editor_screen() ) {
+			return $classes;
+		}
+
+		if ( str_contains( $classes, 'blockstudio-editor-enhance-locked' ) ) {
+			return $classes;
+		}
+
+		return trim( $classes . ' blockstudio-editor-enhance-locked' );
+	}
+
+	/**
+	 * Remove WordPress reset styles from the block editor iframe and optionally add editor enhancements.
 	 *
 	 * @param array $settings Editor settings.
 	 *
 	 * @return array Modified editor settings.
 	 */
 	public function maybe_reset_editor_styles( array $settings ): array {
-		$reset = Settings::get( 'assets/reset' );
-
-		if ( true !== $reset && ! Settings::get( 'assets/reset/enabled' ) ) {
-			return $settings;
-		}
-
 		if ( ! isset( $settings['__unstableResolvedAssets']['styles'] ) ) {
 			return $settings;
 		}
 
-		$settings['__unstableResolvedAssets']['styles'] = preg_replace(
-			'/<link[^>]+(?:reset|common)\.css[^>]*>/',
-			'',
-			$settings['__unstableResolvedAssets']['styles']
-		);
+		$reset = Settings::get( 'assets/reset' );
+
+		if ( true === $reset || Settings::get( 'assets/reset/enabled' ) ) {
+			$settings['__unstableResolvedAssets']['styles'] = preg_replace(
+				array(
+					'/<link\b[^>]+(?:content|common|reset|classic)(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
+					'/<link\b[^>]+\/wp-includes\/css\/dist\/block-library\/(?:style|editor)(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
+					'/<link\b[^>]+\/wp-includes\/css\/classic-themes(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
+				),
+				'',
+				$settings['__unstableResolvedAssets']['styles']
+			);
+		}
+
+		if ( Settings::get( 'blockEditor/enhance' ) && ! str_contains( $settings['__unstableResolvedAssets']['styles'], 'blockstudio-editor-enhance' ) ) {
+			$settings['__unstableResolvedAssets']['styles'] .= '<style id="blockstudio-editor-enhance">html.blockstudio-editor-enhance-locked{overflow:hidden!important}body.blockstudio-editor-enhance-locked{position:fixed!important;top:0!important;bottom:0!important;left:0!important;right:var(--blockstudio-editor-enhance-scrollbar-width,0px)!important;width:auto!important;overflow:hidden!important}.editor-styles-wrapper .blockstudio-block{transition:opacity .25s ease}.editor-styles-wrapper.blockstudio-editor-enhance-pending:not(.blockstudio-editor-enhance-ready) .blockstudio-block{visibility:hidden;opacity:0;pointer-events:none}html.blockstudio-editor-enhance-pending:not(.blockstudio-editor-enhance-ready)::before{content:"";position:fixed;top:50%;left:calc(50% - (var(--blockstudio-editor-enhance-scrollbar-width,0px) / 2));width:24px;height:24px;margin:-12px 0 0 -12px;border:2px solid rgb(142 142 142 / .35);border-top-color:#7c3aed;border-radius:9999px;opacity:1;transition:opacity .25s ease;animation:blockstudio-editor-enhance-spin .8s linear infinite;pointer-events:none;z-index:9999}html.blockstudio-editor-enhance-pending.blockstudio-editor-enhance-ready::before{opacity:0;visibility:hidden}@keyframes blockstudio-editor-enhance-spin{to{transform:rotate(360deg)}}.editor-styles-wrapper :where(.wp-block,.blockstudio-block,.block-editor-rich-text__editable):focus,.editor-styles-wrapper :where(.wp-block,.blockstudio-block,.block-editor-rich-text__editable):focus-visible{outline:none!important;box-shadow:none}.editor-styles-wrapper :where(.wp-block,.blockstudio-block){position:relative}.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-hovered:not(.has-child-selected)::after,.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-highlighted:not(.has-child-selected)::after,.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-selected::after{content:"";position:absolute;inset:0;border:1px solid rgb(142 142 142 / .65);border-radius:inherit;pointer-events:none;z-index:1}.editor-styles-wrapper :where(.wp-block,.blockstudio-block).is-selected::after{border-color:#7c3aed}</style>';
+		}
 
 		return $settings;
 	}
@@ -244,6 +313,10 @@ class Assets {
 			'',
 			$settings['__unstableResolvedAssets']['styles'] ?? ''
 		);
+
+		if ( ! str_contains( $settings['__unstableResolvedAssets']['styles'], 'blockstudio-fullwidth-editor' ) ) {
+			$settings['__unstableResolvedAssets']['styles'] .= '<style id="blockstudio-fullwidth-editor">.editor-styles-wrapper :where(.blockstudio-block):not([class*="max-w-"]){max-width:none}.editor-styles-wrapper :where(.blockstudio-block){margin-block:0}.editor-styles-wrapper :where(.blockstudio-block):not(:where(.mx-auto,.ml-auto,.mr-auto)){margin-left:0!important;margin-right:0!important}.editor-styles-wrapper :where(.blockstudio-block.block-editor-block-list__layout){display:revert}.editor-styles-wrapper .block-editor-block-list__layout.is-root-container,.editor-styles-wrapper .is-root-container,.editor-styles-wrapper .wp-block-post-content{max-width:none}.editor-styles-wrapper .edit-post-visual-editor__post-title-wrapper{max-width:none;margin-left:0;margin-right:0}</style>';
+		}
 
 		return $settings;
 	}
@@ -642,11 +715,12 @@ class Assets {
 		$dir  = $file['dirname'];
 		$file = $file['filename'];
 
-		$ext       = pathinfo( $path, PATHINFO_EXTENSION );
-		$is_scoped = str_ends_with( $file, '.scoped' ) || str_ends_with( $file, '-scoped' );
-		$id        = self::get_imported_modification_times(
+		$ext               = pathinfo( $path, PATHINFO_EXTENSION );
+		$is_scoped         = str_ends_with( $file, '.scoped' ) || str_ends_with( $file, '-scoped' );
+		$uses_scoped_class = $is_scoped || ( self::is_css_extension( $ext ) && self::has_selector_placeholder( $path ) );
+		$id                = self::get_imported_modification_times(
 			$path,
-			$is_scoped ? $scoped_class : ''
+			$uses_scoped_class ? $scoped_class : ''
 		);
 
 		if ( Settings::get( 'assets/process/scssFiles' ) && 'scss' === $ext ) {
@@ -1018,6 +1092,64 @@ class Assets {
 	}
 
 	/**
+	 * Check whether a CSS asset contains the selector placeholder.
+	 *
+	 * @param string $path The file path.
+	 *
+	 * @return bool Whether the asset contains the selector placeholder.
+	 */
+	private static function has_selector_placeholder( string $path ): bool {
+		if ( ! is_file( $path ) ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local file.
+		$content = file_get_contents( $path );
+
+		return is_string( $content ) && str_contains( $content, self::SELECTOR_PLACEHOLDER );
+	}
+
+	/**
+	 * Replace the selector placeholder before CSS processing.
+	 *
+	 * @param string $css          The CSS content.
+	 * @param string $scoped_class The scoped class.
+	 * @param bool   $scope_css    Whether this asset will be scoped.
+	 *
+	 * @return string The CSS with selector placeholders replaced.
+	 */
+	private static function replace_selector_placeholder( string $css, string $scoped_class, bool $scope_css ): string {
+		if ( '' === $scoped_class || ! str_contains( $css, self::SELECTOR_PLACEHOLDER ) ) {
+			return $css;
+		}
+
+		$selector = $scope_css
+			? '.' . self::SELECTOR_PLACEHOLDER_CLASS
+			: '.' . $scoped_class;
+
+		return str_replace( self::SELECTOR_PLACEHOLDER, $selector, $css );
+	}
+
+	/**
+	 * Resolve scoped selector placeholders after CSS has been scoped.
+	 *
+	 * @param string $css          The CSS content.
+	 * @param string $scoped_class The scoped class.
+	 *
+	 * @return string The CSS with scoped selector placeholders resolved.
+	 */
+	private static function resolve_scoped_selector_placeholder( string $css, string $scoped_class ): string {
+		if ( '' === $scoped_class || ! str_contains( $css, self::SELECTOR_PLACEHOLDER_CLASS ) ) {
+			return $css;
+		}
+
+		$scoped_selector = '.' . $scoped_class;
+		$placeholder     = '.' . self::SELECTOR_PLACEHOLDER_CLASS;
+
+		return str_replace( $scoped_selector . ' ' . $placeholder, $scoped_selector, $css );
+	}
+
+	/**
 	 * Get configured SCSS import paths.
 	 *
 	 * @return array
@@ -1167,25 +1299,28 @@ class Assets {
 		$file     = pathinfo( $path );
 		$filename = $file['filename'];
 
-		$minify_css        = Settings::get( 'assets/minify/css' );
-		$process_scss      = self::should_process_scss( $path );
-		$scope_css         = str_ends_with( $filename, '.scoped' ) || str_ends_with( $filename, '-scoped' );
-		$compiled_filename = self::get_compiled_filename( $path, $scoped_class );
+		$minify_css               = Settings::get( 'assets/minify/css' );
+		$process_scss             = self::should_process_scss( $path );
+		$scope_css                = str_ends_with( $filename, '.scoped' ) || str_ends_with( $filename, '-scoped' );
+		$has_selector_placeholder = self::has_selector_placeholder( $path );
+		$should_process           = $minify_css || $process_scss || $scope_css || $has_selector_placeholder;
+		$compiled_filename        = self::get_compiled_filename( $path, $scoped_class );
 
 		if (
 			file_exists( $compiled_filename ) &&
-			( $minify_css || $process_scss || $scope_css )
+			$should_process
 		) {
 			return $compiled_filename;
 		}
 
-		if ( ! $minify_css && ! $process_scss && ! $scope_css ) {
+		if ( ! $should_process ) {
 			return;
 		}
 
-		if ( $minify_css || $process_scss || $scope_css ) {
+		if ( $should_process ) {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local file.
 			$data = apply_filters( 'blockstudio/assets/process/css/content', file_get_contents( $path ) );
+			$data = self::replace_selector_placeholder( $data, $scoped_class, $scope_css );
 
 			if ( $process_scss ) {
 				$data = self::compile_scss( $data, $path );
@@ -1193,6 +1328,7 @@ class Assets {
 
 			if ( $scope_css ) {
 				$data = self::prefix_css( $data, '.' . $scoped_class );
+				$data = self::resolve_scoped_selector_placeholder( $data, $scoped_class );
 			}
 
 			if ( $minify_css ) {

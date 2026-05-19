@@ -81,6 +81,30 @@ test.describe('Preload Defaults and Zero Values', () => {
     expect(renderCalls).toEqual([]);
   });
 
+  test('editor enhancement waits for preloaded React blocks before reveal', async () => {
+    await page.reload();
+    const parentBody = page.locator('body');
+    await expect(parentBody).toHaveClass(/blockstudio-editor-enhance-locked/, {
+      timeout: 15000,
+    });
+    await expect(parentBody).toHaveCSS('position', 'fixed');
+
+    const canvas = await getEditorCanvas(page);
+    const wrapper = canvas.locator('.editor-styles-wrapper');
+
+    await expect(wrapper).toHaveClass(/blockstudio-editor-enhance-ready/, {
+      timeout: 15000,
+    });
+    await expect(wrapper).not.toHaveClass(/blockstudio-editor-enhance-pending/);
+    await expect(canvas.locator('body')).not.toHaveClass(
+      /blockstudio-editor-enhance-locked/,
+    );
+    await expect(page.locator('body')).not.toHaveClass(
+      /blockstudio-editor-enhance-locked/,
+    );
+    await expect(canvas.locator('.preload-simple').first()).toBeVisible();
+  });
+
   test('block with all defaults renders correctly', async () => {
     const canvas = await getEditorCanvas(page);
     const blocks = canvas.locator('.preload-simple');

@@ -193,6 +193,19 @@ class Tailwind {
 			}
 		}
 
+		foreach ( Page_Registry::instance()->get_pages() as $page ) {
+			$path = $page['template_path'] ?? '';
+
+			if ( is_string( $path ) && is_file( $path ) ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading page template files for Tailwind candidate extraction.
+				$raw = file_get_contents( $path );
+
+				// Match candidate tokens including arbitrary value brackets like [calc(50%-10px)].
+				preg_match_all( '/[!@-]?[a-zA-Z_][\w:.\/-]*(?:\[[^\]]*\])?/', $raw, $matches );
+				$candidates = array_merge( $candidates, $matches[0] );
+			}
+		}
+
 		$candidates = array_unique( $candidates );
 		$candidates = self::filter_candidates( $candidates );
 		sort( $candidates );
