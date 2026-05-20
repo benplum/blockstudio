@@ -142,13 +142,7 @@ class Assets {
 		);
 		add_action(
 			'admin_footer',
-			function () {
-				if ( ! self::is_editor_screen() || ! self::has_legacy_registered_blocks() ) {
-					return;
-				}
-
-				self::get_assets( 'editor' );
-			}
+			array( self::class, 'render_legacy_editor_assets_fallback' )
 		);
 		add_action(
 			'customize_preview_init',
@@ -895,8 +889,20 @@ class Assets {
 	 * @return void
 	 */
 	public static function get_assets( $type = 'editor' ): void {
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Asset output.
+		echo self::get_assets_html( $type );
+	}
+
+	/**
+	 * Get assets as HTML.
+	 *
+	 * @param string $type The asset type.
+	 *
+	 * @return string The asset HTML.
+	 */
+	public static function get_assets_html( $type = 'editor' ): string {
 		if ( 'editor' === $type && ! self::is_editor_screen() ) {
-			return;
+			return '';
 		}
 
 		$blocks = Build::data();
@@ -953,8 +959,65 @@ class Assets {
 			}
 		}
 
-		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Asset output.
-		echo $footer;
+		return $footer;
+	}
+
+	/**
+	 * Render editor assets in the parent document only when WordPress disables the editor iframe.
+	 *
+	 * WordPress decides iframe compatibility in JavaScript from the client-side
+	 * block registry. Server-side legacy block checks are too broad because some
+	 * registered core blocks can still expose apiVersion < 3 while the editor
+	 * remains iframed. Deferring the fallback until the canvas exists prevents
+	 * Blockstudio view assets from running against the wp-admin shell.
+	 *
+	 * @return void
+	 */
+	public static function render_legacy_editor_assets_fallback(): void {
+		if ( ! self::is_editor_screen() ) {
+			return;
+		}
+
+		$assets = self::get_assets_html( 'editor' );
+
+		if ( '' === trim( $assets ) ) {
+			return;
+		}
+
+		$script = '(()=>{'
+			. 'const h=' . wp_json_encode( $assets, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ) . ';'
+			. 'const m="data-blockstudio-legacy-editor-assets";'
+			. 'if(!h||document.documentElement.hasAttribute(m))return;'
+			. 'const hasIframe=()=>!!document.querySelector("iframe[name=\"editor-canvas\"]");'
+			. 'const hasLegacyCanvas=()=>!!document.querySelector(".block-editor-block-list__layout.is-root-container");'
+			. 'const append=(node)=>{'
+			. 'if(node.id&&document.getElementById(node.id))return;'
+			. 'const tag=node.tagName;'
+			. 'const target="STYLE"===tag||"LINK"===tag?document.head:document.body;'
+			. 'if("SCRIPT"!==tag){target.appendChild(node.cloneNode(true));return;}'
+			. 'const script=document.createElement("script");'
+			. 'Array.from(node.attributes).forEach(({name,value})=>script.setAttribute(name,value));'
+			. 'script.text=node.textContent;'
+			. 'target.appendChild(script);'
+			. '};'
+			. 'const inject=()=>{'
+			. 'if(hasIframe())return true;'
+			. 'if(!hasLegacyCanvas())return false;'
+			. 'const template=document.createElement("template");'
+			. 'template.innerHTML=h;'
+			. 'Array.from(template.content.children).forEach(append);'
+			. 'document.documentElement.setAttribute(m,"true");'
+			. 'return true;'
+			. '};'
+			. 'if(inject())return;'
+			. 'const observer=new MutationObserver(()=>{if(inject())observer.disconnect();});'
+			. 'const start=()=>{if(document.body)observer.observe(document.body,{childList:true,subtree:true});};'
+			. '"loading"===document.readyState?document.addEventListener("DOMContentLoaded",start,{once:true}):start();'
+			. 'setTimeout(()=>observer.disconnect(),10000);'
+			. '})();';
+
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Script is generated from JSON-encoded asset markup.
+		echo '<script id="blockstudio-legacy-editor-assets-fallback">' . $script . '</script>';
 	}
 
 	/**
@@ -978,25 +1041,6 @@ class Assets {
 		}
 
 		return method_exists( $current_screen, 'is_block_editor' ) && $current_screen->is_block_editor();
-	}
-
-	/**
-	 * Check whether any registered block can force the editor out of iframe mode.
-	 *
-	 * @return bool Whether a legacy block API version is registered.
-	 */
-	private static function has_legacy_registered_blocks(): bool {
-		if ( ! class_exists( 'WP_Block_Type_Registry' ) ) {
-			return false;
-		}
-
-		foreach ( \WP_Block_Type_Registry::get_instance()->get_all_registered() as $block ) {
-			if ( isset( $block->api_version ) && $block->api_version < 3 ) {
-				return true;
-			}
-		}
-
-		return false;
 	}
 
 	/**

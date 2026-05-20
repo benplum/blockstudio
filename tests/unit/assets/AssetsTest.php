@@ -80,6 +80,15 @@ class AssetsTest extends TestCase {
 			foreach ( $priority_callbacks as $callback ) {
 				$callback_function = $callback['function'] ?? null;
 
+				if (
+					is_array( $callback_function ) &&
+					Assets::class === ( $callback_function[0] ?? null ) &&
+					'render_legacy_editor_assets_fallback' === ( $callback_function[1] ?? null )
+				) {
+					++$count;
+					continue;
+				}
+
 				if ( ! $callback_function instanceof \Closure ) {
 					continue;
 				}
@@ -133,6 +142,22 @@ class AssetsTest extends TestCase {
 		$result = Assets::get_interactivity_editor_assets();
 
 		$this->assertIsString( $result );
+	}
+
+	public function test_legacy_editor_assets_fallback_defers_assets_until_non_iframed_canvas(): void {
+		Assets::$force_editor_screen = true;
+
+		ob_start();
+		Assets::render_legacy_editor_assets_fallback();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'id="blockstudio-legacy-editor-assets-fallback"', $output );
+		$this->assertStringContainsString( 'iframe[name=', $output );
+		$this->assertStringContainsString( 'editor-canvas', $output );
+		$this->assertStringContainsString( '.block-editor-block-list__layout.is-root-container', $output );
+		$this->assertStringContainsString( 'document.createElement("script")', $output );
+		$this->assertStringNotContainsString( '<style id=\'blockstudio-', $output );
+		$this->assertStringNotContainsString( '<script type=\'module\'', $output );
 	}
 
 	public function test_get_interactivity_editor_assets_returns_script_tags_when_interactivity_blocks_exist(): void {

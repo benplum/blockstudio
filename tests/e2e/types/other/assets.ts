@@ -120,5 +120,19 @@ testType(['assets', 'text'], false, () => {
 				await atLeast(canvas, '[id*="global-style"]', 2);
 			},
 		},
+		{
+			description: 'block assets are not injected into the parent document when the editor is iframed',
+			testFunction: async (page: Page, _canvas: Frame) => {
+				await expect(page.locator('iframe[name="editor-canvas"]')).toHaveCount(
+					1,
+				);
+				await expect(
+					page.locator('#blockstudio-blockstudio-assets-test-css'),
+				).toHaveCount(0);
+				await expect(
+					page.locator('#blockstudio-blockstudio-assets-test-js'),
+				).toHaveCount(0);
+			},
+		},
 	];
 });
