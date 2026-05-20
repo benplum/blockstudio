@@ -53,6 +53,10 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 
 == Changelog ==
 
+= 7.3.1 =
+* Fix: legacy editor asset fallback now waits for the actual non-iframed editor before loading block assets in the admin document
+* Docs: document guarding global editor scripts when WordPress disables the block editor iframe
+
 = 7.3.0 =
 * New: bundled UI components under the `bsui/*` namespace
 * New: opt-in `ui.enabled` setting for registering the bundled UI library
