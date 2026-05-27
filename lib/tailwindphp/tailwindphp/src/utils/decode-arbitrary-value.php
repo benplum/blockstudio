@@ -1,11 +1,13 @@
 <?php
 
-declare (strict_types=1);
+declare(strict_types=1);
+
 namespace BlockstudioVendor\TailwindPHP\DecodeArbitraryValue;
 
 use function BlockstudioVendor\TailwindPHP\Utils\addWhitespaceAroundMathOperators;
 use function BlockstudioVendor\TailwindPHP\ValueParser\parse;
 use function BlockstudioVendor\TailwindPHP\ValueParser\toCss;
+
 /**
  * Decode Arbitrary Value - Convert Tailwind arbitrary value syntax to CSS.
  *
@@ -13,6 +15,7 @@ use function BlockstudioVendor\TailwindPHP\ValueParser\toCss;
  *
  * @port-deviation:none This is a direct 1:1 port with no significant deviations.
  */
+
 /**
  * Decode an arbitrary value from Tailwind class syntax to CSS.
  *
@@ -22,15 +25,19 @@ use function BlockstudioVendor\TailwindPHP\ValueParser\toCss;
 function decodeArbitraryValue(string $input): string
 {
     // There are definitely no functions in the input, so bail early
-    if (strpos($input, '(') === \false) {
+    if (strpos($input, '(') === false) {
         return convertUnderscoresToWhitespace($input);
     }
+
     $ast = parse($input);
     recursivelyDecodeArbitraryValues($ast);
     $input = toCss($ast);
+
     $input = addWhitespaceAroundMathOperators($input);
+
     return $input;
 }
+
 /**
  * Convert `_` to ` `, except for escaped underscores `\_` they should be
  * converted to `_` instead.
@@ -39,24 +46,34 @@ function decodeArbitraryValue(string $input): string
  * @param bool $skipUnderscoreToSpace
  * @return string
  */
-function convertUnderscoresToWhitespace(string $input, bool $skipUnderscoreToSpace = \false): string
+function convertUnderscoresToWhitespace(string $input, bool $skipUnderscoreToSpace = false): string
 {
     $output = '';
     $len = strlen($input);
+
     for ($i = 0; $i < $len; $i++) {
         $char = $input[$i];
+
         // Escaped underscore
         if ($char === '\\' && $i + 1 < $len && $input[$i + 1] === '_') {
             $output .= '_';
             $i += 1;
-        } elseif ($char === '_' && !$skipUnderscoreToSpace) {
+        }
+
+        // Unescaped underscore
+        elseif ($char === '_' && !$skipUnderscoreToSpace) {
             $output .= ' ';
-        } else {
+        }
+
+        // All other characters
+        else {
             $output .= $char;
         }
     }
+
     return $output;
 }
+
 /**
  * Recursively decode arbitrary values in the AST.
  *
@@ -66,7 +83,8 @@ function convertUnderscoresToWhitespace(string $input, bool $skipUnderscoreToSpa
 function recursivelyDecodeArbitraryValues(array &$ast): void
 {
     for ($i = 0; $i < count($ast); $i++) {
-        $node =& $ast[$i];
+        $node = &$ast[$i];
+
         switch ($node['kind']) {
             case 'function':
                 if ($node['value'] === 'url' || str_ends_with($node['value'], '_url')) {
@@ -74,12 +92,18 @@ function recursivelyDecodeArbitraryValues(array &$ast): void
                     $node['value'] = convertUnderscoresToWhitespace($node['value']);
                     break;
                 }
-                if ($node['value'] === 'var' || str_ends_with($node['value'], '_var') || $node['value'] === 'theme' || str_ends_with($node['value'], '_theme')) {
+
+                if (
+                    $node['value'] === 'var' ||
+                    str_ends_with($node['value'], '_var') ||
+                    $node['value'] === 'theme' ||
+                    str_ends_with($node['value'], '_theme')
+                ) {
                     $node['value'] = convertUnderscoresToWhitespace($node['value']);
                     for ($j = 0; $j < count($node['nodes']); $j++) {
                         // Don't decode underscores to spaces in the first argument of var()
                         if ($j === 0 && $node['nodes'][$j]['kind'] === 'word') {
-                            $node['nodes'][$j]['value'] = convertUnderscoresToWhitespace($node['nodes'][$j]['value'], \true);
+                            $node['nodes'][$j]['value'] = convertUnderscoresToWhitespace($node['nodes'][$j]['value'], true);
                             continue;
                         }
                         $subAst = [$node['nodes'][$j]];
@@ -88,9 +112,11 @@ function recursivelyDecodeArbitraryValues(array &$ast): void
                     }
                     break;
                 }
+
                 $node['value'] = convertUnderscoresToWhitespace($node['value']);
                 recursivelyDecodeArbitraryValues($node['nodes']);
                 break;
+
             case 'separator':
             case 'word':
                 $node['value'] = convertUnderscoresToWhitespace($node['value']);

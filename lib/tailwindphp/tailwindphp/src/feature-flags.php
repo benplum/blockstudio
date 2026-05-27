@@ -1,6 +1,7 @@
 <?php
 
-declare (strict_types=1);
+declare(strict_types=1);
+
 namespace BlockstudioVendor\TailwindPHP;
 
 /**
@@ -14,4 +15,5 @@ namespace BlockstudioVendor\TailwindPHP;
  * Controls experimental/preview features.
  * In the original TypeScript, this checks environment variables.
  */
-const ENABLE_CONTAINER_SIZE_UTILITY = \true;
+
+const ENABLE_CONTAINER_SIZE_UTILITY = true;

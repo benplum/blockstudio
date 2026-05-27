@@ -1,6 +1,7 @@
 <?php
 
-declare (strict_types=1);
+declare(strict_types=1);
+
 namespace BlockstudioVendor\TailwindPHP\SelectorParser;
 
 /**
@@ -10,6 +11,7 @@ namespace BlockstudioVendor\TailwindPHP\SelectorParser;
  *
  * @port-deviation:none This is a direct 1:1 port with no significant deviations.
  */
+
 const SP_AMPERSAND = 0x26;
 const SP_ASTERISK = 0x2a;
 const SP_BACKSLASH = 0x5c;
@@ -20,15 +22,16 @@ const SP_COMMA = 0x2c;
 const SP_DOUBLE_QUOTE = 0x22;
 const SP_FULL_STOP = 0x2e;
 const SP_GREATER_THAN = 0x3e;
-const SP_NEWLINE = 0xa;
+const SP_NEWLINE = 0x0a;
 const SP_NUMBER_SIGN = 0x23;
 const SP_OPEN_BRACKET = 0x5b;
 const SP_OPEN_PAREN = 0x28;
 const SP_PLUS = 0x2b;
 const SP_SINGLE_QUOTE = 0x27;
 const SP_SPACE = 0x20;
-const SP_TAB = 0x9;
+const SP_TAB = 0x09;
 const SP_TILDE = 0x7e;
+
 /**
  * Create a combinator node.
  *
@@ -37,8 +40,12 @@ const SP_TILDE = 0x7e;
  */
 function combinator(string $value): array
 {
-    return ['kind' => 'combinator', 'value' => $value];
+    return [
+        'kind' => 'combinator',
+        'value' => $value,
+    ];
 }
+
 /**
  * Create a function node.
  *
@@ -48,8 +55,13 @@ function combinator(string $value): array
  */
 function fun(string $value, array $nodes): array
 {
-    return ['kind' => 'function', 'value' => $value, 'nodes' => $nodes];
+    return [
+        'kind' => 'function',
+        'value' => $value,
+        'nodes' => $nodes,
+    ];
 }
+
 /**
  * Create a selector node.
  *
@@ -58,8 +70,12 @@ function fun(string $value, array $nodes): array
  */
 function selector(string $value): array
 {
-    return ['kind' => 'selector', 'value' => $value];
+    return [
+        'kind' => 'selector',
+        'value' => $value,
+    ];
 }
+
 /**
  * Create a separator node.
  *
@@ -68,8 +84,12 @@ function selector(string $value): array
  */
 function separator(string $value): array
 {
-    return ['kind' => 'separator', 'value' => $value];
+    return [
+        'kind' => 'separator',
+        'value' => $value,
+    ];
 }
+
 /**
  * Create a value node.
  *
@@ -78,8 +98,12 @@ function separator(string $value): array
  */
 function value(string $value): array
 {
-    return ['kind' => 'value', 'value' => $value];
+    return [
+        'kind' => 'value',
+        'value' => $value,
+    ];
 }
+
 /**
  * Convert a selector AST to CSS string.
  *
@@ -102,8 +126,10 @@ function toCss(array $ast): string
                 break;
         }
     }
+
     return $css;
 }
+
 /**
  * Parse a CSS selector into an AST.
  *
@@ -113,29 +139,35 @@ function toCss(array $ast): string
 function parse(string $input): array
 {
     $input = str_replace("\r\n", "\n", $input);
+
     $ast = [];
     // Stack stores paths to current parent function nodes
     $stack = [];
     $buffer = '';
     $len = strlen($input);
+
     // Helper to add a node to the current parent
     $addNode = function ($node) use (&$ast, &$stack) {
         if (count($stack) === 0) {
             $ast[] = $node;
+
             return count($ast) - 1;
         } else {
             // Navigate to current parent and add to its nodes
             $parentPath = $stack[count($stack) - 1];
-            $target =& $ast;
+            $target = &$ast;
             foreach ($parentPath as $key) {
-                $target =& $target[$key];
+                $target = &$target[$key];
             }
             $target['nodes'][] = $node;
+
             return count($target['nodes']) - 1;
         }
     };
+
     for ($i = 0; $i < $len; $i++) {
         $currentChar = ord($input[$i]);
+
         switch ($currentChar) {
             // E.g.:
             //
@@ -158,37 +190,56 @@ function parse(string $input): array
                     $addNode(selector($buffer));
                     $buffer = '';
                 }
+
                 // 2. Look ahead and find the end of the combinator
                 $start = $i;
                 $end = $i + 1;
                 for (; $end < $len; $end++) {
                     $peekChar = ord($input[$end]);
-                    if ($peekChar !== SP_COMMA && $peekChar !== SP_GREATER_THAN && $peekChar !== SP_NEWLINE && $peekChar !== SP_SPACE && $peekChar !== SP_PLUS && $peekChar !== SP_TAB && $peekChar !== SP_TILDE) {
+                    if (
+                        $peekChar !== SP_COMMA &&
+                        $peekChar !== SP_GREATER_THAN &&
+                        $peekChar !== SP_NEWLINE &&
+                        $peekChar !== SP_SPACE &&
+                        $peekChar !== SP_PLUS &&
+                        $peekChar !== SP_TAB &&
+                        $peekChar !== SP_TILDE
+                    ) {
                         break;
                     }
                 }
                 $i = $end - 1;
+
                 $contents = substr($input, $start, $end - $start);
                 $node = trim($contents) === ',' ? separator($contents) : combinator($contents);
                 $addNode($node);
+
                 break;
-            // Start of a function call.
-            //
-            // E.g.:
-            //
-            // ```css
-            // .foo:not(.bar)
-            //         ^
-            // ```
+
+                // Start of a function call.
+                //
+                // E.g.:
+                //
+                // ```css
+                // .foo:not(.bar)
+                //         ^
+                // ```
             case SP_OPEN_PAREN:
                 $node = fun($buffer, []);
                 $buffer = '';
+
                 // If the function is not one of the following, we combine all it's
                 // contents into a single value node
-                if ($node['value'] !== ':not' && $node['value'] !== ':where' && $node['value'] !== ':has' && $node['value'] !== ':is') {
+                if (
+                    $node['value'] !== ':not' &&
+                    $node['value'] !== ':where' &&
+                    $node['value'] !== ':has' &&
+                    $node['value'] !== ':is'
+                ) {
                     // Find the end of the function call
                     $start = $i + 1;
                     $nesting = 0;
+
                     // Find the closing bracket.
                     for ($j = $i + 1; $j < $len; $j++) {
                         $peekChar = ord($input[$j]);
@@ -205,12 +256,16 @@ function parse(string $input): array
                         }
                     }
                     $end = $i;
+
                     $node['nodes'][] = value(substr($input, $start, $end - $start));
                     $buffer = '';
                     $i = $end;
+
                     $addNode($node);
+
                     break;
                 }
+
                 if (count($stack) === 0) {
                     $ast[] = $node;
                     $nodeIndex = count($ast) - 1;
@@ -218,9 +273,9 @@ function parse(string $input): array
                 } else {
                     // Navigate to current parent and add to its nodes
                     $parentPath = $stack[count($stack) - 1];
-                    $target =& $ast;
+                    $target = &$ast;
                     foreach ($parentPath as $key) {
-                        $target =& $target[$key];
+                        $target = &$target[$key];
                     }
                     $target['nodes'][] = $node;
                     $nodeIndex = count($target['nodes']) - 1;
@@ -230,34 +285,39 @@ function parse(string $input): array
                     $newPath[] = $nodeIndex;
                     $stack[] = $newPath;
                 }
+
                 break;
-            // End of a function call.
-            //
-            // E.g.:
-            //
-            // ```css
-            // foo(bar, baz)
-            //             ^
-            // ```
+
+                // End of a function call.
+                //
+                // E.g.:
+                //
+                // ```css
+                // foo(bar, baz)
+                //             ^
+                // ```
             case SP_CLOSE_PAREN:
                 // Handle everything before the closing paren as a selector
                 if (strlen($buffer) > 0) {
                     $addNode(selector($buffer));
                     $buffer = '';
                 }
+
                 // Pop the stack to return to parent
                 if (count($stack) > 0) {
                     array_pop($stack);
                 }
+
                 break;
-            // Split compound selectors.
-            //
-            // E.g.:
-            //
-            // ```css
-            // .foo.bar
-            //     ^
-            // ```
+
+                // Split compound selectors.
+                //
+                // E.g.:
+                //
+                // ```css
+                // .foo.bar
+                //     ^
+                // ```
             case SP_FULL_STOP:
             case SP_COLON:
             case SP_NUMBER_SIGN:
@@ -268,22 +328,25 @@ function parse(string $input): array
                 }
                 $buffer = $input[$i];
                 break;
-            // Start of an attribute selector.
-            //
-            // NOTE: Right now we don't care about the individual parts of the
-            // attribute selector, we just want to find the matching closing bracket.
-            //
-            // If we need more information from inside the attribute selector in the
-            // future, then we can use the `AttributeSelectorParser` here (and even
-            // inline it if needed)
+
+                // Start of an attribute selector.
+                //
+                // NOTE: Right now we don't care about the individual parts of the
+                // attribute selector, we just want to find the matching closing bracket.
+                //
+                // If we need more information from inside the attribute selector in the
+                // future, then we can use the `AttributeSelectorParser` here (and even
+                // inline it if needed)
             case SP_OPEN_BRACKET:
                 // Handle everything before the combinator as a selector
                 if (strlen($buffer) > 0) {
                     $addNode(selector($buffer));
                 }
                 $buffer = '';
+
                 $start = $i;
                 $nesting = 0;
+
                 // Find the closing bracket.
                 for ($j = $i + 1; $j < $len; $j++) {
                     $peekChar = ord($input[$j]);
@@ -299,13 +362,16 @@ function parse(string $input): array
                         $nesting--;
                     }
                 }
+
                 // Adjust `buffer` to include the string.
                 $buffer .= substr($input, $start, $i - $start + 1);
                 break;
-            // Start of a string.
+
+                // Start of a string.
             case SP_SINGLE_QUOTE:
             case SP_DOUBLE_QUOTE:
                 $start = $i;
+
                 // We need to ensure that the closing quote is the same as the opening
                 // quote.
                 //
@@ -320,16 +386,21 @@ function parse(string $input): array
                     // Current character is a `\` therefore the next character is escaped.
                     if ($peekChar === SP_BACKSLASH) {
                         $j += 1;
-                    } elseif ($peekChar === $currentChar) {
+                    }
+
+                    // End of the string.
+                    elseif ($peekChar === $currentChar) {
                         $i = $j;
                         break;
                     }
                 }
+
                 // Adjust `buffer` to include the string.
                 $buffer .= substr($input, $start, $i - $start + 1);
                 break;
-            // Nesting `&` is always a new selector.
-            // Universal `*` is always a new selector.
+
+                // Nesting `&` is always a new selector.
+                // Universal `*` is always a new selector.
             case SP_AMPERSAND:
             case SP_ASTERISK:
                 // 1. Handle everything before the combinator as a selector
@@ -337,10 +408,12 @@ function parse(string $input): array
                     $addNode(selector($buffer));
                     $buffer = '';
                 }
+
                 // 2. Handle the `&` or `*` as a selector on its own
                 $addNode(selector($input[$i]));
                 break;
-            // Escaped characters.
+
+                // Escaped characters.
             case SP_BACKSLASH:
                 $buffer .= $input[$i];
                 if ($i + 1 < $len) {
@@ -348,14 +421,17 @@ function parse(string $input): array
                     $i += 1;
                 }
                 break;
-            // Everything else will be collected in the buffer
+
+                // Everything else will be collected in the buffer
             default:
                 $buffer .= $input[$i];
         }
     }
+
     // Collect the remainder as a word
     if (strlen($buffer) > 0) {
         $ast[] = selector($buffer);
     }
+
     return $ast;
 }

@@ -1,9 +1,11 @@
 <?php
 
-declare (strict_types=1);
+declare(strict_types=1);
+
 namespace BlockstudioVendor\TailwindPHP\Ast;
 
 use BlockstudioVendor\TailwindPHP\LightningCss\LightningCss;
+
 /**
  * AST node types and builder functions for TailwindPHP.
  *
@@ -23,7 +25,9 @@ use BlockstudioVendor\TailwindPHP\LightningCss\LightningCss;
  * concatenation, pre-computed indent strings, and a standalone function instead of a
  * closure. These optimizations provide ~50% speedup while maintaining identical output.
  */
+
 const AT_SIGN = 0x40;
+
 /**
  * @typedef array{kind: 'rule', selector: string, nodes: array<AstNode>} StyleRule
  * @typedef array{kind: 'at-rule', name: string, params: string, nodes: array<AstNode>} AtRule
@@ -33,6 +37,7 @@ const AT_SIGN = 0x40;
  * @typedef array{kind: 'at-root', nodes: array<AstNode>} AtRoot
  * @typedef StyleRule|AtRule|Declaration|Comment|Context|AtRoot AstNode
  */
+
 /**
  * Create a style rule node.
  *
@@ -42,8 +47,13 @@ const AT_SIGN = 0x40;
  */
 function styleRule(string $selector, array $nodes = []): array
 {
-    return ['kind' => 'rule', 'selector' => $selector, 'nodes' => $nodes];
+    return [
+        'kind' => 'rule',
+        'selector' => $selector,
+        'nodes' => $nodes,
+    ];
 }
+
 /**
  * Create an at-rule node.
  *
@@ -54,8 +64,14 @@ function styleRule(string $selector, array $nodes = []): array
  */
 function atRule(string $name, string $params = '', array $nodes = []): array
 {
-    return ['kind' => 'at-rule', 'name' => $name, 'params' => $params, 'nodes' => $nodes];
+    return [
+        'kind' => 'at-rule',
+        'name' => $name,
+        'params' => $params,
+        'nodes' => $nodes,
+    ];
 }
+
 /**
  * Create a rule node (either style rule or at-rule based on selector).
  *
@@ -68,8 +84,10 @@ function rule(string $selector, array $nodes = []): array
     if (strlen($selector) > 0 && ord($selector[0]) === AT_SIGN) {
         return parseAtRule($selector, $nodes);
     }
+
     return styleRule($selector, $nodes);
 }
+
 /**
  * Create a declaration node.
  *
@@ -78,13 +96,19 @@ function rule(string $selector, array $nodes = []): array
  * @param bool $important
  * @return array{kind: 'declaration', property: string, value: string|null, important: bool}
  */
-function decl(string $property, ?string $value, bool $important = \false): array
+function decl(string $property, ?string $value, bool $important = false): array
 {
     // Note: LightningCSS optimizations are applied later in optimizeAst,
     // not during AST construction. This preserves the original values
     // for accurate testing and debugging.
-    return ['kind' => 'declaration', 'property' => $property, 'value' => $value, 'important' => $important];
+    return [
+        'kind' => 'declaration',
+        'property' => $property,
+        'value' => $value,
+        'important' => $important,
+    ];
 }
+
 /**
  * Create a comment node.
  *
@@ -93,8 +117,12 @@ function decl(string $property, ?string $value, bool $important = \false): array
  */
 function comment(string $value): array
 {
-    return ['kind' => 'comment', 'value' => $value];
+    return [
+        'kind' => 'comment',
+        'value' => $value,
+    ];
 }
+
 /**
  * Create a context node.
  *
@@ -104,8 +132,13 @@ function comment(string $value): array
  */
 function context(array $context, array $nodes): array
 {
-    return ['kind' => 'context', 'context' => $context, 'nodes' => $nodes];
+    return [
+        'kind' => 'context',
+        'context' => $context,
+        'nodes' => $nodes,
+    ];
 }
+
 /**
  * Create an at-root node.
  *
@@ -114,8 +147,12 @@ function context(array $context, array $nodes): array
  */
 function atRoot(array $nodes): array
 {
-    return ['kind' => 'at-root', 'nodes' => $nodes];
+    return [
+        'kind' => 'at-root',
+        'nodes' => $nodes,
+    ];
 }
+
 /**
  * Deep clone an AST node.
  *
@@ -129,23 +166,55 @@ function cloneAstNode(array $node): array
 {
     switch ($node['kind']) {
         case 'rule':
-            return ['kind' => $node['kind'], 'selector' => $node['selector'], 'nodes' => array_map('BlockstudioVendor\TailwindPHP\Ast\cloneAstNode', $node['nodes'])];
+            return [
+                'kind' => $node['kind'],
+                'selector' => $node['selector'],
+                'nodes' => array_map('BlockstudioVendor\\TailwindPHP\\Ast\\cloneAstNode', $node['nodes']),
+            ];
+
         case 'at-rule':
-            return ['kind' => $node['kind'], 'name' => $node['name'], 'params' => $node['params'], 'nodes' => array_map('BlockstudioVendor\TailwindPHP\Ast\cloneAstNode', $node['nodes'])];
+            return [
+                'kind' => $node['kind'],
+                'name' => $node['name'],
+                'params' => $node['params'],
+                'nodes' => array_map('BlockstudioVendor\\TailwindPHP\\Ast\\cloneAstNode', $node['nodes']),
+            ];
+
         case 'at-root':
-            return ['kind' => $node['kind'], 'nodes' => array_map('BlockstudioVendor\TailwindPHP\Ast\cloneAstNode', $node['nodes'])];
+            return [
+                'kind' => $node['kind'],
+                'nodes' => array_map('BlockstudioVendor\\TailwindPHP\\Ast\\cloneAstNode', $node['nodes']),
+            ];
+
         case 'context':
-            return ['kind' => $node['kind'], 'context' => $node['context'], 'nodes' => array_map('BlockstudioVendor\TailwindPHP\Ast\cloneAstNode', $node['nodes'])];
+            return [
+                'kind' => $node['kind'],
+                'context' => $node['context'],
+                'nodes' => array_map('BlockstudioVendor\\TailwindPHP\\Ast\\cloneAstNode', $node['nodes']),
+            ];
+
         case 'declaration':
-            return ['kind' => $node['kind'], 'property' => $node['property'], 'value' => $node['value'], 'important' => $node['important']];
+            return [
+                'kind' => $node['kind'],
+                'property' => $node['property'],
+                'value' => $node['value'],
+                'important' => $node['important'],
+            ];
+
         case 'comment':
-            return ['kind' => $node['kind'], 'value' => $node['value']];
+            return [
+                'kind' => $node['kind'],
+                'value' => $node['value'],
+            ];
+
         default:
             throw new \Exception("Unknown node kind: {$node['kind']}");
     }
 }
+
 // Pre-computed indent strings for toCss (up to depth 10)
 const INDENTS = ['', '  ', '    ', '      ', '        ', '          ', '            ', '              ', '                ', '                  ', '                    '];
+
 /**
  * Convert AST to CSS string.
  *
@@ -159,8 +228,10 @@ function toCss(array $ast): string
 {
     $parts = [];
     stringifyNodes($ast, 0, $parts);
+
     return implode('', $parts);
 }
+
 /**
  * Stringify AST nodes into parts array (avoids string concatenation).
  *
@@ -171,6 +242,7 @@ function toCss(array $ast): string
 function stringifyNodes(array $nodes, int $depth, array &$parts): void
 {
     $indent = $depth < 11 ? INDENTS[$depth] : str_repeat('  ', $depth);
+
     foreach ($nodes as $node) {
         switch ($node['kind']) {
             case 'declaration':
@@ -180,11 +252,13 @@ function stringifyNodes(array $nodes, int $depth, array &$parts): void
                     $parts[] = $indent . $node['property'] . ': ' . $node['value'] . ";\n";
                 }
                 break;
+
             case 'rule':
                 $parts[] = $indent . $node['selector'] . " {\n";
                 stringifyNodes($node['nodes'], $depth + 1, $parts);
                 $parts[] = $indent . "}\n";
                 break;
+
             case 'at-rule':
                 if (empty($node['nodes'])) {
                     $parts[] = $indent . $node['name'] . ' ' . $node['params'] . ";\n";
@@ -195,12 +269,16 @@ function stringifyNodes(array $nodes, int $depth, array &$parts): void
                     $parts[] = $indent . "}\n";
                 }
                 break;
+
             case 'comment':
                 $parts[] = $indent . '/*' . $node['value'] . "*/\n";
                 break;
+
+                // context and at-root should've been handled by optimizeAst
         }
     }
 }
+
 /**
  * Parse an at-rule from a buffer string.
  *
@@ -215,16 +293,18 @@ function parseAtRule(string $buffer, array $nodes = []): array
 {
     $name = $buffer;
     $params = '';
+
     // Find where the name ends and params begin
     $len = strlen($buffer);
     for ($i = 5; $i < $len; $i++) {
         $char = ord($buffer[$i]);
         // SPACE = 0x20, TAB = 0x09, OPEN_PAREN = 0x28
-        if ($char === 0x20 || $char === 0x9 || $char === 0x28) {
+        if ($char === 0x20 || $char === 0x09 || $char === 0x28) {
             $name = substr($buffer, 0, $i);
             $params = substr($buffer, $i);
             break;
         }
     }
+
     return atRule(trim($name), trim($params), $nodes);
 }

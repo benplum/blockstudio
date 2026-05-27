@@ -140,6 +140,14 @@ class TailwindTest extends TestCase {
 		$this->assertStringContainsString( 'margin-bottom:min(1rem + 2vw, 3rem)', $css );
 	}
 
+	public function test_scoped_tailwind_decodes_encoded_ampersand_arbitrary_selectors(): void {
+		$css = $this->generate_scoped_tailwind_css( '[&_svg:not([class*=size-])]:size-4' );
+
+		$this->assertStringContainsString( 'svg:not([class*=size-])', $css );
+		$this->assertStringContainsString( 'width:calc(var(--spacing) * 4)', $css );
+		$this->assertStringContainsString( 'height:calc(var(--spacing) * 4)', $css );
+	}
+
 	public function test_get_cdn_url_returns_empty_when_disabled(): void {
 		$cb = function () {
 			return false;

@@ -3,7 +3,7 @@ Contributors: dnnsjsk
 Requires at least: 6.7
 Tested up to: 7.0.0
 Requires PHP: 8.2
-Stable tag: 7.3.1
+Stable tag: 7.3.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -52,6 +52,10 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * [Getting Started](https://blockstudio.dev/docs/getting-started)
 
 == Changelog ==
+
+= 7.3.2 =
+* Fix: Tailwind CSS now compiles arbitrary selector classes that WordPress renders with encoded ampersands
+* Update: bundled TailwindPHP v1.4.1 with Tailwind CSS 4.3 support
 
 = 7.3.1 =
 * Fix: legacy editor asset fallback now waits for the actual non-iframed editor before loading block assets in the admin document
