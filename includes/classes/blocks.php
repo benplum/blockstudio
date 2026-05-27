@@ -80,6 +80,10 @@ class Blocks {
 			true
 		);
 
+		if ( Admin::is_capturing_assets() ) {
+			return;
+		}
+
 		$blockstudio_blocks = array();
 		$blocks             = Build::blocks();
 		$block_names        = array_keys( $blocks );
@@ -135,14 +139,17 @@ class Blocks {
 		$css_classes   = array();
 		$css_variables = array();
 
-		if ( ! self::$getting_assets ) {
+		$chosen_css_class_styles = Settings::get( 'blockEditor/cssClasses' );
+		$chosen_css_vars_styles  = Settings::get( 'blockEditor/cssVariables' );
+		$needs_asset_capture     =
+			( is_array( $chosen_css_class_styles ) && count( $chosen_css_class_styles ) > 0 ) ||
+			( is_array( $chosen_css_vars_styles ) && count( $chosen_css_vars_styles ) > 0 );
+
+		if ( $needs_asset_capture && ! self::$getting_assets ) {
 			self::$getting_assets = true;
 
-			$all_assets              = Admin::get_all_assets();
-			$chosen_css_class_styles = Settings::get( 'blockEditor/cssClasses' );
-			$chosen_css_vars_styles  = Settings::get( 'blockEditor/cssVariables' );
-
-			$styles = $all_assets['styles'];
+			$all_assets = Admin::get_all_assets();
+			$styles     = $all_assets['styles'];
 
 			if ( is_array( $chosen_css_class_styles ) && count( $chosen_css_class_styles ) > 0 ) {
 				foreach ( $styles as $key => $style ) {

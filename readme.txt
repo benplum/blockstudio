@@ -55,6 +55,8 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 
 = 7.3.1 =
 * Fix: legacy editor asset fallback now waits for the actual non-iframed editor before loading block assets in the admin document
+* Fix: skip editor asset capture when CSS autocomplete settings are empty and avoid recursive block rendering during capture
+* Fix: WYSIWYG fields inside repeaters now show the text cursor instead of the repeater drag cursor
 * Docs: document guarding global editor scripts when WordPress disables the block editor iframe
 
 = 7.3.0 =

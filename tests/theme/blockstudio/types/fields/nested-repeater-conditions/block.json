@@ -27,6 +27,133 @@
         "label": "Group cards",
         "textButton": "Add group card",
         "attributes": [{ "type": "custom/sample-media-group" }]
+      },
+      {
+        "id": "structured_cards",
+        "type": "repeater",
+        "label": "Structured cards",
+        "textButton": "Add structured card",
+        "attributes": [
+          {
+            "type": "custom/sample-media",
+            "idStructure": "item_{id}"
+          }
+        ]
+      },
+      {
+        "id": "items",
+        "type": "repeater",
+        "label": "Items",
+        "textButton": "Add item",
+        "attributes": [
+          {
+            "id": "item_media_type",
+            "type": "select",
+            "label": "Media type",
+            "default": "image",
+            "options": [
+              { "value": "image", "label": "Image" },
+              { "value": "video", "label": "Video" }
+            ]
+          },
+          {
+            "id": "item_image_default",
+            "type": "files",
+            "label": "Image",
+            "allowedTypes": ["image"],
+            "conditions": [
+              [
+                {
+                  "id": "item_media_type",
+                  "operator": "==",
+                  "value": "image"
+                }
+              ]
+            ]
+          },
+          {
+            "id": "item_image_sources",
+            "type": "repeater",
+            "label": "Picture sources",
+            "textButton": "Add inline picture source",
+            "conditions": [
+              [
+                {
+                  "id": "item_media_type",
+                  "operator": "==",
+                  "value": "image"
+                }
+              ]
+            ],
+            "attributes": [
+              {
+                "id": "source_image",
+                "type": "files",
+                "label": "Image",
+                "allowedTypes": ["image"]
+              }
+            ]
+          },
+          {
+            "id": "item_video_mp4",
+            "type": "files",
+            "label": "MP4",
+            "allowedTypes": ["video/mp4"],
+            "conditions": [
+              [
+                {
+                  "id": "item_media_type",
+                  "operator": "==",
+                  "value": "video"
+                }
+              ]
+            ]
+          },
+          {
+            "id": "item_video_sources",
+            "type": "repeater",
+            "label": "Alternate video",
+            "textButton": "Add alternate video",
+            "conditions": [
+              [
+                {
+                  "id": "item_media_type",
+                  "operator": "==",
+                  "value": "video"
+                }
+              ]
+            ],
+            "attributes": [
+              {
+                "id": "source_video_mp4",
+                "type": "files",
+                "label": "MP4",
+                "allowedTypes": ["video/mp4"]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "nested_group_cards",
+        "type": "repeater",
+        "label": "Nested group cards",
+        "textButton": "Add nested group card",
+        "attributes": [
+          {
+            "type": "group",
+            "title": "Outer",
+            "attributes": [
+              {
+                "type": "group",
+                "title": "Inner",
+                "attributes": [
+                  { "id": "heading", "type": "text", "label": "Heading" }
+                ]
+              }
+            ]
+          }
+        ]
       }
     ]
   }

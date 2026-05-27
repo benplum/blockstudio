@@ -30,6 +30,18 @@ testType('repeater', false, () => {
       },
     },
     {
+      description: 'wysiwyg uses text cursor inside repeater row',
+      testFunction: async (page: Page, _canvas: Frame) => {
+        const editor = page
+          .locator('[data-rfd-draggable-id="repeater[0]"]')
+          .locator('.blockstudio-fields__field--wysiwyg .ProseMirror')
+          .first();
+
+        await expect(editor).toBeVisible();
+        await expect(editor).toHaveCSS('cursor', 'text');
+      },
+    },
+    {
       description: 'correct minimized value',
       testFunction: async (page: Page, _canvas: Frame) => {
         await page.evaluate(() => window.localStorage.clear());
