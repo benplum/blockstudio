@@ -49,6 +49,13 @@ use stdClass;
 class Admin {
 
 	/**
+	 * Whether Blockstudio is currently capturing editor/admin/frontend assets.
+	 *
+	 * @var bool
+	 */
+	private static bool $capturing_assets = false;
+
+	/**
 	 * Constructor.
 	 */
 	public function __construct() {
@@ -288,63 +295,69 @@ class Admin {
 		$final_scripts = array();
 		$final_styles  = array();
 
-		$capture_id = wp_generate_password( 20, false );
-		set_transient(
-			'blockstudio_editor_expected_capture_assets_id',
-			$capture_id,
-			10 * MINUTE_IN_SECONDS
-		);
-		wp_remote_get(
-			add_query_arg(
-				'blockstudio_editor_capture_assets_id',
+		self::$capturing_assets = true;
+
+		try {
+			$capture_id = wp_generate_password( 20, false );
+			set_transient(
+				'blockstudio_editor_expected_capture_assets_id',
 				$capture_id,
-				home_url()
-			)
-		);
-
-		foreach ( $contexts as $context ) {
-			$wp_scripts->queue = array();
-			$wp_styles->queue  = array();
-
-			// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WordPress core hooks.
-			switch ( $context ) {
-				case 'block_editor':
-					do_action( 'enqueue_block_editor_assets' );
-					break;
-				case 'admin':
-					do_action( 'admin_enqueue_scripts' );
-					break;
-			}
-			// phpcs:enable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
-
-			self::get_assets_data(
-				$final_scripts,
-				$final_styles,
-				$wp_scripts,
-				$wp_styles,
-				$context
+				10 * MINUTE_IN_SECONDS
 			);
-		}
+			wp_remote_get(
+				add_query_arg(
+					'blockstudio_editor_capture_assets_id',
+					$capture_id,
+					home_url()
+				)
+			);
 
-		$frontend_scripts = get_transient( 'blockstudio_editor_captured_frontend_scripts' );
-		$frontend_styles  = get_transient( 'blockstudio_editor_captured_frontend_styles' );
+			foreach ( $contexts as $context ) {
+				$wp_scripts->queue = array();
+				$wp_styles->queue  = array();
 
-		if ( $frontend_scripts ) {
-			foreach ( $frontend_scripts as $handle => $script ) {
-				$final_scripts[ $handle ] = $script;
+				// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WordPress core hooks.
+				switch ( $context ) {
+					case 'block_editor':
+						do_action( 'enqueue_block_editor_assets' );
+						break;
+					case 'admin':
+						do_action( 'admin_enqueue_scripts' );
+						break;
+				}
+				// phpcs:enable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
+
+				self::get_assets_data(
+					$final_scripts,
+					$final_styles,
+					$wp_scripts,
+					$wp_styles,
+					$context
+				);
 			}
-		}
 
-		if ( $frontend_styles ) {
-			foreach ( $frontend_styles as $handle => $style ) {
-				$final_styles[ $handle ] = $style;
+			$frontend_scripts = get_transient( 'blockstudio_editor_captured_frontend_scripts' );
+			$frontend_styles  = get_transient( 'blockstudio_editor_captured_frontend_styles' );
+
+			if ( $frontend_scripts ) {
+				foreach ( $frontend_scripts as $handle => $script ) {
+					$final_scripts[ $handle ] = $script;
+				}
 			}
-		}
 
-		// phpcs:disable WordPress.WP.GlobalVariablesOverride.Prohibited -- Restoring original globals after capture.
-		$wp_scripts = $original_wp_scripts;
-		$wp_styles  = $original_wp_styles;
-		// phpcs:enable WordPress.WP.GlobalVariablesOverride.Prohibited
+			if ( $frontend_styles ) {
+				foreach ( $frontend_styles as $handle => $style ) {
+					$final_styles[ $handle ] = $style;
+				}
+			}
+		} finally {
+			self::$capturing_assets = false;
+
+			// phpcs:disable WordPress.WP.GlobalVariablesOverride.Prohibited -- Restoring original globals after capture.
+			$wp_scripts = $original_wp_scripts;
+			$wp_styles  = $original_wp_styles;
+			// phpcs:enable WordPress.WP.GlobalVariablesOverride.Prohibited
+		}
 
 		$all_assets = array(
 			'scripts' => $final_scripts,
@@ -358,6 +371,15 @@ class Admin {
 		);
 
 		return $all_assets;
+	}
+
+	/**
+	 * Check whether asset capture is currently running.
+	 *
+	 * @return bool Whether assets are being captured.
+	 */
+	public static function is_capturing_assets(): bool {
+		return self::$capturing_assets;
 	}
 
 	/**

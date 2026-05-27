@@ -156,6 +156,7 @@ export const WYSIWYG = ({
           css={css({
             border: '1px solid #1e1e1e',
             borderRadius: 'var(--blockstudio-border-radius)',
+            cursor: 'auto',
             overflow: 'hidden',
           })}
         >
@@ -310,7 +311,11 @@ export const WYSIWYG = ({
           )}
           <div
             css={css({
+              cursor: 'text',
               padding: '16px;',
+              '.ProseMirror, .ProseMirror *': {
+                cursor: 'text',
+              },
               strong: {
                 fontWeight: 'bold',
               },

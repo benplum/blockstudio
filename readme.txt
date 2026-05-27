@@ -3,7 +3,7 @@ Contributors: dnnsjsk
 Requires at least: 6.7
 Tested up to: 7.0.0
 Requires PHP: 8.2
-Stable tag: 7.3.0
+Stable tag: 7.3.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -52,6 +52,12 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * [Getting Started](https://blockstudio.dev/docs/getting-started)
 
 == Changelog ==
+
+= 7.3.1 =
+* Fix: legacy editor asset fallback now waits for the actual non-iframed editor before loading block assets in the admin document
+* Fix: skip editor asset capture when CSS autocomplete settings are empty and avoid recursive block rendering during capture
+* Fix: WYSIWYG fields inside repeaters now show the text cursor instead of the repeater drag cursor
+* Docs: document guarding global editor scripts when WordPress disables the block editor iframe
 
 = 7.3.0 =
 * New: bundled UI components under the `bsui/*` namespace

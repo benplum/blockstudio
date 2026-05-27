@@ -59,6 +59,52 @@
           ]
         }
       ]
+    },
+    {
+      "id": "video_mp4",
+      "type": "files",
+      "label": "Grouped video MP4",
+      "min": 0,
+      "max": 1,
+      "multiple": false,
+      "allowedTypes": ["video/mp4"],
+      "conditions": [
+        [{ "id": "media_type", "operator": "==", "value": "video" }]
+      ]
+    },
+    {
+      "type": "group",
+      "title": "Grouped video sources",
+      "conditions": [
+        [{ "id": "media_type", "operator": "==", "value": "video" }]
+      ],
+      "attributes": [
+        {
+          "id": "video_sources",
+          "type": "repeater",
+          "label": "Grouped video sources",
+          "min": 0,
+          "max": 12,
+          "textButton": "Add grouped video source",
+          "attributes": [
+            {
+              "id": "source_video",
+              "type": "files",
+              "label": "Grouped source video",
+              "min": 0,
+              "max": 1,
+              "multiple": false,
+              "allowedTypes": ["video/mp4"]
+            },
+            {
+              "id": "source_media",
+              "type": "text",
+              "label": "Grouped video media query",
+              "default": ""
+            }
+          ]
+        }
+      ]
     }
   ]
 }
