@@ -43,6 +43,12 @@ const renderedIds: string[] = [];
 const registerSingleBlock = (block: BlockstudioBlock) => {
   if (!isAllowedToRender(block.blockstudio as BlockstudioAttribute)) return;
 
+  const blockstudioVariations = (
+    block.blockstudio as BlockstudioBlock['blockstudio'] & {
+      variations?: BlockstudioBlock['variations'];
+    }
+  ).variations;
+
   // @ts-ignore
   registerBlockType(block, {
     ...(block?.blockstudio?.icon
@@ -53,6 +59,7 @@ const registerSingleBlock = (block: BlockstudioBlock) => {
         }
       : {}),
     apiVersion: 3,
+    variations: block.variations ?? blockstudioVariations ?? [],
     providesContext: { [block.name]: 'blockstudio' },
     transforms: transforms(
       block,
