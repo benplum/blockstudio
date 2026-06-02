@@ -324,6 +324,16 @@ add_filter('blockstudio/settings/assets/process/scss_files', function() {
 });
 ```
 
+### cache/enabled
+
+This filter allows you to enable/disable all Blockstudio file-backed runtime and editor asset caches.
+
+```php title="functions.php"
+add_filter('blockstudio/settings/cache/enabled', function() {
+  return false;
+});
+```
+
 ### tailwind/enabled
 
 This filter allows you to enable/disable Tailwind.

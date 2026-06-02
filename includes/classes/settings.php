@@ -92,6 +92,9 @@ class Settings {
 				'scssFiles' => true,
 			),
 		),
+		'cache'       => array(
+			'enabled' => true,
+		),
 		'editor'      => array(
 			'formatOnSave' => false,
 			'assets'       => array(),

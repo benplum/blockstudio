@@ -79,3 +79,4 @@ packages/phpstan/composer.lock
 # Test theme generated files
 tests/theme/blockstudio/**/db/
 tests/theme/blockstudio/**/_dist/
+includes/ui/**/_dist/

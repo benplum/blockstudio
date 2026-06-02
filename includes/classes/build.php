@@ -1124,6 +1124,19 @@ class Build {
 
 		$registry->set_blade_instance( $instance, $path );
 
+		if ( ! $editor ) {
+			$cached_runtime = Build_Cache::load_runtime( $path, $instance );
+
+			if ( is_array( $cached_runtime ) ) {
+				self::hydrate_cached_runtime_build(
+					$cached_runtime,
+					$instance,
+					$registry
+				);
+				return;
+			}
+		}
+
 		// Phase 1: Discover blocks using Block_Discovery.
 		$results = Perf::measure(
 			'build:discovery',
@@ -1144,12 +1157,7 @@ class Build {
 			$results['block_json_data'] ?? array()
 		);
 
-		// Register blade templates.
-		foreach ( $results['blade_templates'] as $blade_instance => $templates ) {
-			foreach ( $templates as $template_name => $template_path ) {
-				$registry->add_blade_template( $blade_instance, $template_name, $template_path );
-			}
-		}
+		self::register_blade_templates( $results['blade_templates'], $registry );
 
 		// Handle overrides in editor mode.
 		if ( $editor ) {
@@ -1215,84 +1223,16 @@ class Build {
 		unset( $data ); // Break reference.
 
 		// Phase 2.5: Discover custom fields.
-		$fields_path = $path . '/fields';
-
-		if ( is_dir( $fields_path ) ) {
-			$field_discovery = new Field_Discovery();
-			$field_registry  = Field_Registry::instance();
-			$custom_fields   = $field_discovery->discover( $fields_path );
-
-			foreach ( $custom_fields as $field_name => $definition ) {
-				$field_registry->register( $field_name, $definition );
-			}
-		}
-
-		/**
-		 * Filter additional field discovery paths.
-		 *
-		 * @param array $paths Array of directory paths to scan for custom fields.
-		 */
-		$extra_field_paths = apply_filters( 'blockstudio/fields/paths', array() );
-
-		if ( ! empty( $extra_field_paths ) ) {
-			$field_discovery = $field_discovery ?? new Field_Discovery();
-			$field_registry  = $field_registry ?? Field_Registry::instance();
-
-			foreach ( $extra_field_paths as $extra_path ) {
-				if ( is_dir( $extra_path ) ) {
-					$extra_fields = $field_discovery->discover( $extra_path );
-
-					foreach ( $extra_fields as $field_name => $definition ) {
-						$field_registry->register( $field_name, $definition );
-					}
-				}
-			}
-		}
-
-		/**
-		 * Filter for programmatic custom field registration.
-		 *
-		 * @param array $fields Array of custom field definitions keyed by name.
-		 */
-		$filter_fields = apply_filters( 'blockstudio/fields', array() );
-
-		if ( ! empty( $filter_fields ) ) {
-			$field_registry = $field_registry ?? Field_Registry::instance();
-
-			foreach ( $filter_fields as $field_name => $definition ) {
-				$field_registry->register( $field_name, $definition );
-			}
-		}
+		$local_fields = self::discover_local_custom_fields( $path );
+		self::register_custom_field_definitions( $local_fields['fields'] );
+		self::register_filtered_custom_fields();
 
 		// Phase 3: Register blocks.
 		if ( ! $editor ) {
-			$block_lookup = array();
-			foreach ( $registerable as $reg_name => $reg_item ) {
-				$block_lookup[ $reg_name ] = $reg_item['block_json'];
-			}
-
 			Perf::measure(
 				'build:registration',
-				static function () use ( $registerable, $registry, $block_lookup ): void {
-					foreach ( $registerable as $name => $item ) {
-						if ( $item['classification']['is_native'] ?? false ) {
-							$native_dir = dirname( $item['data']['path'] );
-							if ( ! \WP_Block_Type_Registry::get_instance()->is_registered( $name ) ) {
-								\register_block_type( $native_dir );
-							}
-							continue;
-						}
-
-						self::register_block_type(
-							$item['data'],
-							$item['block_json'],
-							$item['classification'],
-							$item['contents'],
-							$name,
-							$registry,
-							$block_lookup
-						);
-					}
+				static function () use ( $registerable, $registry ): void {
+					self::register_discovered_blocks( $registerable, $registry );
 				}
 			);
 		}
@@ -1316,6 +1256,21 @@ class Build {
 			return;
 		}
 
+		Build_Cache::write_runtime(
+			$path,
+			$instance,
+			array(
+				'store'          => $store,
+				'registerable'   => $registerable,
+				'overrides'      => $overrides,
+				'bladeTemplates' => $results['blade_templates'],
+				'blockJsonData'  => $results['block_json_data'] ?? array(),
+				'fields'         => $local_fields['fields'],
+				'fieldPaths'     => $local_fields['paths'],
+				'fieldDirs'      => $local_fields['dirs'],
+			)
+		);
+
 		$registry->merge_data( $store );
 
 		foreach ( $registry->get_data() as $file ) {
@@ -1332,21 +1287,7 @@ class Build {
 			}
 		);
 
-		// Enqueue Interactivity API if any block needs it.
-		if ( ! self::$interactivity_api_rendered ) {
-			foreach ( $registry->get_blocks() as $block ) {
-				if ( self::has_interactivity( $block->blockstudio ?? array() ) ) {
-					self::$interactivity_api_rendered = true;
-					add_action(
-						'wp_enqueue_scripts',
-						static function () {
-							wp_enqueue_script_module( '@wordpress/interactivity' );
-						}
-					);
-					break;
-				}
-			}
-		}
+		self::maybe_enqueue_interactivity_api( $registry );
 
 		foreach ( $empty_dist_folders as $folder ) {
 			if ( is_dir( $folder ) ) {
@@ -1356,6 +1297,321 @@ class Build {
 
 		do_action( 'blockstudio/init' );
 		do_action( "blockstudio/init/$instance" );
+	}
+
+	/**
+	 * Hydrate a cached runtime build payload.
+	 *
+	 * @param array          $payload  Cached runtime payload.
+	 * @param string         $instance Build instance.
+	 * @param Block_Registry $registry Block registry.
+	 *
+	 * @return void
+	 */
+	private static function hydrate_cached_runtime_build(
+		array $payload,
+		string $instance,
+		Block_Registry $registry
+	): void {
+		$store        = $payload['store'] ?? array();
+		$registerable = $payload['registerable'] ?? array();
+		$overrides    = $payload['overrides'] ?? array();
+
+		self::filter_missing_plugin_dependencies(
+			$store,
+			$registerable,
+			$overrides,
+			$payload['blockJsonData'] ?? array()
+		);
+
+		self::register_blade_templates(
+			$payload['bladeTemplates'] ?? array(),
+			$registry
+		);
+		self::register_cached_assets( $store, $registry );
+		self::register_custom_field_definitions( $payload['fields'] ?? array() );
+		self::register_filtered_custom_fields();
+
+		Perf::measure(
+			'build:registration:cached',
+			static function () use ( $registerable, $registry ): void {
+				self::register_discovered_blocks( $registerable, $registry );
+			}
+		);
+
+		$registry->merge_data( $store );
+
+		foreach ( $registry->get_data() as $file ) {
+			if ( $file['init'] ) {
+				include_once $file['path'];
+			}
+		}
+
+		Perf::measure(
+			'build:overrides:cached',
+			static function () use ( $registry ): void {
+				self::apply_overrides( $registry );
+			}
+		);
+
+		self::maybe_enqueue_interactivity_api( $registry );
+
+		do_action( 'blockstudio/init' );
+		do_action( "blockstudio/init/$instance" );
+	}
+
+	/**
+	 * Register Blade templates from discovery results.
+	 *
+	 * @param array          $blade_templates Blade templates.
+	 * @param Block_Registry $registry        Block registry.
+	 *
+	 * @return void
+	 */
+	private static function register_blade_templates( array $blade_templates, Block_Registry $registry ): void {
+		foreach ( $blade_templates as $blade_instance => $templates ) {
+			foreach ( $templates as $template_name => $template_path ) {
+				$registry->add_blade_template( $blade_instance, $template_name, $template_path );
+			}
+		}
+	}
+
+	/**
+	 * Rebuild asset registry state from cached block asset metadata.
+	 *
+	 * @param array          $store    Cached block data.
+	 * @param Block_Registry $registry Block registry.
+	 *
+	 * @return void
+	 */
+	private static function register_cached_assets( array $store, Block_Registry $registry ): void {
+		if ( ! Settings::get( 'assets/enqueue' ) ) {
+			return;
+		}
+
+		foreach ( $store as $name => $data ) {
+			foreach ( $data['assets'] ?? array() as $asset_id => $asset ) {
+				$path = $asset['path'] ?? '';
+				$file = $asset['file'] ?? array();
+
+				if ( '' === $path || empty( $file['basename'] ) ) {
+					continue;
+				}
+
+				if (
+					false === apply_filters(
+						'blockstudio/assets/enable',
+						true,
+						array(
+							'file' => $file,
+							'path' => $path,
+							'url'  => $asset['url'] ?? '',
+							'type' => Assets::is_css( $path ) ? 'css' : 'js',
+						)
+					)
+				) {
+					continue;
+				}
+
+				if ( str_starts_with( $file['basename'], 'admin' ) ) {
+					$registry->add_admin_asset(
+						sanitize_title( $path ),
+						array(
+							'path' => $path,
+							'key'  => filemtime( $path ),
+						)
+					);
+				}
+
+				if ( str_starts_with( $file['basename'], 'block-editor' ) ) {
+					$registry->add_block_editor_asset(
+						sanitize_title( $path ),
+						array(
+							'path' => $path,
+							'key'  => filemtime( $path ),
+						)
+					);
+				}
+
+				if ( str_starts_with( $file['basename'], 'global' ) ) {
+					$registry->add_global_asset(
+						sanitize_title( $path ),
+						$asset['url'] ?? ''
+					);
+				}
+
+				$handle = Assets::get_id( $asset_id, $data );
+				$type   = Assets::is_css( $path ) ? 'style' : 'script';
+
+				$registry->add_asset(
+					$type,
+					$handle,
+					array(
+						'path'  => $asset['url'] ?? '',
+						'mtime' => filemtime( $path ),
+					)
+				);
+			}
+		}
+	}
+
+	/**
+	 * Discover fields in the local build directory.
+	 *
+	 * @param string $path Build path.
+	 *
+	 * @return array Fields, watched field paths, and watched field dirs.
+	 */
+	private static function discover_local_custom_fields( string $path ): array {
+		$fields_path = $path . '/fields';
+		$result      = array(
+			'fields' => array(),
+			'paths'  => array(),
+			'dirs'   => array(),
+		);
+
+		if ( ! is_dir( $fields_path ) ) {
+			return $result;
+		}
+
+		$field_discovery  = new Field_Discovery();
+		$result['fields'] = $field_discovery->discover( $fields_path );
+		$result['dirs'][] = $fields_path;
+
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator(
+				$fields_path,
+				\FilesystemIterator::SKIP_DOTS
+			)
+		);
+
+		foreach ( $iterator as $file ) {
+			if ( $file->isFile() ) {
+				$result['paths'][] = wp_normalize_path( $file->getPathname() );
+			}
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Register custom field definitions.
+	 *
+	 * @param array $fields Field definitions.
+	 *
+	 * @return void
+	 */
+	private static function register_custom_field_definitions( array $fields ): void {
+		if ( empty( $fields ) ) {
+			return;
+		}
+
+		$field_registry = Field_Registry::instance();
+
+		foreach ( $fields as $field_name => $definition ) {
+			$field_registry->register( $field_name, $definition );
+		}
+	}
+
+	/**
+	 * Register filtered custom fields.
+	 *
+	 * Dynamic field filters are intentionally replayed on every request even
+	 * when the filesystem discovery payload came from cache.
+	 *
+	 * @return void
+	 */
+	private static function register_filtered_custom_fields(): void {
+		/**
+		 * Filter additional field discovery paths.
+		 *
+		 * @param array $paths Array of directory paths to scan for custom fields.
+		 */
+		$extra_field_paths = apply_filters( 'blockstudio/fields/paths', array() );
+
+		if ( ! empty( $extra_field_paths ) ) {
+			$field_discovery = new Field_Discovery();
+
+			foreach ( $extra_field_paths as $extra_path ) {
+				if ( is_dir( $extra_path ) ) {
+					self::register_custom_field_definitions(
+						$field_discovery->discover( $extra_path )
+					);
+				}
+			}
+		}
+
+		/**
+		 * Filter for programmatic custom field registration.
+		 *
+		 * @param array $fields Array of custom field definitions keyed by name.
+		 */
+		$filter_fields = apply_filters( 'blockstudio/fields', array() );
+
+		if ( ! empty( $filter_fields ) ) {
+			self::register_custom_field_definitions( $filter_fields );
+		}
+	}
+
+	/**
+	 * Register discovered block types.
+	 *
+	 * @param array          $registerable Registerable block payload.
+	 * @param Block_Registry $registry     Block registry.
+	 *
+	 * @return void
+	 */
+	private static function register_discovered_blocks( array $registerable, Block_Registry $registry ): void {
+		$block_lookup = array();
+		foreach ( $registerable as $reg_name => $reg_item ) {
+			$block_lookup[ $reg_name ] = $reg_item['block_json'];
+		}
+
+		foreach ( $registerable as $name => $item ) {
+			if ( $item['classification']['is_native'] ?? false ) {
+				$native_dir = dirname( $item['data']['path'] );
+				if ( ! \WP_Block_Type_Registry::get_instance()->is_registered( $name ) ) {
+					\register_block_type( $native_dir );
+				}
+				continue;
+			}
+
+			self::register_block_type(
+				$item['data'],
+				$item['block_json'],
+				$item['classification'],
+				$item['contents'],
+				$name,
+				$registry,
+				$block_lookup
+			);
+		}
+	}
+
+	/**
+	 * Enqueue the Interactivity API if any registered block needs it.
+	 *
+	 * @param Block_Registry $registry Block registry.
+	 *
+	 * @return void
+	 */
+	private static function maybe_enqueue_interactivity_api( Block_Registry $registry ): void {
+		if ( self::$interactivity_api_rendered ) {
+			return;
+		}
+
+		foreach ( $registry->get_blocks() as $block ) {
+			if ( self::has_interactivity( $block->blockstudio ?? array() ) ) {
+				self::$interactivity_api_rendered = true;
+				add_action(
+					'wp_enqueue_scripts',
+					static function () {
+						wp_enqueue_script_module( '@wordpress/interactivity' );
+					}
+				);
+				break;
+			}
+		}
 	}
 
 	/**

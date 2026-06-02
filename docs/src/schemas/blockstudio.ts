@@ -123,6 +123,22 @@ export const blockstudio = {
       },
       additionalProperties: true,
     },
+    cache: {
+      type: 'object',
+      description: 'Settings related to Blockstudio runtime caching.',
+      properties: {
+        enabled: {
+          type: 'boolean',
+          default: true,
+          description:
+            'Enable Blockstudio file-backed runtime and editor asset caches.',
+          descriptionFilter:
+            'This filter allows you to enable/disable all Blockstudio file-backed runtime and editor asset caches.',
+          example: false,
+        },
+      },
+      additionalProperties: true,
+    },
     tailwind: {
       type: 'object',
       description: 'Settings related to Tailwind.',

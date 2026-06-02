@@ -30,6 +30,9 @@ The following properties are available:
       "scss": false
     }
   },
+  "cache": {
+    "enabled": true
+  },
   "editor": {
     "formatOnSave": false,
     "assets": [],
@@ -114,6 +117,18 @@ Options set via the `blockstudio/settings/${setting}` filter will override the o
 | `minify.css`   | boolean | `false` | Minify CSS output         |
 | `minify.js`    | boolean | `false` | Minify JS output          |
 | `process.scss` | boolean | `false` | Process SCSS files        |
+
+### cache
+
+| Option    | Type    | Default | Description                           |
+| --------- | ------- | ------- | ------------------------------------- |
+| `enabled` | boolean | `true`  | Enable Blockstudio file-backed caches |
+
+By default cache files are written to `wp-content/uploads/blockstudio/cache`.
+When enabled, Blockstudio caches runtime build payloads and resolved editor
+assets. Runtime cache entries are invalidated when watched block files, field
+files, asset files, settings, active plugins, WordPress, PHP, or Blockstudio
+versions change.
 
 ### editor
 

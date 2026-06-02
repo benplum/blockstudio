@@ -111,9 +111,7 @@ class Assets {
 		add_filter(
 			'block_editor_settings_all',
 			function ( $settings ) {
-				ob_start();
-				self::get_assets( 'editor' );
-				$output = ob_get_clean();
+				$output = self::get_cached_editor_assets_output();
 
 				if ( '' === $output || ! isset( $settings['__unstableResolvedAssets'] ) ) {
 					// Still check for interactivity even with no other assets.
@@ -891,6 +889,39 @@ class Assets {
 	public static function get_assets( $type = 'editor' ): void {
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Asset output.
 		echo self::get_assets_html( $type );
+	}
+
+	/**
+	 * Get cached editor asset HTML.
+	 *
+	 * This is the expensive part of block_editor_settings_all because it reads
+	 * block CSS/JS files and prefixes editor CSS. Interactivity assets are kept
+	 * outside this cache and appended by the settings filter on every request.
+	 *
+	 * @return string Editor asset HTML.
+	 */
+	private static function get_cached_editor_assets_output(): string {
+		if ( ! self::is_editor_screen() ) {
+			return '';
+		}
+
+		$cached = Build_Cache::load_editor_assets();
+
+		if ( is_array( $cached ) && is_string( $cached['output'] ?? null ) ) {
+			return $cached['output'];
+		}
+
+		ob_start();
+		self::get_assets( 'editor' );
+		$output = ob_get_clean();
+
+		Build_Cache::write_editor_assets(
+			array(
+				'output' => $output,
+			)
+		);
+
+		return $output;
 	}
 
 	/**
