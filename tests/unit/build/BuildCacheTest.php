@@ -262,4 +262,146 @@ class BuildCacheTest extends TestCase {
 
 		$this->assertNull( Build_Cache::load_runtime( $directory, 'test-instance' ) );
 	}
+
+	/**
+	 * Runtime cache watches asset dependency files from the payload.
+	 *
+	 * @return void
+	 */
+	public function test_runtime_cache_watches_asset_dependencies_from_payload(): void {
+		$directory = $this->create_temporary_directory();
+
+		$block_directory = $directory . '/example';
+		wp_mkdir_p( $block_directory );
+
+		$block_json = $block_directory . '/block.json';
+		$style      = $block_directory . '/style.scss';
+		$dependency = $block_directory . '/_tokens.scss';
+
+		$this->write_file( $block_json, '{"name":"blockstudio-test/cache-runtime-dependencies","title":"Cache Runtime Dependencies"}' );
+		$this->write_file( $style, '@use "tokens"; .example { color: $color; }' );
+		$this->write_file( $dependency, '$color: red;' );
+
+		$payload = array(
+			'store'        => array(
+				'blockstudio-test/cache-runtime-dependencies' => array(
+					'name'       => 'blockstudio-test/cache-runtime-dependencies',
+					'path'       => $block_json,
+					'filesPaths' => array( $block_json, $style ),
+					'assets'     => array(
+						'style-scss' => array(
+							'path'         => $style,
+							'dependencies' => array( $dependency ),
+							'file'         => pathinfo( $style ),
+						),
+					),
+				),
+			),
+			'registerable' => array(),
+		);
+
+		$key = Build_Cache::get_runtime_key( $directory, 'test-instance' );
+		$this->track_cache_file( 'runtime', $key );
+		Build_Cache::write_runtime( $directory, 'test-instance', $payload );
+
+		$this->assertIsArray( Build_Cache::load_runtime( $directory, 'test-instance' ) );
+
+		$this->write_file( $dependency, '$color: blue; $gap: 1rem;' );
+
+		$this->assertNull( Build_Cache::load_runtime( $directory, 'test-instance' ) );
+	}
+
+	/**
+	 * Runtime cache invalidates when a new nested block file is added.
+	 *
+	 * @return void
+	 */
+	public function test_runtime_cache_watches_nested_directories_for_new_blocks(): void {
+		$directory = $this->create_temporary_directory();
+
+		$section_directory = $directory . '/sections';
+		$block_directory   = $section_directory . '/one';
+		wp_mkdir_p( $block_directory );
+
+		$block_json = $block_directory . '/block.json';
+
+		$this->write_file( $block_json, '{"name":"blockstudio-test/cache-runtime-one","title":"Cache Runtime One"}' );
+
+		$payload = array(
+			'store'        => array(
+				'blockstudio-test/cache-runtime-one' => array(
+					'name'       => 'blockstudio-test/cache-runtime-one',
+					'path'       => $block_json,
+					'filesPaths' => array( $block_json ),
+				),
+			),
+			'registerable' => array(),
+		);
+
+		$key = Build_Cache::get_runtime_key( $directory, 'test-instance' );
+		$this->track_cache_file( 'runtime', $key );
+		Build_Cache::write_runtime( $directory, 'test-instance', $payload );
+
+		$this->assertIsArray( Build_Cache::load_runtime( $directory, 'test-instance' ) );
+
+		$new_block_directory = $section_directory . '/two';
+		wp_mkdir_p( $new_block_directory );
+		$this->write_file( $new_block_directory . '/block.json', '{"name":"blockstudio-test/cache-runtime-two","title":"Cache Runtime Two"}' );
+		$this->touch_directory( $section_directory, time() + 2 );
+
+		$this->assertNull( Build_Cache::load_runtime( $directory, 'test-instance' ) );
+	}
+
+	/**
+	 * Editor asset fingerprints use cached metadata before file snapshots.
+	 *
+	 * @return void
+	 */
+	public function test_editor_asset_fingerprint_uses_asset_keys_from_metadata(): void {
+		$directory = $this->create_temporary_directory();
+
+		$style = $directory . '/style.scss';
+		$view  = $directory . '/view.js';
+
+		$this->write_file( $style, '.example { color: red; }' );
+		$this->write_file( $view, 'console.log("view");' );
+
+		$reflection = new ReflectionClass( Build_Cache::class );
+		$method     = $reflection->getMethod( 'get_editor_assets_fingerprint' );
+
+		$fingerprint = $method->invoke(
+			null,
+			array(
+				'blockstudio-test/cache-editor-assets' => array(
+					'name'   => 'blockstudio-test/cache-editor-assets',
+					'assets' => array(
+						'style-scss' => array(
+							'path'   => $style,
+							'key'    => 'dependency-aware-version',
+							'mtime'  => 123,
+							'type'   => 'inline',
+							'editor' => false,
+							'file'   => array(
+								'extension' => 'scss',
+							),
+						),
+						'view-js'    => array(
+							'path'   => $view,
+							'mtime'  => 456,
+							'type'   => 'external',
+							'editor' => false,
+							'file'   => array(
+								'extension' => 'js',
+							),
+						),
+					),
+				),
+			)
+		);
+
+		$this->assertSame( 'style-scss', $fingerprint[0]['id'] );
+		$this->assertSame( 'dependency-aware-version', $fingerprint[0]['version'] );
+		$this->assertSame( 'view-js', $fingerprint[1]['id'] );
+		$this->assertSame( 456, $fingerprint[1]['version'] );
+	}
 }

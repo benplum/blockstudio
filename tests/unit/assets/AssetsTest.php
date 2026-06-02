@@ -278,6 +278,39 @@ class AssetsTest extends TestCase {
 		$this->assertStringNotContainsString( '%selector%', $css );
 	}
 
+	public function test_get_asset_dependency_paths_finds_local_scss_dependencies(): void {
+		$path       = $this->create_temporary_asset(
+			'style.scss',
+			'@use "tokens"; .example { color: $color; }'
+		);
+		$dependency = dirname( $path ) . '/_tokens.scss';
+
+		file_put_contents( $dependency, '$color: red;' );
+
+		$this->assertContains(
+			wp_normalize_path( $dependency ),
+			Assets::get_asset_dependency_paths( $path )
+		);
+	}
+
+	public function test_get_asset_version_changes_when_scss_dependency_changes(): void {
+		$path       = $this->create_temporary_asset(
+			'style.scss',
+			'@use "tokens"; .example { color: $color; }'
+		);
+		$dependency = dirname( $path ) . '/_tokens.scss';
+
+		file_put_contents( $dependency, '$color: red;' );
+
+		$first = Assets::get_asset_version( $path );
+
+		file_put_contents( $dependency, '$color: blue;' );
+		touch( $dependency, time() + 2 );
+		clearstatcache( true, $dependency );
+
+		$this->assertNotSame( $first, Assets::get_asset_version( $path ) );
+	}
+
 	public function test_process_clears_cached_compiled_asset_lookup(): void {
 		$path = $this->create_temporary_asset(
 			'style.css',

@@ -25,7 +25,7 @@ final class Build_Cache {
 	 *
 	 * @var int
 	 */
-	private const VERSION = 4;
+	private const VERSION = 5;
 
 	/**
 	 * Get the cache directory path.
@@ -126,34 +126,12 @@ final class Build_Cache {
 	 * @return string Cache key.
 	 */
 	public static function get_editor_assets_key(): string {
-		$files = array();
-
-		foreach ( Build::data() as $block ) {
-			foreach ( $block['assets'] ?? array() as $asset ) {
-				if ( empty( $asset['path'] ) ) {
-					continue;
-				}
-
-				$source_path = wp_normalize_path( $asset['path'] );
-				$path        = self::resolve_asset_path( $asset['path'] );
-				$matches     = Assets::get_matches( $asset['path'] );
-				$files      += self::snapshot_paths(
-					array_merge(
-						array( $source_path, $path ),
-						$matches
-					)
-				);
-			}
-		}
-
-		ksort( $files );
-
 		return md5(
 			wp_json_encode(
 				array(
 					'version'      => defined( 'BLOCKSTUDIO_VERSION' ) ? BLOCKSTUDIO_VERSION : '',
 					'cacheVersion' => self::VERSION,
-					'files'        => $files,
+					'assets'       => self::get_editor_assets_fingerprint( Build::data() ),
 					'settings'     => self::get_settings_fingerprint(),
 					'wpVersion'    => get_bloginfo( 'version' ),
 				)
@@ -473,6 +451,10 @@ final class Build_Cache {
 					$paths[] = $asset['path'];
 					$paths[] = self::resolve_asset_path( $asset['path'] );
 				}
+
+				foreach ( $asset['dependencies'] ?? array() as $dependency ) {
+					$paths[] = $dependency;
+				}
 			}
 		}
 
@@ -535,7 +517,13 @@ final class Build_Cache {
 			}
 		}
 
-		foreach ( $dirs as $dir ) {
+		$recursive_roots = array( $path );
+
+		foreach ( $payload['fieldDirs'] ?? array() as $field_dir ) {
+			$recursive_roots[] = $field_dir;
+		}
+
+		foreach ( array_unique( $recursive_roots ) as $dir ) {
 			if ( is_dir( $dir ) ) {
 				$dirs = array_merge( $dirs, self::collect_directories( $dir ) );
 			}
@@ -553,6 +541,57 @@ final class Build_Cache {
 				)
 			)
 		);
+	}
+
+	/**
+	 * Build a stable fingerprint for editor asset output from cached metadata.
+	 *
+	 * The runtime cache already watches asset source files and dependencies, so
+	 * editor cache hits can avoid globbing compiled assets or statting files.
+	 *
+	 * @param array $blocks Block data.
+	 *
+	 * @return array Asset fingerprint.
+	 */
+	private static function get_editor_assets_fingerprint( array $blocks ): array {
+		$fingerprint = array();
+
+		foreach ( $blocks as $block_name => $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			foreach ( $block['assets'] ?? array() as $asset_id => $asset ) {
+				if ( ! is_array( $asset ) || empty( $asset['path'] ) ) {
+					continue;
+				}
+
+				$version = $asset['key'] ?? $asset['mtime'] ?? null;
+
+				if ( null === $version ) {
+					$version = self::get_file_snapshot( $asset['path'] );
+				}
+
+				$fingerprint[] = array(
+					'block'     => is_string( $block_name ) ? $block_name : ( $block['name'] ?? '' ),
+					'id'        => (string) $asset_id,
+					'path'      => wp_normalize_path( $asset['path'] ),
+					'type'      => $asset['type'] ?? '',
+					'editor'    => (bool) ( $asset['editor'] ?? false ),
+					'extension' => $asset['file']['extension'] ?? '',
+					'url'       => $asset['url'] ?? '',
+					'version'   => $version,
+				);
+			}
+		}
+
+		usort(
+			$fingerprint,
+			static fn( $a, $b ) => ( $a['block'] . '|' . $a['id'] . '|' . $a['path'] ) <=>
+				( $b['block'] . '|' . $b['id'] . '|' . $b['path'] )
+		);
+
+		return $fingerprint;
 	}
 
 	/**

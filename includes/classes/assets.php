@@ -655,7 +655,20 @@ class Assets {
 	 * @return string The modification time hash.
 	 */
 	public static function get_imported_modification_times( $path, $scoped_class ): string {
-		$mtimes = array( filemtime( $path ) );
+		return self::get_asset_version( $path, $scoped_class );
+	}
+
+	/**
+	 * Get a version string for an asset and its compile-time dependencies.
+	 *
+	 * @param string   $path         The file path.
+	 * @param string   $scoped_class The scoped class name.
+	 * @param int|null $source_mtime The already-read source file mtime.
+	 *
+	 * @return string The asset version string.
+	 */
+	public static function get_asset_version( string $path, string $scoped_class = '', ?int $source_mtime = null ): string {
+		$mtimes = array( (string) ( $source_mtime ?? filemtime( $path ) ) );
 
 		if ( '' !== $scoped_class ) {
 			$mtimes[] = $scoped_class;
@@ -699,6 +712,36 @@ class Assets {
 		}
 
 		return md5( implode( '-', $mtimes ) );
+	}
+
+	/**
+	 * Get local files that can affect compiled SCSS output.
+	 *
+	 * @param string $path The file path.
+	 *
+	 * @return array Dependency file paths.
+	 */
+	public static function get_asset_dependency_paths( string $path ): array {
+		if ( str_ends_with( $path, '.js' ) || ! self::should_process_scss( $path ) || ! is_file( $path ) ) {
+			return array();
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local SCSS file for cache dependency detection.
+		$content = file_get_contents( $path );
+
+		if ( ! is_string( $content ) ) {
+			return array();
+		}
+
+		$prelude = self::get_scss_prelude( $path, $content );
+
+		return array_map(
+			'wp_normalize_path',
+			self::get_scss_dependencies(
+				trim( $prelude . "\n" . $content ),
+				$path
+			)
+		);
 	}
 
 	/**

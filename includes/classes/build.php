@@ -1407,7 +1407,7 @@ class Build {
 					continue;
 				}
 
-				$mtime = $asset['mtime'] ?? filemtime( $path );
+				$mtime = $asset['key'] ?? $asset['mtime'] ?? filemtime( $path );
 
 				if (
 					false === apply_filters(
@@ -1954,7 +1954,11 @@ class Build {
 			$asset_path  = $asset_fn( false );
 			$asset_url   = $asset_fn( true );
 			$asset_mtime = filemtime( $asset_path );
-			$asset_mtime = filemtime( $asset_path );
+			$asset_key   = Assets::get_asset_version(
+				$asset_path,
+				$data['scopedClass'] ?? '',
+				$asset_mtime
+			);
 
 			if (
 				false === apply_filters(
@@ -1996,7 +2000,7 @@ class Build {
 					sanitize_title( $asset_path ),
 					array(
 						'path' => $asset_path,
-						'key'  => $asset_mtime,
+						'key'  => $asset_key,
 					)
 				);
 			}
@@ -2006,7 +2010,7 @@ class Build {
 					sanitize_title( $asset_path ),
 					array(
 						'path' => $asset_path,
-						'key'  => $asset_mtime,
+						'key'  => $asset_key,
 					)
 				);
 			}
@@ -2042,9 +2046,16 @@ class Build {
 				'url'      => $asset_url,
 				'editor'   => $is_editor_asset,
 				'instance' => $instance,
+				'key'      => $asset_key,
 				'mtime'    => $asset_mtime,
 				'file'     => $asset_file,
 			);
+
+			$asset_dependencies = Assets::get_asset_dependency_paths( $asset_path );
+
+			if ( array() !== $asset_dependencies ) {
+				$data['assets'][ $id ]['dependencies'] = $asset_dependencies;
+			}
 
 			if ( ! $editor ) {
 				if ( $is_css ) {
@@ -2053,7 +2064,7 @@ class Build {
 						$handle,
 						array(
 							'path'  => $asset_fn( true ),
-							'mtime' => $asset_mtime,
+							'mtime' => $asset_key,
 						)
 					);
 				} else {
@@ -2062,7 +2073,7 @@ class Build {
 						$handle,
 						array(
 							'path'  => $asset_fn( true ),
-							'mtime' => $asset_mtime,
+							'mtime' => $asset_key,
 						)
 					);
 				}
