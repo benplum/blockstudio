@@ -489,7 +489,7 @@ class Canvas {
 				'blocks'            => $blocks,
 				'blockstudioBlocks' => $blockstudio_blocks,
 				'changedBlocks'     => $only_blocks,
-				'blocksNative'      => Build::blocks(),
+				'blocksNative'      => Build::prepare_blocks_for_client( Build::blocks() ),
 			)
 		);
 	}
@@ -734,8 +734,7 @@ class Canvas {
 			? $this->get_pages_with_content( $sync_all_pages ? array() : $changed_pages )
 			: array();
 
-		$all_block_types = Build::blocks();
-		$blocks_native   = $all_block_types;
+		$blocks_native = Build::prepare_blocks_for_client( Build::blocks() );
 
 		if ( empty( $changed_blocks ) ) {
 			$blockstudio_blocks = ! empty( $response_pages )

@@ -1,6 +1,7 @@
 <?php
 
 use Blockstudio\Build;
+use Blockstudio\Block_Registry;
 use Blockstudio\Files;
 use PHPUnit\Framework\TestCase;
 
@@ -40,6 +41,57 @@ class BuildTest extends TestCase {
 			}
 		}
 		$this->assertGreaterThan( 5, $test_count );
+	}
+
+	public function test_prepare_blocks_for_client_strips_expanded_populate_options_without_mutating_source(): void {
+		$block              = new WP_Block_Type( 'blockstudio-test/client-payload', array() );
+		$block->attributes  = array(
+			'nativeExample' => array(
+				'type'                => 'select',
+				'optionsPopulateFull' => array( 'expanded-native' ),
+			),
+		);
+		$block->blockstudio = array(
+			'attributes' => array(
+				'example' => array(
+					'type'                => 'select',
+					'optionsPopulate'     => array( 1 ),
+					'optionsPopulateFull' => array(
+						array(
+							'ID'         => 1,
+							'post_title' => 'Example',
+						),
+					),
+				),
+			),
+		);
+
+		$prepared = Build::prepare_blocks_for_client(
+			array(
+				$block->name => $block,
+			)
+		);
+
+		$this->assertArrayHasKey(
+			'optionsPopulateFull',
+			$block->attributes['nativeExample']
+		);
+		$this->assertArrayHasKey(
+			'optionsPopulateFull',
+			$block->blockstudio['attributes']['example']
+		);
+		$this->assertArrayNotHasKey(
+			'optionsPopulateFull',
+			$prepared[ $block->name ]->attributes['nativeExample']
+		);
+		$this->assertArrayNotHasKey(
+			'optionsPopulateFull',
+			$prepared[ $block->name ]->blockstudio['attributes']['example']
+		);
+		$this->assertSame(
+			array( 1 ),
+			$prepared[ $block->name ]->blockstudio['attributes']['example']['optionsPopulate']
+		);
 	}
 
 	// data()
@@ -134,6 +186,23 @@ class BuildTest extends TestCase {
 	public function test_paths_is_not_empty(): void {
 		$paths = Build::paths();
 		$this->assertNotEmpty( $paths );
+	}
+
+	public function test_files_does_not_duplicate_registered_instances(): void {
+		$registry = Block_Registry::instance();
+
+		Build::files();
+		$instances_after_first = $registry->get_instances();
+		$paths_after_first     = $registry->get_paths();
+		$files_after_first     = Build::files();
+
+		$instances_after_second = $registry->get_instances();
+		$paths_after_second     = $registry->get_paths();
+		$files_after_second     = Build::files();
+
+		$this->assertSame( $instances_after_first, $instances_after_second );
+		$this->assertSame( $paths_after_first, $paths_after_second );
+		$this->assertSame( array_keys( $files_after_first ), array_keys( $files_after_second ) );
 	}
 
 	// has_interactivity()

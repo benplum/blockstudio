@@ -89,6 +89,13 @@ class Assets {
 	private static array $parsed_asset_ids = array();
 
 	/**
+	 * Request-local cache for compiled asset glob lookups.
+	 *
+	 * @var array
+	 */
+	private static array $matches_cache = array();
+
+	/**
 	 * When true, is_editor_screen() returns true regardless of current screen.
 	 *
 	 * @var bool
@@ -730,6 +737,12 @@ class Assets {
 	 * @return array Array of matching files.
 	 */
 	public static function get_matches( $path ): array {
+		$cache_key = wp_normalize_path( $path ) . '|' . ( Settings::get( 'assets/process/scssFiles' ) ? '1' : '0' );
+
+		if ( isset( self::$matches_cache[ $cache_key ] ) ) {
+			return self::$matches_cache[ $cache_key ];
+		}
+
 		$file = pathinfo( $path );
 		$dir  = $file['dirname'] . '/_dist';
 		$name = $file['filename'];
@@ -741,12 +754,36 @@ class Assets {
 
 		$all_files = glob( $dir . '/*.' . $ext );
 
+		if ( false === $all_files ) {
+			self::$matches_cache[ $cache_key ] = array();
+			return self::$matches_cache[ $cache_key ];
+		}
+
 		$matched_files = preg_grep(
 			'/^' . preg_quote( $dir . '/' . $name, '/' ) . '-(?:[a-f0-9]{32}|[0-9]+)\.' . $ext . '$/',
 			$all_files
 		);
 
-		return array_values( $matched_files );
+		self::$matches_cache[ $cache_key ] = array_values( $matched_files );
+
+		return self::$matches_cache[ $cache_key ];
+	}
+
+	/**
+	 * Clear request-local compiled asset lookup caches.
+	 *
+	 * @param string $path Asset source path.
+	 *
+	 * @return void
+	 */
+	private static function clear_asset_lookup_cache( string $path ): void {
+		$prefix = wp_normalize_path( $path ) . '|';
+
+		foreach ( array_keys( self::$matches_cache ) as $cache_key ) {
+			if ( str_starts_with( $cache_key, $prefix ) ) {
+				unset( self::$matches_cache[ $cache_key ] );
+			}
+		}
 	}
 
 	/**
@@ -1009,19 +1046,22 @@ class Assets {
 			return;
 		}
 
-		$assets = self::get_assets_html( 'editor' );
-
-		if ( '' === trim( $assets ) ) {
-			return;
-		}
-
 		$script = '(()=>{'
-			. 'const h=' . wp_json_encode( $assets, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ) . ';'
 			. 'const m="data-blockstudio-legacy-editor-assets";'
-			. 'if(!h||document.documentElement.hasAttribute(m))return;'
+			. 'if(document.documentElement.hasAttribute(m))return;'
 			. 'const hasIframe=()=>!!document.querySelector("iframe[name=\"editor-canvas\"]");'
 			. 'const hasLegacyCanvas=()=>!!document.querySelector(".block-editor-block-list__layout.is-root-container");'
+			. 'const getAssets=()=>{'
+			. 'const s=window.wp?.data?.select?.("core/block-editor")?.getSettings?.().__unstableResolvedAssets;'
+			. 'if(!s)return "";'
+			. 'return `${s.styles||""}${s.scripts||""}`;'
+			. '};'
+			. 'const isBlockstudioAsset=(node)=>{'
+			. 'const id=node.id||"";'
+			. 'return id.startsWith("blockstudio-")||node.hasAttribute("data-blockstudio-asset")||node.hasAttribute("data-block");'
+			. '};'
 			. 'const append=(node)=>{'
+			. 'if(!isBlockstudioAsset(node))return;'
 			. 'if(node.id&&document.getElementById(node.id))return;'
 			. 'const tag=node.tagName;'
 			. 'const target="STYLE"===tag||"LINK"===tag?document.head:document.body;'
@@ -1034,8 +1074,10 @@ class Assets {
 			. 'const inject=()=>{'
 			. 'if(hasIframe())return true;'
 			. 'if(!hasLegacyCanvas())return false;'
+			. 'const assets=getAssets();'
+			. 'if(!assets)return false;'
 			. 'const template=document.createElement("template");'
-			. 'template.innerHTML=h;'
+			. 'template.innerHTML=assets;'
 			. 'Array.from(template.content.children).forEach(append);'
 			. 'document.documentElement.setAttribute(m,"true");'
 			. 'return true;'
@@ -1509,13 +1551,20 @@ class Assets {
 		$pathinfo    = pathinfo( $path );
 		$ext         = $pathinfo['extension'];
 		$dist_folder = $pathinfo['dirname'] . '/_dist';
+		$result      = null;
 
 		if ( self::is_css_extension( $ext ) ) {
-			return self::process_css( $path, $dist_folder, $scoped_class );
+			$result = self::process_css( $path, $dist_folder, $scoped_class );
+			self::clear_asset_lookup_cache( $path );
+
+			return $result;
 		}
 
 		if ( 'js' === $ext ) {
-			return self::process_js( $path, $dist_folder );
+			$result = self::process_js( $path, $dist_folder );
+			self::clear_asset_lookup_cache( $path );
+
+			return $result;
 		}
 	}
 

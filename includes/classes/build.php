@@ -2471,6 +2471,12 @@ class Build {
 			'type' => 'string',
 		);
 
+		$attributes               = self::remove_expanded_populate_options( $attributes );
+		$filtered_attributes      = self::remove_expanded_populate_options( $filtered_attributes );
+		$block_json['attributes'] = self::remove_expanded_populate_options(
+			$block_json['attributes'] ?? array()
+		);
+
 		$block                   = new WP_Block_Type( $block_json['name'], $block_json );
 		$block->api_version      = 3;
 		$block->render_callback  = array( 'Blockstudio\Block', 'render' );
@@ -2735,6 +2741,62 @@ class Build {
 	}
 
 	/**
+	 * Prepare native block types for client-side JSON payloads.
+	 *
+	 * @param array $blocks Block types.
+	 *
+	 * @return array Client-safe block types.
+	 */
+	public static function prepare_blocks_for_client( array $blocks ): array {
+		foreach ( $blocks as $key => $block ) {
+			if ( $block instanceof \WP_Block_Type ) {
+				$block = clone $block;
+
+				foreach ( get_object_vars( $block ) as $property => $value ) {
+					if ( is_array( $value ) ) {
+						$block->{$property} = self::remove_expanded_populate_options(
+							$value
+						);
+					}
+				}
+
+				$blocks[ $key ] = $block;
+				continue;
+			}
+
+			if ( is_array( $block ) ) {
+				$blocks[ $key ] = self::remove_expanded_populate_options( $block );
+			}
+		}
+
+		return $blocks;
+	}
+
+	/**
+	 * Remove expanded populate objects that are not needed after option normalization.
+	 *
+	 * @param mixed $value Value to sanitize.
+	 *
+	 * @return mixed Sanitized value.
+	 */
+	public static function remove_expanded_populate_options( mixed $value ): mixed {
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+
+		foreach ( $value as $key => $item ) {
+			if ( 'optionsPopulateFull' === $key ) {
+				unset( $value[ $key ] );
+				continue;
+			}
+
+			$value[ $key ] = self::remove_expanded_populate_options( $item );
+		}
+
+		return $value;
+	}
+
+	/**
 	 * Get blocks data.
 	 *
 	 * @since 2.3.0
@@ -2767,12 +2829,17 @@ class Build {
 	public static function files(): array {
 		$registry = Block_Registry::instance();
 		foreach ( $registry->get_instances() as $instance ) {
+			if ( $registry->has_editor_files_for_instance( $instance['path'] ) ) {
+				continue;
+			}
+
 			self::init(
 				array(
 					'dir'    => $instance['path'],
 					'editor' => true,
 				)
 			);
+			$registry->mark_editor_files_for_instance( $instance['path'] );
 		}
 
 		return $registry->get_files();

@@ -183,6 +183,13 @@ final class Block_Registry {
 	private array $instances = array();
 
 	/**
+	 * Source paths whose editor file data has already been discovered.
+	 *
+	 * @var array<string, bool>
+	 */
+	private array $editor_file_instances = array();
+
+	/**
 	 * Whether any block uses Tailwind CSS classes field.
 	 *
 	 * When true, indicates Tailwind integration should be active.
@@ -217,21 +224,22 @@ final class Block_Registry {
 	 * @return void
 	 */
 	public function reset(): void {
-		$this->blocks              = array();
-		$this->data                = array();
-		$this->extensions          = array();
-		$this->files               = array();
-		$this->assets              = array();
-		$this->assets_admin        = array();
-		$this->assets_block_editor = array();
-		$this->assets_global       = array();
-		$this->overrides           = array();
-		$this->override_configs    = array();
-		$this->data_overrides      = array();
-		$this->blade               = array();
-		$this->paths               = array();
-		$this->instances           = array();
-		$this->is_tailwind_active  = false;
+		$this->blocks                = array();
+		$this->data                  = array();
+		$this->extensions            = array();
+		$this->files                 = array();
+		$this->assets                = array();
+		$this->assets_admin          = array();
+		$this->assets_block_editor   = array();
+		$this->assets_global         = array();
+		$this->overrides             = array();
+		$this->override_configs      = array();
+		$this->data_overrides        = array();
+		$this->blade                 = array();
+		$this->paths                 = array();
+		$this->instances             = array();
+		$this->editor_file_instances = array();
+		$this->is_tailwind_active    = false;
 	}
 
 	/**
@@ -574,6 +582,17 @@ final class Block_Registry {
 	 * @return void
 	 */
 	public function add_path( string $instance, string $path ): void {
+		$path = wp_normalize_path( $path );
+
+		foreach ( $this->paths as $registered_path ) {
+			if (
+				( $registered_path['instance'] ?? '' ) === $instance &&
+				( $registered_path['path'] ?? '' ) === $path
+			) {
+				return;
+			}
+		}
+
 		$this->paths[] = array(
 			'instance' => $instance,
 			'path'     => $path,
@@ -588,9 +607,39 @@ final class Block_Registry {
 	 * @return void
 	 */
 	public function add_instance( string $path ): void {
+		$path = wp_normalize_path( $path );
+
+		foreach ( $this->instances as $instance ) {
+			if ( ( $instance['path'] ?? '' ) === $path ) {
+				return;
+			}
+		}
+
 		$this->instances[] = array(
 			'path' => $path,
 		);
+	}
+
+	/**
+	 * Check whether editor files were already discovered for a path.
+	 *
+	 * @param string $path Source path.
+	 *
+	 * @return bool Whether the path has editor files loaded.
+	 */
+	public function has_editor_files_for_instance( string $path ): bool {
+		return isset( $this->editor_file_instances[ wp_normalize_path( $path ) ] );
+	}
+
+	/**
+	 * Mark a source path as having editor files loaded.
+	 *
+	 * @param string $path Source path.
+	 *
+	 * @return void
+	 */
+	public function mark_editor_files_for_instance( string $path ): void {
+		$this->editor_file_instances[ wp_normalize_path( $path ) ] = true;
 	}
 
 	/**

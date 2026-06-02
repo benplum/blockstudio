@@ -155,7 +155,10 @@ class AssetsTest extends TestCase {
 		$this->assertStringContainsString( 'iframe[name=', $output );
 		$this->assertStringContainsString( 'editor-canvas', $output );
 		$this->assertStringContainsString( '.block-editor-block-list__layout.is-root-container', $output );
+		$this->assertStringContainsString( 'getSettings', $output );
+		$this->assertStringContainsString( 'startsWith("blockstudio-")', $output );
 		$this->assertStringContainsString( 'document.createElement("script")', $output );
+		$this->assertStringNotContainsString( 'const h=', $output );
 		$this->assertStringNotContainsString( '<style id=\'blockstudio-', $output );
 		$this->assertStringNotContainsString( '<script type=\'module\'', $output );
 	}
@@ -273,6 +276,21 @@ class AssetsTest extends TestCase {
 
 		$this->assertMatchesRegularExpression( '/\.bs-test\s*\{\s*color:\s*red;?\s*\}/', $css );
 		$this->assertStringNotContainsString( '%selector%', $css );
+	}
+
+	public function test_process_clears_cached_compiled_asset_lookup(): void {
+		$path = $this->create_temporary_asset(
+			'style.css',
+			'%selector% { color: red; }'
+		);
+
+		$this->assertSame( $path, Assets::get_path( $path ) );
+
+		$compiled = Assets::process( $path, 'bs-test' );
+
+		$this->assertIsString( $compiled );
+		$this->assertFileExists( $compiled );
+		$this->assertSame( $compiled, Assets::get_path( $path ) );
 	}
 
 	public function test_process_css_keeps_scoped_selector_placeholder_on_root_selector(): void {

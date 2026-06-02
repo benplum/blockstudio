@@ -136,11 +136,13 @@ final class Build_Cache {
 
 				$source_path = wp_normalize_path( $asset['path'] );
 				$path        = self::resolve_asset_path( $asset['path'] );
-
-				$files[ $source_path ] = self::get_file_snapshot( $source_path );
-				$files[ $path ]        = self::get_file_snapshot( $path );
-				$matches               = Assets::get_matches( $asset['path'] );
-				$files                += self::snapshot_paths( $matches );
+				$matches     = Assets::get_matches( $asset['path'] );
+				$files      += self::snapshot_paths(
+					array_merge(
+						array( $source_path, $path ),
+						$matches
+					)
+				);
 			}
 		}
 
@@ -359,13 +361,20 @@ final class Build_Cache {
 	 */
 	private static function snapshot_paths( array $paths ): array {
 		$snapshots = array();
+		$paths     = array_values(
+			array_unique(
+				array_filter(
+					array_map(
+						static fn( $path ) => is_string( $path ) && '' !== $path
+							? wp_normalize_path( $path )
+							: '',
+						$paths
+					)
+				)
+			)
+		);
 
 		foreach ( $paths as $path ) {
-			if ( ! is_string( $path ) || '' === $path ) {
-				continue;
-			}
-
-			$path               = wp_normalize_path( $path );
 			$snapshots[ $path ] = self::get_file_snapshot( $path );
 		}
 
