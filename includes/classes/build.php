@@ -1742,11 +1742,6 @@ class Build {
 	private static function normalize_cache_value( mixed $value ): mixed {
 		if ( is_array( $value ) ) {
 			foreach ( $value as $key => $item ) {
-				if ( 'optionsPopulateFull' === $key ) {
-					unset( $value[ $key ] );
-					continue;
-				}
-
 				$value[ $key ] = self::normalize_cache_value( $item );
 			}
 
@@ -2471,7 +2466,9 @@ class Build {
 			'type' => 'string',
 		);
 
-		$attributes               = self::remove_expanded_populate_options( $attributes );
+		if ( ! $is_extend ) {
+			$attributes = self::remove_expanded_populate_options( $attributes );
+		}
 		$filtered_attributes      = self::remove_expanded_populate_options( $filtered_attributes );
 		$block_json['attributes'] = self::remove_expanded_populate_options(
 			$block_json['attributes'] ?? array()

@@ -139,8 +139,10 @@ class Block_Registrar {
 		}
 
 		// Add standard attributes.
-		$attributes               = $this->add_standard_attributes( $attributes, $block_json, $is_extend );
-		$attributes               = Build::remove_expanded_populate_options( $attributes );
+		$attributes = $this->add_standard_attributes( $attributes, $block_json, $is_extend );
+		if ( ! $is_extend ) {
+			$attributes = Build::remove_expanded_populate_options( $attributes );
+		}
 		$filtered_attributes      = Build::remove_expanded_populate_options(
 			$filtered_attributes
 		);

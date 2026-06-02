@@ -94,6 +94,25 @@ class BuildTest extends TestCase {
 		);
 	}
 
+	public function test_extensions_keep_expanded_populate_options_for_set_templates(): void {
+		$found = false;
+
+		foreach ( Build::extensions() as $extension ) {
+			foreach ( $extension->attributes ?? array() as $attribute ) {
+				if ( 'headingClassSelectPopulateValue' !== ( $attribute['id'] ?? '' ) ) {
+					continue;
+				}
+
+				$found = true;
+
+				$this->assertArrayHasKey( 'optionsPopulateFull', $attribute );
+				$this->assertNotEmpty( $attribute['optionsPopulateFull'] );
+			}
+		}
+
+		$this->assertTrue( $found );
+	}
+
 	// data()
 
 	public function test_data_returns_array(): void {

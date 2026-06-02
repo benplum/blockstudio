@@ -25,7 +25,7 @@ final class Build_Cache {
 	 *
 	 * @var int
 	 */
-	private const VERSION = 3;
+	private const VERSION = 4;
 
 	/**
 	 * Get the cache directory path.

@@ -519,7 +519,7 @@ class Admin {
 			fn( $block ) => empty( $block->blockstudio['component'] )
 		);
 		$blocks     = Build::prepare_blocks_for_client( $blocks );
-		$extensions = Build::prepare_blocks_for_client( Build::extensions() );
+		$extensions = Build::extensions();
 
 		return array_merge(
 			array(
