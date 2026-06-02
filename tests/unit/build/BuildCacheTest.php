@@ -144,6 +144,38 @@ class BuildCacheTest extends TestCase {
 	}
 
 	/**
+	 * Cache files use a compact payload format when zlib is available.
+	 *
+	 * @return void
+	 */
+	public function test_cache_file_uses_compact_payload_format_when_available(): void {
+		if ( ! function_exists( 'gzcompress' ) ) {
+			$this->markTestSkipped( 'zlib is not available.' );
+		}
+
+		$key     = 'compact-payload-' . uniqid();
+		$payload = array(
+			'value' => str_repeat( 'cached-value-', 1000 ),
+			'watch' => Build_Cache::create_watch_snapshot( array() ),
+		);
+		$file    = Build_Cache::get_cache_dir( 'runtime' ) . '/' . sanitize_file_name( $key ) . '.php';
+
+		$this->track_cache_file( 'runtime', $key );
+		Build_Cache::write( 'runtime', $key, $payload );
+
+		$this->assertFileExists( $file );
+		$this->assertLessThan(
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Comparing compact cache size against the legacy exported-array shape.
+			strlen( var_export( $payload, true ) ),
+			filesize( $file )
+		);
+		$this->assertSame(
+			$payload['value'],
+			Build_Cache::load( 'runtime', $key )['value'] ?? null
+		);
+	}
+
+	/**
 	 * Cache invalidates when a watched file changes.
 	 *
 	 * @return void

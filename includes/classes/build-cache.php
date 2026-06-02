@@ -25,7 +25,7 @@ final class Build_Cache {
 	 *
 	 * @var int
 	 */
-	private const VERSION = 1;
+	private const VERSION = 3;
 
 	/**
 	 * Get the cache directory path.
@@ -234,8 +234,7 @@ final class Build_Cache {
 		$payload['cacheVersion'] = self::VERSION;
 		$file                    = self::get_cache_file( $scope, $key );
 		$tmp                     = $file . '.tmp-' . wp_generate_uuid4();
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Cache files intentionally store exported PHP arrays.
-		$contents = "<?php\nif ( ! defined( 'ABSPATH' ) ) { exit; }\nreturn " . var_export( $payload, true ) . ";\n";
+		$contents                = self::export_payload( $payload );
 
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writing local cache file.
 		if ( false === file_put_contents( $tmp, $contents, LOCK_EX ) ) {
@@ -252,6 +251,34 @@ final class Build_Cache {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Export a cache payload as a guarded PHP file.
+	 *
+	 * Compressed serialization keeps large build payloads from becoming huge PHP
+	 * array literals, which are expensive for PHP to parse and can exhaust CLI
+	 * memory on large sites.
+	 *
+	 * @param array $payload Payload to export.
+	 *
+	 * @return string PHP file contents.
+	 */
+	private static function export_payload( array $payload ): string {
+		if ( function_exists( 'gzcompress' ) ) {
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- Internal cache payload with no user-provided execution.
+			$compressed = gzcompress( serialize( $payload ), 1 );
+
+			if ( false !== $compressed ) {
+				// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Encoding compressed cache data, not executable code.
+				$encoded = base64_encode( $compressed );
+
+				return "<?php\nif ( ! defined( 'ABSPATH' ) ) { exit; }\n\$encoded = '" . $encoded . "';\n\$compressed = base64_decode( \$encoded, true );\nif ( false === \$compressed ) { return null; }\n\$serialized = gzuncompress( \$compressed );\nif ( false === \$serialized ) { return null; }\nreturn unserialize( \$serialized, array( 'allowed_classes' => false ) );\n";
+			}
+		}
+
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- Fallback cache format when zlib is unavailable.
+		return "<?php\nif ( ! defined( 'ABSPATH' ) ) { exit; }\nreturn " . var_export( $payload, true ) . ";\n";
 	}
 
 	/**

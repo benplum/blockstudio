@@ -131,7 +131,7 @@ export const blockstudio = {
           type: 'boolean',
           default: true,
           description:
-            'Enable Blockstudio file-backed runtime and editor asset caches.',
+            'Enable Blockstudio file-backed runtime, block registration, and editor asset caches.',
           descriptionFilter:
             'This filter allows you to enable/disable all Blockstudio file-backed runtime and editor asset caches.',
           example: false,

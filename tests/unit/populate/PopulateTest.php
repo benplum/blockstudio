@@ -10,6 +10,8 @@ class PopulateTest extends TestCase {
 	private array $created_term_ids = array();
 
 	protected function tearDown(): void {
+		$this->reset_populate_query_cache();
+
 		foreach ( $this->created_post_ids as $id ) {
 			wp_delete_post( $id, true );
 		}
@@ -26,6 +28,12 @@ class PopulateTest extends TestCase {
 		$this->created_post_ids = array();
 		$this->created_user_ids = array();
 		$this->created_term_ids = array();
+	}
+
+	private function reset_populate_query_cache(): void {
+		$property = new ReflectionProperty( Populate::class, 'query_cache' );
+		$property->setAccessible( true );
+		$property->setValue( null, array() );
 	}
 
 	// Posts query
@@ -127,6 +135,39 @@ class PopulateTest extends TestCase {
 
 		$ids = wp_list_pluck( $result, 'ID' );
 		$this->assertContains( $post_id, $ids );
+	}
+
+	public function test_repeated_posts_query_uses_request_cache(): void {
+		$post_id                = wp_insert_post( array(
+			'post_title'  => 'Cached populate post',
+			'post_status' => 'publish',
+			'post_type'   => 'post',
+		) );
+		$this->created_post_ids[] = $post_id;
+		$query_count              = 0;
+		$filter                   = function ( $posts ) use ( &$query_count ) {
+			++$query_count;
+			return $posts;
+		};
+		$config                   = array(
+			'type'      => 'query',
+			'query'     => 'posts',
+			'arguments' => array(
+				'post_type'        => 'post',
+				'include'          => array( $post_id ),
+				'suppress_filters' => false,
+			),
+		);
+
+		add_filter( 'posts_pre_query', $filter );
+
+		$first  = Populate::init( $config );
+		$second = Populate::init( $config );
+
+		remove_filter( 'posts_pre_query', $filter );
+
+		$this->assertSame( 1, $query_count );
+		$this->assertSame( wp_list_pluck( $first, 'ID' ), wp_list_pluck( $second, 'ID' ) );
 	}
 
 	// Users query

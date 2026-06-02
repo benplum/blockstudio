@@ -61,6 +61,13 @@ namespace Blockstudio;
 class Populate {
 
 	/**
+	 * Request-local cache for identical WordPress query populates.
+	 *
+	 * @var array<string,array>
+	 */
+	private static array $query_cache = array();
+
+	/**
 	 * Initialize population for attributes.
 	 *
 	 * @param array $data      Population configuration data.
@@ -71,27 +78,39 @@ class Populate {
 	public static function init( array $data, mixed $extra_ids = false ): array {
 		$query     = array();
 		$arguments = $data['arguments'] ?? array();
-		$custom    = count( apply_filters( 'blockstudio/blocks/attributes/populate', array() ) ) >= 1
-			? apply_filters( 'blockstudio/blocks/attributes/populate', array() )
-			: apply_filters( 'blockstudio/blocks/populate', array() );
 
-		if ( 'custom' === $data['type'] && isset( $custom[ $data['custom'] ] ) ) {
-			$query = $custom[ $data['custom'] ];
-		}
+		if ( 'custom' === $data['type'] ) {
+			$custom = self::get_custom_populate_options();
 
-		if (
-			'function' === $data['type'] &&
-			isset( $data['function'] ) &&
-			function_exists( $data['function'] )
-		) {
-			$query = (array) call_user_func_array(
-				$data['function'],
-				$data['arguments'] ?? array()
-			);
-		}
+			if ( isset( $custom[ $data['custom'] ] ) ) {
+				return $custom[ $data['custom'] ];
+			}
 
-		if ( ! isset( $data['query'] ) ) {
 			return $query;
+		}
+
+		if ( 'function' === $data['type'] ) {
+			if (
+				isset( $data['function'] ) &&
+				function_exists( $data['function'] )
+			) {
+				return (array) call_user_func_array(
+					$data['function'],
+					$data['arguments'] ?? array()
+				);
+			}
+
+			return $query;
+		}
+
+		if ( 'query' !== $data['type'] || ! isset( $data['query'] ) ) {
+			return $query;
+		}
+
+		$cache_key = self::get_query_cache_key( $data['query'], $arguments, $extra_ids );
+
+		if ( isset( self::$query_cache[ $cache_key ] ) ) {
+			return self::$query_cache[ $cache_key ];
 		}
 
 		if ( 'posts' === $data['query'] ) {
@@ -172,6 +191,44 @@ class Populate {
 			$query = $original_terms;
 		}
 
+		self::$query_cache[ $cache_key ] = $query;
+
 		return $query;
+	}
+
+	/**
+	 * Get custom populate options from the current filters.
+	 *
+	 * @return array Custom populate options.
+	 */
+	private static function get_custom_populate_options(): array {
+		$options = apply_filters( 'blockstudio/blocks/attributes/populate', array() );
+
+		if ( count( $options ) >= 1 ) {
+			return $options;
+		}
+
+		return apply_filters( 'blockstudio/blocks/populate', array() );
+	}
+
+	/**
+	 * Build a stable cache key for query-based populate calls.
+	 *
+	 * @param string $query     Query type.
+	 * @param array  $arguments Query arguments.
+	 * @param mixed  $extra_ids Extra IDs.
+	 *
+	 * @return string Cache key.
+	 */
+	private static function get_query_cache_key( string $query, array $arguments, mixed $extra_ids ): string {
+		return md5(
+			wp_json_encode(
+				array(
+					'query'     => $query,
+					'arguments' => $arguments,
+					'extraIds'  => $extra_ids,
+				)
+			)
+		);
 	}
 }

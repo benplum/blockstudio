@@ -1149,6 +1149,7 @@ class Build {
 		$store        = $results['store'];
 		$registerable = $results['registerable'];
 		$overrides    = $results['overrides'];
+		$registered   = array();
 
 		self::filter_missing_plugin_dependencies(
 			$store,
@@ -1229,10 +1230,10 @@ class Build {
 
 		// Phase 3: Register blocks.
 		if ( ! $editor ) {
-			Perf::measure(
+			$registered = Perf::measure(
 				'build:registration',
-				static function () use ( $registerable, $registry ): void {
-					self::register_discovered_blocks( $registerable, $registry );
+				static function () use ( $registerable, $registry ): array {
+					return self::register_discovered_blocks( $registerable, $registry );
 				}
 			);
 		}
@@ -1260,14 +1261,13 @@ class Build {
 			$path,
 			$instance,
 			array(
-				'store'          => $store,
-				'registerable'   => $registerable,
-				'overrides'      => $overrides,
-				'bladeTemplates' => $results['blade_templates'],
-				'blockJsonData'  => $results['block_json_data'] ?? array(),
-				'fields'         => $local_fields['fields'],
-				'fieldPaths'     => $local_fields['paths'],
-				'fieldDirs'      => $local_fields['dirs'],
+				'store'                => $store,
+				'registerable'         => self::filter_native_registerable( $registerable ),
+				'registeredBlockTypes' => $registered,
+				'bladeTemplates'       => $results['blade_templates'],
+				'fields'               => $local_fields['fields'],
+				'fieldPaths'           => $local_fields['paths'],
+				'fieldDirs'            => $local_fields['dirs'],
 			)
 		);
 
@@ -1316,13 +1316,16 @@ class Build {
 		$store        = $payload['store'] ?? array();
 		$registerable = $payload['registerable'] ?? array();
 		$overrides    = $payload['overrides'] ?? array();
+		$registered   = $payload['registeredBlockTypes'] ?? array();
 
-		self::filter_missing_plugin_dependencies(
-			$store,
-			$registerable,
-			$overrides,
-			$payload['blockJsonData'] ?? array()
-		);
+		if ( empty( $registered ) ) {
+			self::filter_missing_plugin_dependencies(
+				$store,
+				$registerable,
+				$overrides,
+				$payload['blockJsonData'] ?? array()
+			);
+		}
 
 		self::register_blade_templates(
 			$payload['bladeTemplates'] ?? array(),
@@ -1334,7 +1337,13 @@ class Build {
 
 		Perf::measure(
 			'build:registration:cached',
-			static function () use ( $registerable, $registry ): void {
+			static function () use ( $registerable, $registered, $registry ): void {
+				if ( is_array( $registered ) && ! empty( $registered ) ) {
+					self::register_native_discovered_blocks( $registerable );
+					self::hydrate_cached_registered_block_types( $registered, $registry );
+					return;
+				}
+
 				self::register_discovered_blocks( $registerable, $registry );
 			}
 		);
@@ -1398,6 +1407,8 @@ class Build {
 					continue;
 				}
 
+				$mtime = $asset['mtime'] ?? filemtime( $path );
+
 				if (
 					false === apply_filters(
 						'blockstudio/assets/enable',
@@ -1418,7 +1429,7 @@ class Build {
 						sanitize_title( $path ),
 						array(
 							'path' => $path,
-							'key'  => filemtime( $path ),
+							'key'  => $mtime,
 						)
 					);
 				}
@@ -1428,7 +1439,7 @@ class Build {
 						sanitize_title( $path ),
 						array(
 							'path' => $path,
-							'key'  => filemtime( $path ),
+							'key'  => $mtime,
 						)
 					);
 				}
@@ -1448,7 +1459,7 @@ class Build {
 					$handle,
 					array(
 						'path'  => $asset['url'] ?? '',
-						'mtime' => filemtime( $path ),
+						'mtime' => $mtime,
 					)
 				);
 			}
@@ -1559,9 +1570,10 @@ class Build {
 	 * @param array          $registerable Registerable block payload.
 	 * @param Block_Registry $registry     Block registry.
 	 *
-	 * @return void
+	 * @return array Cached registration payloads.
 	 */
-	private static function register_discovered_blocks( array $registerable, Block_Registry $registry ): void {
+	private static function register_discovered_blocks( array $registerable, Block_Registry $registry ): array {
+		$registered   = array();
 		$block_lookup = array();
 		foreach ( $registerable as $reg_name => $reg_item ) {
 			$block_lookup[ $reg_name ] = $reg_item['block_json'];
@@ -1569,14 +1581,11 @@ class Build {
 
 		foreach ( $registerable as $name => $item ) {
 			if ( $item['classification']['is_native'] ?? false ) {
-				$native_dir = dirname( $item['data']['path'] );
-				if ( ! \WP_Block_Type_Registry::get_instance()->is_registered( $name ) ) {
-					\register_block_type( $native_dir );
-				}
+				self::register_native_discovered_block( $name, $item );
 				continue;
 			}
 
-			self::register_block_type(
+			$registered[ $name ] = self::register_block_type(
 				$item['data'],
 				$item['block_json'],
 				$item['classification'],
@@ -1586,6 +1595,185 @@ class Build {
 				$block_lookup
 			);
 		}
+
+		return array_filter( $registered );
+	}
+
+	/**
+	 * Register native WordPress blocks from discovery results.
+	 *
+	 * @param array $registerable Registerable block payload.
+	 *
+	 * @return void
+	 */
+	private static function register_native_discovered_blocks( array $registerable ): void {
+		foreach ( $registerable as $name => $item ) {
+			if ( $item['classification']['is_native'] ?? false ) {
+				self::register_native_discovered_block( $name, $item );
+			}
+		}
+	}
+
+	/**
+	 * Keep only native block entries needed on runtime cache hits.
+	 *
+	 * @param array $registerable Registerable block payload.
+	 *
+	 * @return array Native registerable payload.
+	 */
+	private static function filter_native_registerable( array $registerable ): array {
+		return array_filter(
+			$registerable,
+			static fn( $item ) => $item['classification']['is_native'] ?? false
+		);
+	}
+
+	/**
+	 * Register a native WordPress block from a discovery item.
+	 *
+	 * @param string $name Block name.
+	 * @param array  $item Discovery item.
+	 *
+	 * @return void
+	 */
+	private static function register_native_discovered_block( string $name, array $item ): void {
+		$native_dir = dirname( $item['data']['path'] );
+
+		if ( ! \WP_Block_Type_Registry::get_instance()->is_registered( $name ) ) {
+			\register_block_type( $native_dir );
+		}
+	}
+
+	/**
+	 * Hydrate cached Blockstudio block type registrations.
+	 *
+	 * @param array          $registered Cached registration payload.
+	 * @param Block_Registry $registry   Block registry.
+	 *
+	 * @return void
+	 */
+	private static function hydrate_cached_registered_block_types( array $registered, Block_Registry $registry ): void {
+		foreach ( $registered as $item ) {
+			if ( ! is_array( $item ) || empty( $item['block'] ) ) {
+				continue;
+			}
+
+			$block = self::hydrate_cached_block_type( $item['block'] );
+
+			if ( ! empty( $item['storageAttributes'] ) ) {
+				foreach ( (array) $block->name as $storage_block_name ) {
+					if ( is_string( $storage_block_name ) ) {
+						Storage_Registry::instance()->process_block_fields(
+							$storage_block_name,
+							$item['storageAttributes']
+						);
+					}
+				}
+			}
+
+			if ( 'override' === ( $item['kind'] ?? '' ) ) {
+				$registry->register_override(
+					$item['name'] ?? $block->name,
+					$block,
+					$item['overrideConfig'] ?? array()
+				);
+				continue;
+			}
+
+			if ( 'extension' === ( $item['kind'] ?? '' ) ) {
+				$registry->register_extension( $block );
+				continue;
+			}
+
+			$registry->register_block( $block->name, $block );
+		}
+	}
+
+	/**
+	 * Serialize a Blockstudio block type for the runtime cache.
+	 *
+	 * @param \WP_Block_Type $block WP block type.
+	 *
+	 * @return array Serialized block type.
+	 */
+	private static function serialize_block_type( \WP_Block_Type $block ): array {
+		$properties = array();
+
+		foreach ( get_object_vars( $block ) as $property => $value ) {
+			if ( 'render_callback' === $property ) {
+				continue;
+			}
+
+			$properties[ $property ] = self::normalize_cache_value( $value );
+		}
+
+		return array(
+			'name'       => $block->name,
+			'properties' => $properties,
+		);
+	}
+
+	/**
+	 * Hydrate a cached Blockstudio block type.
+	 *
+	 * @param array $payload Serialized block type.
+	 *
+	 * @return \WP_Block_Type Hydrated block type.
+	 */
+	private static function hydrate_cached_block_type( array $payload ): \WP_Block_Type {
+		$block = new \WP_Block_Type( $payload['name'], array() );
+
+		foreach ( $payload['properties'] ?? array() as $property => $value ) {
+			$block->{$property} = $value;
+		}
+
+		$block->render_callback = array( 'Blockstudio\Block', 'render' );
+
+		return $block;
+	}
+
+	/**
+	 * Normalize values so cache payloads can be exported as PHP arrays.
+	 *
+	 * @param mixed $value Value to normalize.
+	 *
+	 * @return mixed Normalized value.
+	 */
+	private static function normalize_cache_value( mixed $value ): mixed {
+		if ( is_array( $value ) ) {
+			foreach ( $value as $key => $item ) {
+				if ( 'optionsPopulateFull' === $key ) {
+					unset( $value[ $key ] );
+					continue;
+				}
+
+				$value[ $key ] = self::normalize_cache_value( $item );
+			}
+
+			return $value;
+		}
+
+		if ( $value instanceof \WP_Post ) {
+			return $value->to_array();
+		}
+
+		if ( $value instanceof \WP_User ) {
+			return $value->to_array();
+		}
+
+		if ( $value instanceof \WP_Term ) {
+			return get_object_vars( $value );
+		}
+
+		if ( is_object( $value ) ) {
+			if ( method_exists( $value, 'to_array' ) ) {
+				return self::normalize_cache_value( $value->to_array() );
+			}
+
+			return self::normalize_cache_value( get_object_vars( $value ) );
+		}
+
+		return $value;
 	}
 
 	/**
@@ -1767,9 +1955,11 @@ class Build {
 				? Files::get_relative_url( $file_dir . '/' . $asset )
 				: $file_dir . '/' . $asset;
 
-			$asset_file = pathinfo( $asset_fn( false ) );
-			$asset_path = $asset_fn( false );
-			$asset_url  = $asset_fn( true );
+			$asset_file  = pathinfo( $asset_fn( false ) );
+			$asset_path  = $asset_fn( false );
+			$asset_url   = $asset_fn( true );
+			$asset_mtime = filemtime( $asset_path );
+			$asset_mtime = filemtime( $asset_path );
 
 			if (
 				false === apply_filters(
@@ -1811,7 +2001,7 @@ class Build {
 					sanitize_title( $asset_path ),
 					array(
 						'path' => $asset_path,
-						'key'  => filemtime( $asset_fn( false ) ),
+						'key'  => $asset_mtime,
 					)
 				);
 			}
@@ -1821,7 +2011,7 @@ class Build {
 					sanitize_title( $asset_path ),
 					array(
 						'path' => $asset_path,
-						'key'  => filemtime( $asset_fn( false ) ),
+						'key'  => $asset_mtime,
 					)
 				);
 			}
@@ -1857,6 +2047,7 @@ class Build {
 				'url'      => $asset_url,
 				'editor'   => $is_editor_asset,
 				'instance' => $instance,
+				'mtime'    => $asset_mtime,
 				'file'     => $asset_file,
 			);
 
@@ -1867,7 +2058,7 @@ class Build {
 						$handle,
 						array(
 							'path'  => $asset_fn( true ),
-							'mtime' => filemtime( $asset_fn( false ) ),
+							'mtime' => $asset_mtime,
 						)
 					);
 				} else {
@@ -1876,7 +2067,7 @@ class Build {
 						$handle,
 						array(
 							'path'  => $asset_fn( true ),
-							'mtime' => filemtime( $asset_fn( false ) ),
+							'mtime' => $asset_mtime,
 						)
 					);
 				}
@@ -2208,7 +2399,7 @@ class Build {
 	 * @param Block_Registry $registry       The block registry.
 	 * @param array          $block_lookup   Block JSON data indexed by block name.
 	 *
-	 * @return void
+	 * @return array Cached registration payload.
 	 */
 	private static function register_block_type(
 		array $data,
@@ -2218,7 +2409,7 @@ class Build {
 		string $name,
 		Block_Registry $registry,
 		array $block_lookup = array()
-	): void {
+	): array {
 		$is_block    = $classification['is_block'];
 		$is_override = $classification['is_override'];
 		$is_extend   = $classification['is_extend'];
@@ -2348,6 +2539,17 @@ class Build {
 		} else {
 			$registry->register_extension( $block );
 		}
+
+		$override_config = $is_override ? json_decode( $contents, true ) : array();
+		$override_config = is_array( $override_config ) ? $override_config : array();
+
+		return array(
+			'kind'              => $is_override ? 'override' : ( $is_extend ? 'extension' : 'block' ),
+			'name'              => $block_json['name'],
+			'block'             => self::serialize_block_type( $block ),
+			'overrideConfig'    => $override_config,
+			'storageAttributes' => $block_json['blockstudio']['attributes'] ?? array(),
+		);
 	}
 
 	/**
