@@ -63,6 +63,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Enhancement: media hydration now follows nested groups, tabs, and repeaters, including grouped field ID prefixes
 * Fix: cached extension definitions now preserve populated option data needed by set templates
 * Fix: cached Blockstudio block variations remain registered in the editor
+* Fix: Composer autoload bootstrap now defers until WordPress starts plugin loading to avoid early initialization in Bedrock site-level installs
 * Fix: keyed file-based page blocks now preserve `__BLOCKSTUDIO_KEY` through WordPress 7.0 editor saves and keep user-edited content attributes during template sync
 * Fix: link fields now persist the Open in new tab setting as `target="_blank"` with matching `opensInNewTab` data
 * Fix: duplicate editor media fallback requests are deduplicated across simultaneous field controls

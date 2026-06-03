@@ -8,7 +8,7 @@
  * @package Blockstudio
  */
 
-if ( ! defined( 'ABSPATH' ) || defined( 'BLOCKSTUDIO_VERSION' ) ) {
+if ( ! defined( 'ABSPATH' ) || ! isset( $GLOBALS['wp_plugin_paths'] ) || defined( 'BLOCKSTUDIO_VERSION' ) ) {
 	return;
 }
 
