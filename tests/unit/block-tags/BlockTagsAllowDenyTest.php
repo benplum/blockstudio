@@ -45,6 +45,13 @@ class BlockTagsAllowDenyTest extends TestCase {
 		$this->filter_callbacks[] = array( 'blockstudio/block_tags/tag_aliases', $cb );
 	}
 
+	private function assert_contains_paragraph( string $html, string $text ): void {
+		$this->assertMatchesRegularExpression(
+			'/<p(?:\s[^>]*)?>' . preg_quote( $text, '/' ) . '<\/p>/',
+			$html
+		);
+	}
+
 	// Deny list
 
 	public function test_deny_leaves_tag_untouched(): void {
@@ -85,7 +92,7 @@ class BlockTagsAllowDenyTest extends TestCase {
 		$this->set_allow( array( 'core/paragraph' ) );
 
 		$p = Block_Tags::render( '<bs:core-paragraph>Hello</bs:core-paragraph>' );
-		$this->assertStringContainsString( '<p>', $p );
+		$this->assert_contains_paragraph( $p, 'Hello' );
 
 		$sep_input = '<bs:core-separator />';
 		$sep       = Block_Tags::render( $sep_input );
@@ -96,7 +103,7 @@ class BlockTagsAllowDenyTest extends TestCase {
 		$this->set_allow( array( 'core/*' ) );
 
 		$core = Block_Tags::render( '<bs:core-paragraph>Text</bs:core-paragraph>' );
-		$this->assertStringContainsString( '<p>', $core );
+		$this->assert_contains_paragraph( $core, 'Text' );
 
 		$bs_input = '<bs:blockstudio-type-unit />';
 		$bs       = Block_Tags::render( $bs_input );
@@ -107,7 +114,7 @@ class BlockTagsAllowDenyTest extends TestCase {
 		$this->set_allow( array( 'core/paragraph', 'core/heading' ) );
 
 		$p = Block_Tags::render( '<bs:core-paragraph>Text</bs:core-paragraph>' );
-		$this->assertStringContainsString( '<p>', $p );
+		$this->assert_contains_paragraph( $p, 'Text' );
 
 		$h = Block_Tags::render( '<bs:core-heading level="2">Title</bs:core-heading>' );
 		$this->assertStringContainsString( '<h2', $h );
@@ -123,7 +130,7 @@ class BlockTagsAllowDenyTest extends TestCase {
 		$this->set_deny( array( 'core/separator' ) );
 
 		$p = Block_Tags::render( '<bs:core-paragraph>Text</bs:core-paragraph>' );
-		$this->assertStringContainsString( '<p>', $p );
+		$this->assert_contains_paragraph( $p, 'Text' );
 
 		$sep_input = '<bs:core-separator />';
 		$this->assertSame( $sep_input, Block_Tags::render( $sep_input ) );
@@ -152,7 +159,7 @@ class BlockTagsAllowDenyTest extends TestCase {
 		$this->set_allow( array( 'core/paragraph' ) );
 
 		$p = Block_Tags::render( '<block name="core/paragraph">Text</block>' );
-		$this->assertStringContainsString( '<p>', $p );
+		$this->assert_contains_paragraph( $p, 'Text' );
 
 		$sep_input = '<block name="core/separator" />';
 		$this->assertSame( $sep_input, Block_Tags::render( $sep_input ) );
@@ -168,7 +175,7 @@ class BlockTagsAllowDenyTest extends TestCase {
 		$this->set_allow( array( 'core/paragraph' ) );
 
 		$p = Block_Tags::render( '<dv-paragraph>Text</dv-paragraph>' );
-		$this->assertStringContainsString( '<p>', $p );
+		$this->assert_contains_paragraph( $p, 'Text' );
 
 		$sep_input = '<dv-separator />';
 		$this->assertSame( $sep_input, Block_Tags::render( $sep_input ) );
