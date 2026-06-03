@@ -23,9 +23,9 @@ testType('transforms-3', '"text":19', () => {
       testFunction: async (page: Page, canvas: Frame) => {
         await canvas.click('[data-type="blockstudio/type-transforms-3"]');
         await page.keyboard.press('Enter');
-        await page.keyboard.press('-');
-        await page.keyboard.press('-');
-        await page.keyboard.press('-');
+        await page.keyboard.press('!');
+        await page.keyboard.press('!');
+        await page.keyboard.press('!');
         await page.keyboard.press('Enter');
         await canvas
           .locator('[data-type="blockstudio/type-transforms-3"]')

@@ -140,7 +140,7 @@ add_action(
 		wp_enqueue_script( 'blockstudio-e2e-legacy-api-block' );
 		wp_add_inline_script(
 			'blockstudio-e2e-legacy-api-block',
-			"wp.blocks.registerBlockType('blockstudio-test/legacy-client-api-v1',{apiVersion:1,title:'Legacy API v1 Client Test Block',category:'widgets',edit:function(){return null;},save:function(){return null;}});"
+			"wp.blocks.registerBlockType('blockstudio-test/legacy-api-v1',{apiVersion:1,title:'Legacy API v1 Test Block',category:'widgets',edit:function(){return null;},save:function(){return null;}});"
 		);
 	}
 );

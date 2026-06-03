@@ -14,7 +14,7 @@
       "from": [
         {
           "type": "enter",
-          "regExp": "/^-{3,}$/"
+          "regExp": "/^!!!$/"
         },
         {
           "type": "prefix",
