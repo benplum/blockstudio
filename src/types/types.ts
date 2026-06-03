@@ -213,6 +213,7 @@ declare global {
               mode?: string;
             }
           >;
+      media?: BlockstudioBlockStore['media'];
       registerBlock?: (block: BlockstudioBlock) => void;
       addPreloads?: (
         entries: Array<{

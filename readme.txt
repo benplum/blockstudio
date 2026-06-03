@@ -3,7 +3,7 @@ Contributors: dnnsjsk
 Requires at least: 6.7
 Tested up to: 7.0.0
 Requires PHP: 8.2
-Stable tag: 7.3.2
+Stable tag: 7.3.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -52,6 +52,19 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * [Getting Started](https://blockstudio.dev/docs/getting-started)
 
 == Changelog ==
+
+= 7.3.3 =
+* New: file-backed build cache for Blockstudio runtime discovery and editor asset payloads, configurable via `cache.enabled`
+* Enhancement: runtime cache entries now track block files, field files, asset dependencies, settings, active plugins, WordPress, PHP, and Blockstudio versions for automatic invalidation
+* Enhancement: editor asset cache keys now use cached asset fingerprints and SCSS dependency metadata instead of repeatedly globbing compiled files
+* Enhancement: block registration, block registry payloads, populate handling, and editor asset assembly now avoid duplicated filesystem and payload work on cache hits
+* Enhancement: editor preloads now include Blockstudio blocks nested inside synced/reusable `core/block` references
+* Enhancement: editor media fields now hydrate initial attachment data from Blockstudio `files` and media-enabled `attributes` fields
+* Enhancement: media hydration now follows nested groups, tabs, and repeaters, including grouped field ID prefixes
+* Fix: cached extension definitions now preserve populated option data needed by set templates
+* Fix: cached Blockstudio block variations remain registered in the editor
+* Fix: duplicate editor media fallback requests are deduplicated across simultaneous field controls
+* Fix: URL-format file fields no longer trigger impossible `/wp/v2/media` attachment lookups
 
 = 7.3.2 =
 * Fix: Tailwind CSS now compiles arbitrary selector classes that WordPress renders with encoded ampersands

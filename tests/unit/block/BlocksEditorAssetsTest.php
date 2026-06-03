@@ -30,6 +30,13 @@ class BlocksEditorAssetsTest extends TestCase {
 	private ?int $post_id = null;
 
 	/**
+	 * Additional temporary post IDs created by a test.
+	 *
+	 * @var array<int, int>
+	 */
+	private array $additional_post_ids = array();
+
+	/**
 	 * Clean up temporary state after each test.
 	 *
 	 * @return void
@@ -45,6 +52,12 @@ class BlocksEditorAssetsTest extends TestCase {
 			wp_delete_post( $this->post_id, true );
 			$this->post_id = null;
 		}
+
+		foreach ( $this->additional_post_ids as $post_id ) {
+			wp_delete_post( $post_id, true );
+		}
+
+		$this->additional_post_ids = array();
 
 		delete_transient( 'blockstudio_editor_all_assets' );
 		delete_transient( 'blockstudio_editor_captured_frontend_scripts' );
@@ -83,6 +96,246 @@ class BlocksEditorAssetsTest extends TestCase {
 
 		$this->assertSame( 1, $result['block_render_count'] );
 		$this->assertSame( 1, $result['asset_capture_request_count'] );
+	}
+
+	/**
+	 * Reusable block references should be parsed for initial Blockstudio preloads.
+	 *
+	 * @return void
+	 */
+	public function test_reusable_block_content_is_preloaded(): void {
+		if ( ! isset( Build::blocks()['blockstudio/type-text'] ) ) {
+			$this->markTestSkipped( 'blockstudio/type-text not registered.' );
+		}
+
+		wp_set_current_user( 1 );
+
+		if ( ! function_exists( 'get_current_screen' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/class-wp-screen.php';
+			require_once ABSPATH . 'wp-admin/includes/screen.php';
+		}
+
+		set_current_screen( 'post' );
+
+		$reusable_id = wp_insert_post(
+			array(
+				'post_title'   => 'Reusable preload test',
+				'post_status'  => 'publish',
+				'post_type'    => 'wp_block',
+				'post_content' => '<!-- wp:blockstudio/type-text {"blockstudio":{"attributes":{"text":"Reusable preload"}}} /-->',
+			),
+			true
+		);
+
+		$this->assertIsInt( $reusable_id );
+		$this->additional_post_ids[] = $reusable_id;
+
+		$this->post_id = wp_insert_post(
+			array(
+				'post_title'   => 'Editor reusable preload test',
+				'post_status'  => 'draft',
+				'post_type'    => 'post',
+				'post_content' => sprintf( '<!-- wp:block {"ref":%d} /-->', $reusable_id ),
+			),
+			true
+		);
+
+		$this->assertIsInt( $this->post_id );
+
+		$GLOBALS['post'] = get_post( $this->post_id );
+		$_GET['post']    = (string) $this->post_id;
+		$_GET['action']  = 'edit';
+
+		$rendered_text_values = array();
+
+		$this->add_filter(
+			'render_block_data',
+			static function ( $parsed_block ) use ( &$rendered_text_values ) {
+				if ( is_array( $parsed_block ) && 'blockstudio/type-text' === ( $parsed_block['blockName'] ?? null ) ) {
+					$rendered_text_values[] = $parsed_block['attrs']['blockstudio']['attributes']['text'] ?? null;
+				}
+
+				return $parsed_block;
+			}
+		);
+
+		$this->reset_editor_asset_state();
+		do_action( 'enqueue_block_editor_assets' );
+
+		$this->assertSame( array( 'Reusable preload' ), $rendered_text_values );
+	}
+
+	/**
+	 * Media used by reusable Blockstudio blocks should hydrate the editor media store.
+	 *
+	 * @return void
+	 */
+	public function test_reusable_block_media_is_hydrated(): void {
+		if ( ! isset( Build::blocks()['blockstudio/type-files'] ) ) {
+			$this->markTestSkipped( 'blockstudio/type-files not registered.' );
+		}
+
+		wp_set_current_user( 1 );
+
+		if ( ! function_exists( 'get_current_screen' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/class-wp-screen.php';
+			require_once ABSPATH . 'wp-admin/includes/screen.php';
+		}
+
+		set_current_screen( 'post' );
+
+		$attachment_id = wp_insert_attachment(
+			array(
+				'post_title'     => 'Reusable media preload image',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'guid'           => 'https://example.test/reusable-media-preload.jpg',
+			)
+		);
+
+		$this->assertIsInt( $attachment_id );
+		$this->additional_post_ids[] = $attachment_id;
+
+		$reusable_id = wp_insert_post(
+			array(
+				'post_title'   => 'Reusable media preload test',
+				'post_status'  => 'publish',
+				'post_type'    => 'wp_block',
+				'post_content' => sprintf(
+					'<!-- wp:blockstudio/type-files {"blockstudio":{"attributes":{"filesSingle":%d}}} /-->',
+					$attachment_id
+				),
+			),
+			true
+		);
+
+		$this->assertIsInt( $reusable_id );
+		$this->additional_post_ids[] = $reusable_id;
+
+		$this->post_id = wp_insert_post(
+			array(
+				'post_title'   => 'Editor reusable media preload test',
+				'post_status'  => 'draft',
+				'post_type'    => 'post',
+				'post_content' => sprintf( '<!-- wp:block {"ref":%d} /-->', $reusable_id ),
+			),
+			true
+		);
+
+		$this->assertIsInt( $this->post_id );
+
+		$GLOBALS['post'] = get_post( $this->post_id );
+		$_GET['post']    = (string) $this->post_id;
+		$_GET['action']  = 'edit';
+
+		$this->reset_editor_asset_state();
+		do_action( 'enqueue_block_editor_assets' );
+
+		$localized_data = wp_scripts()->get_data( 'blockstudio-blocks', 'data' );
+
+		$this->assertIsString( $localized_data );
+		$this->assertStringContainsString( '"media"', $localized_data );
+		$this->assertStringContainsString( '"' . $attachment_id . '":', $localized_data );
+	}
+
+	/**
+	 * Media collection should follow grouped, tabbed, and repeated field definitions.
+	 *
+	 * @return void
+	 */
+	public function test_nested_media_field_ids_are_collected(): void {
+		$reflection = new ReflectionClass( Blocks::class );
+		$blocks     = $reflection->newInstanceWithoutConstructor();
+		$method     = $reflection->getMethod( 'get_media_ids_from_attributes' );
+		$method->setAccessible( true );
+
+		$values = array(
+			'media'             => 101,
+			'group_media'       => 202,
+			'tab_media'         => 303,
+			'repeater'          => array(
+				array(
+					'media'              => 404,
+					'row_group_media'    => 505,
+					'row_tab_media'      => 606,
+				),
+			),
+		);
+
+		$fields = array(
+			array(
+				'id'   => 'media',
+				'type' => 'files',
+			),
+			array(
+				'id'         => 'group',
+				'type'       => 'group',
+				'attributes' => array(
+					array(
+						'id'   => 'media',
+						'type' => 'files',
+					),
+				),
+			),
+			array(
+				'type' => 'tabs',
+				'tabs' => array(
+					array(
+						'attributes' => array(
+							array(
+								'id'   => 'tab_media',
+								'type' => 'files',
+							),
+						),
+					),
+				),
+			),
+			array(
+				'id'         => 'repeater',
+				'type'       => 'repeater',
+				'attributes' => array(
+					array(
+						'id'   => 'media',
+						'type' => 'files',
+					),
+					array(
+						'id'         => 'row_group',
+						'type'       => 'group',
+						'attributes' => array(
+							array(
+								'id'   => 'media',
+								'type' => 'files',
+							),
+						),
+					),
+					array(
+						'type' => 'tabs',
+						'tabs' => array(
+							array(
+								'attributes' => array(
+									array(
+										'id'   => 'row_tab_media',
+										'type' => 'files',
+									),
+								),
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$this->assertSame(
+			array(
+				101 => 101,
+				202 => 202,
+				303 => 303,
+				404 => 404,
+				505 => 505,
+				606 => 606,
+			),
+			$method->invoke( $blocks, $values, $fields )
+		);
 	}
 
 	/**

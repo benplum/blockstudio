@@ -85,6 +85,7 @@ class Blocks {
 		}
 
 		$blockstudio_blocks = array();
+		$media_ids          = array();
 		$blocks             = Build::blocks();
 		$block_names        = array_keys( $blocks );
 
@@ -92,13 +93,47 @@ class Blocks {
 
 		$content       = $this->get_content( $post );
 		$parsed_blocks = $parser->parse( $content );
+		$visited_refs  = array();
 
 		$block_renderer = function ( $block ) use (
 			&$block_renderer,
 			&$blockstudio_blocks,
-			$block_names
+			&$media_ids,
+			$blocks,
+			$block_names,
+			$parser,
+			&$visited_refs
 		) {
+			if (
+				'core/block' === $block['blockName'] &&
+				isset( $block['attrs']['ref'] )
+			) {
+				$ref = absint( $block['attrs']['ref'] );
+
+				if ( $ref && ! isset( $visited_refs[ $ref ] ) ) {
+					$visited_refs[ $ref ] = true;
+					$referenced_block     = get_post( $ref );
+
+					if (
+						$referenced_block &&
+						'wp_block' === $referenced_block->post_type &&
+						! empty( $referenced_block->post_content )
+					) {
+						$referenced_blocks = $parser->parse( $referenced_block->post_content );
+
+						foreach ( $referenced_blocks as $referenced_inner_block ) {
+							$block_renderer( $referenced_inner_block );
+						}
+					}
+				}
+			}
+
 			if ( in_array( $block['blockName'], $block_names, true ) ) {
+				$media_ids = array_replace(
+					$media_ids,
+					$this->get_media_ids_from_block( $block, $blocks[ $block['blockName'] ] ?? null )
+				);
+
 				// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Setting mode for rendering.
 				$_GET['blockstudioMode'] = 'editor';
 
@@ -125,6 +160,7 @@ class Blocks {
 			'nonceRest'         => wp_create_nonce( 'wp_rest' ),
 			'rest'              => esc_url_raw( rest_url() ),
 			'blockstudioBlocks' => $blockstudio_blocks,
+			'media'             => $this->get_media_data( $media_ids ),
 		);
 
 		wp_localize_script(
@@ -220,6 +256,213 @@ class Blocks {
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
 		return '';
+	}
+
+	/**
+	 * Get attachment IDs referenced by Blockstudio media fields in a parsed block.
+	 *
+	 * @param array       $block Parsed block data.
+	 * @param object|null $block_type Registered block type.
+	 *
+	 * @return array<int, int> Attachment IDs keyed by ID.
+	 */
+	private function get_media_ids_from_block( array $block, ?object $block_type ): array {
+		if ( ! $block_type || empty( $block_type->blockstudio['attributes'] ) ) {
+			return array();
+		}
+
+		$values = $block['attrs']['blockstudio']['attributes'] ?? array();
+
+		if ( ! is_array( $values ) ) {
+			return array();
+		}
+
+		return $this->get_media_ids_from_attributes(
+			$values,
+			$block_type->blockstudio['attributes']
+		);
+	}
+
+	/**
+	 * Collect attachment IDs from attribute values using Blockstudio field definitions.
+	 *
+	 * @param array $values Saved attribute values.
+	 * @param array $fields Blockstudio field definitions.
+	 * @param string $prefix Field ID prefix for grouped attributes.
+	 *
+	 * @return array<int, int> Attachment IDs keyed by ID.
+	 */
+	private function get_media_ids_from_attributes( array $values, array $fields, string $prefix = '' ): array {
+		$ids = array();
+
+		foreach ( $fields as $field ) {
+			if ( ! is_array( $field ) ) {
+				continue;
+			}
+
+			$field_type   = $field['type'] ?? '';
+			$attributes   = $field['attributes'] ?? array();
+			$has_children = is_array( $attributes ) && ! empty( $attributes );
+
+			if ( 'group' === $field_type && $has_children ) {
+				$group_prefix = $prefix;
+
+				if ( ! empty( $field['id'] ) ) {
+					$group_prefix .= $field['id'] . '_';
+				}
+
+				$ids = array_replace(
+					$ids,
+					$this->get_media_ids_from_attributes( $values, $attributes, $group_prefix )
+				);
+				continue;
+			}
+
+			if ( 'tabs' === $field_type && ! empty( $field['tabs'] ) && is_array( $field['tabs'] ) ) {
+				foreach ( $field['tabs'] as $tab ) {
+					if ( ! empty( $tab['attributes'] ) && is_array( $tab['attributes'] ) ) {
+						$ids = array_replace(
+							$ids,
+							$this->get_media_ids_from_attributes( $values, $tab['attributes'], $prefix )
+						);
+					}
+				}
+				continue;
+			}
+
+			if ( empty( $field['id'] ) ) {
+				continue;
+			}
+
+			$field_id     = $prefix . $field['id'];
+			$field_exists = array_key_exists( $field_id, $values );
+
+			if ( 'files' === $field_type && $field_exists ) {
+				$this->add_media_ids_from_value( $values[ $field_id ], $ids );
+				continue;
+			}
+
+			if (
+				'attributes' === $field_type &&
+				! empty( $field['media'] ) &&
+				$field_exists &&
+				is_array( $values[ $field_id ] )
+			) {
+				foreach ( $values[ $field_id ] as $attribute_pair ) {
+					if ( is_array( $attribute_pair ) && isset( $attribute_pair['data']['media'] ) ) {
+						$this->add_media_ids_from_value( $attribute_pair['data']['media'], $ids );
+					}
+				}
+			}
+
+			if (
+				'repeater' === $field_type &&
+				$has_children &&
+				$field_exists &&
+				is_array( $values[ $field_id ] )
+			) {
+				foreach ( $values[ $field_id ] as $row ) {
+					if ( is_array( $row ) ) {
+						$ids = array_replace(
+							$ids,
+							$this->get_media_ids_from_attributes( $row, $attributes )
+						);
+					}
+				}
+			}
+		}
+
+		return $ids;
+	}
+
+	/**
+	 * Add attachment IDs from scalar, array, or media-object-like values.
+	 *
+	 * @param mixed $value Attribute value.
+	 * @param array $ids Attachment IDs keyed by ID.
+	 *
+	 * @return void
+	 */
+	private function add_media_ids_from_value( $value, array &$ids ): void {
+		if ( is_array( $value ) ) {
+			if ( isset( $value['id'] ) ) {
+				$this->add_media_ids_from_value( $value['id'], $ids );
+				return;
+			}
+
+			foreach ( $value as $item ) {
+				$this->add_media_ids_from_value( $item, $ids );
+			}
+
+			return;
+		}
+
+		if ( is_object( $value ) && isset( $value->id ) ) {
+			$this->add_media_ids_from_value( $value->id, $ids );
+			return;
+		}
+
+		if ( ! is_scalar( $value ) || ! is_numeric( $value ) ) {
+			return;
+		}
+
+		$id = absint( $value );
+
+		if ( $id > 0 ) {
+			$ids[ $id ] = $id;
+		}
+	}
+
+	/**
+	 * Get REST-shaped attachment data for initial editor media hydration.
+	 *
+	 * @param array<int, int> $ids Attachment IDs keyed by ID.
+	 *
+	 * @return array<int, array<string, mixed>> Attachment data keyed by ID.
+	 */
+	private function get_media_data( array $ids ): array {
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'absint', $ids )
+				)
+			)
+		);
+
+		if ( empty( $ids ) ) {
+			return array();
+		}
+
+		$attachments = get_posts(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post__in'       => $ids,
+				'posts_per_page' => count( $ids ),
+				'orderby'        => 'post__in',
+			)
+		);
+
+		if ( empty( $attachments ) ) {
+			return array();
+		}
+
+		$media = array();
+
+		foreach ( $attachments as $attachment ) {
+			$mime_type = get_post_mime_type( $attachment );
+
+			$media[ $attachment->ID ] = array(
+				'id'         => $attachment->ID,
+				'alt_text'   => get_post_meta( $attachment->ID, '_wp_attachment_image_alt', true ),
+				'media_type' => $mime_type ? strtok( $mime_type, '/' ) : '',
+				'mime_type'  => $mime_type,
+				'slug'       => $attachment->post_name,
+				'source_url' => wp_get_attachment_url( $attachment->ID ),
+			);
+		}
+
+		return $media;
 	}
 }
 

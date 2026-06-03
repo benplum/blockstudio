@@ -34,7 +34,12 @@ export const Files = ({
   v: string[];
   repeaterId: string;
 }) => {
-  useMedia(v);
+  const mediaIds = (Array.isArray(v) ? v : [v]).filter((id) =>
+    /^[1-9]\d*$/.test(`${id ?? ''}`),
+  );
+  const shouldResolveMedia = mediaIds.length > 0;
+
+  useMedia(mediaIds);
   const media = useSelect(
     (select) => (select('blockstudio/blocks') as typeof selectors).getMedia(),
     [],
@@ -94,7 +99,7 @@ export const Files = ({
           disable,
           inRepeater,
           item,
-          media,
+          media: shouldResolveMedia ? media : false,
           v,
         }}
         style={{ margin: '16px 0' }}
