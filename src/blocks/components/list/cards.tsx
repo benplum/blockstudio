@@ -20,6 +20,30 @@ import { css } from '@/utils/css';
 
 const grid = 8;
 
+type CardDataObject = {
+  id?: string;
+  label?: string;
+  media_type?: string;
+  mime_type?: string;
+  slug?: string;
+  source_url?: string;
+  value?: string;
+  alt_text?: string;
+};
+
+type CardData = CardDataObject | string | number | null | undefined;
+
+const getCardDataObject = (data: CardData): CardDataObject =>
+  data && typeof data === 'object' ? data : {};
+
+const getFallbackLabel = (data: CardData): string => {
+  if (typeof data === 'string' || typeof data === 'number') {
+    return `${data}`;
+  }
+
+  return data?.value || '';
+};
+
 const getItemStyle = (isDragging: boolean, draggableStyle: object) => ({
   background: '#fff',
   border: 'var(--blockstudio-border)',
@@ -36,16 +60,7 @@ export const Card = forwardRef<
   {
     attributes: BlockstudioBlockAttributes;
     change: (val: string[], media: boolean) => void;
-    data: {
-      id?: string;
-      label?: string;
-      media_type?: string;
-      mime_type?: string;
-      slug?: string;
-      source_url?: string;
-      value?: string;
-      alt_text?: string;
-    };
+    data: CardData;
     id: string;
     inRepeater: boolean;
     index?: number;
@@ -79,9 +94,13 @@ export const Card = forwardRef<
     ref,
   ) => {
     const [showDelete, setShowDelete] = useState<boolean>(false);
-    const media = data?.media_type;
+    const dataObject = getCardDataObject(data);
+    const fallbackLabel = getFallbackLabel(data);
+    const media = dataObject.media_type;
     const isImage = media === 'image';
-    const name = loaded ? `${id}_${data.id || data.value}` : '';
+    const name = loaded
+      ? `${id}_${dataObject.id || dataObject.value || fallbackLabel}`
+      : '';
 
     const handleClick = () => {
       if (!loaded) return;
@@ -94,7 +113,8 @@ export const Card = forwardRef<
         const filteredIds = isArray(v)
           ? v.filter(
               (e) =>
-                e !== data?.id && (media ? true : e?.value !== data?.value),
+                e !== dataObject.id &&
+                (media ? true : e?.value !== dataObject.value),
             )
           : [];
         const transformedIds = (
@@ -188,8 +208,8 @@ export const Card = forwardRef<
                     <Icon icon={closeSmall} />
                   ) : isImage ? (
                     <img
-                      src={data.source_url}
-                      alt={data.alt_text || ''}
+                      src={dataObject.source_url}
+                      alt={dataObject.alt_text || ''}
                       css={css({
                         objectFit: 'cover',
                         height: '100%',
@@ -222,7 +242,10 @@ export const Card = forwardRef<
               })}
             >
               <Text truncate numberOfLines={1}>
-                {data?.slug || data?.label || data?.value}
+                {dataObject.slug ||
+                  dataObject.label ||
+                  dataObject.value ||
+                  fallbackLabel}
               </Text>
               {media && (
                 <div
@@ -239,7 +262,7 @@ export const Card = forwardRef<
               )}
             </div>
           ) : (
-            !data?.value && (data as unknown as string)
+            fallbackLabel
           )}
         </Control>
       </div>

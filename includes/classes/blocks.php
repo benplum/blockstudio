@@ -286,8 +286,8 @@ class Blocks {
 	/**
 	 * Collect attachment IDs from attribute values using Blockstudio field definitions.
 	 *
-	 * @param array $values Saved attribute values.
-	 * @param array $fields Blockstudio field definitions.
+	 * @param array  $values Saved attribute values.
+	 * @param array  $fields Blockstudio field definitions.
 	 * @param string $prefix Field ID prefix for grouped attributes.
 	 *
 	 * @return array<int, int> Attachment IDs keyed by ID.

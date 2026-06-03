@@ -76,13 +76,26 @@ testType('attributes', false, () => {
           state: 'visible',
           timeout: 30000,
         });
-        const preferredAttachment = page.locator('[data-id="3081"]:visible').first();
-        if (await preferredAttachment.count()) {
-          await preferredAttachment.click();
-        } else {
-          await page.locator('.attachments .attachment:visible').first().click();
-        }
-        await page.click('.media-button-select:visible');
+        const preferredAttachment = page
+          .locator('[data-id="3081"]:visible')
+          .first();
+        const attachment = (await preferredAttachment
+          .isVisible({ timeout: 10000 })
+          .catch(() => false))
+          ? preferredAttachment
+          : page.locator('.attachments .attachment:visible').first();
+        await attachment.waitFor({ state: 'visible', timeout: 30000 });
+        await attachment.click();
+        await expect(attachment).toHaveClass(/selected/);
+        const selectButton = page.locator(
+          '.media-frame-toolbar button.media-button-select:visible'
+        );
+        await expect(selectButton).toBeEnabled();
+        await selectButton.click();
+        await page.locator('.media-modal:visible').waitFor({
+          state: 'hidden',
+          timeout: 10000,
+        });
         await count(canvas, '[data-image]', 1);
 
         await count(canvas, '[data-test="test"]', 1);

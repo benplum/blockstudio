@@ -29,6 +29,12 @@ type AttributePair = {
   };
 };
 
+type AttributeMedia = {
+  id?: number | string;
+  source_url?: unknown;
+  url?: unknown;
+};
+
 export const Attribute = ({
   attributes,
   index,
@@ -76,10 +82,26 @@ export const Attribute = ({
     });
   };
 
-  const handleMediaChange = (m: { id: number; url: string }) => {
+  const handleMediaChange = (m: AttributeMedia | AttributeMedia[]) => {
+    const mediaItem = Array.isArray(m) ? m[0] : m;
+    const mediaId =
+      typeof mediaItem?.id === 'number'
+        ? mediaItem.id
+        : typeof mediaItem?.id === 'string' && /^\d+$/.test(mediaItem.id)
+          ? Number(mediaItem.id)
+          : undefined;
+    const mediaUrl =
+      typeof mediaItem?.url === 'string'
+        ? mediaItem.url
+        : typeof mediaItem?.source_url === 'string'
+          ? mediaItem.source_url
+          : '';
+
+    if (!mediaId || !mediaUrl) return;
+
     const clone = cloneDeep(attributes);
-    set(clone, `${keyName}[${index}].value`, m.url);
-    set(clone, `${keyName}[${index}].data.media`, m.id);
+    set(clone, `${keyName}[${index}].value`, mediaUrl);
+    set(clone, `${keyName}[${index}].data.media`, mediaId);
     setAttributes({
       ...attributes,
       blockstudio: clone.blockstudio,
@@ -145,9 +167,11 @@ export const Attribute = ({
                     {mediaControl && (
                       <MediaUploadCheck>
                         <MediaUpload
+                          multiple={false}
                           // @ts-ignore
                           onClose={onClose}
                           onSelect={handleMediaChange}
+                          value={pair?.data?.media}
                           render={({ open }) => (
                             <MenuItem
                               icon={image}

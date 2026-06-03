@@ -250,14 +250,14 @@ class BlocksEditorAssetsTest extends TestCase {
 		$method->setAccessible( true );
 
 		$values = array(
-			'media'             => 101,
-			'group_media'       => 202,
-			'tab_media'         => 303,
-			'repeater'          => array(
+			'media'       => 101,
+			'group_media' => 202,
+			'tab_media'   => 303,
+			'repeater'    => array(
 				array(
-					'media'              => 404,
-					'row_group_media'    => 505,
-					'row_tab_media'      => 606,
+					'media'           => 404,
+					'row_group_media' => 505,
+					'row_tab_media'   => 606,
 				),
 			),
 		);
