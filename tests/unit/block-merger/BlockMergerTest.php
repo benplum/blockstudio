@@ -120,6 +120,83 @@ class BlockMergerTest extends TestCase {
 		$this->assertSame( 'intro', $result[0]['attrs']['__BLOCKSTUDIO_KEY'] );
 	}
 
+	public function test_keyed_block_preserves_old_content_attr(): void {
+		$new = array(
+			$this->keyed_block(
+				'core/paragraph',
+				'intro',
+				'',
+				array(
+					'content'   => 'Template text',
+					'className' => 'new-class',
+				)
+			),
+		);
+		$old = array(
+			$this->keyed_block(
+				'core/paragraph',
+				'intro',
+				'',
+				array(
+					'content'   => 'User edited text',
+					'className' => 'old-class',
+				)
+			),
+		);
+
+		$result = $this->merger->merge( $new, $old );
+		$this->assertSame( 'User edited text', $result[0]['attrs']['content'] );
+		$this->assertSame( 'new-class', $result[0]['attrs']['className'] );
+	}
+
+	public function test_keyed_block_preserves_old_blockstudio_attributes(): void {
+		$new = array(
+			$this->keyed_block(
+				'blockstudio/testimonial',
+				'quote',
+				'',
+				array(
+					'align'       => 'wide',
+					'blockstudio' => array(
+						'name'       => 'blockstudio/testimonial',
+						'attributes' => array(
+							'quote'  => 'Template quote',
+							'author' => 'Template author',
+						),
+					),
+				)
+			),
+		);
+		$old = array(
+			$this->keyed_block(
+				'blockstudio/testimonial',
+				'quote',
+				'',
+				array(
+					'align'       => 'full',
+					'blockstudio' => array(
+						'name'       => 'blockstudio/testimonial',
+						'attributes' => array(
+							'quote' => 'User edited quote',
+						),
+						'disabled'   => array( 'author' ),
+					),
+				)
+			),
+		);
+
+		$result = $this->merger->merge( $new, $old );
+		$this->assertSame( 'wide', $result[0]['attrs']['align'] );
+		$this->assertSame(
+			array(
+				'quote'  => 'User edited quote',
+				'author' => 'Template author',
+			),
+			$result[0]['attrs']['blockstudio']['attributes']
+		);
+		$this->assertSame( array( 'author' ), $result[0]['attrs']['blockstudio']['disabled'] );
+	}
+
 	// Block type changed: template wins
 
 	public function test_block_type_changed_template_wins_entirely(): void {

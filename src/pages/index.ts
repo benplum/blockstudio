@@ -29,15 +29,16 @@ interface BlockEditorActions {
   setBlockEditingMode: (clientId: string, mode: string) => void;
 }
 
-// Register blockEditingMode as an attribute on every block type via JS filter.
-// This must happen before blocks are parsed so the attribute is preserved.
+// Register Blockstudio metadata attributes on every block type via JS filter.
+// This must happen before blocks are parsed so the attributes are preserved.
 addFilter(
   'blocks.registerBlockType',
-  'blockstudio/block-editing-mode-attribute',
+  'blockstudio/page-metadata-attributes',
   (settings: BlockSettings) => {
     settings.attributes = {
       ...settings.attributes,
       blockEditingMode: { type: 'string' },
+      __BLOCKSTUDIO_KEY: { type: 'string' },
     };
     return settings;
   },

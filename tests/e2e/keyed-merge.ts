@@ -1,4 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
+
+import { login } from './utils/playwright-utils';
 
 const BASE = 'http://localhost:8888';
 const TEST_API = `${BASE}/wp-json/blockstudio-test/v1`;
@@ -85,6 +87,50 @@ async function forceSync(
   return res.json();
 }
 
+async function waitForEditorBlocks(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const wp = (window as any).wp;
+      return (
+        typeof wp?.data?.select === 'function' &&
+        wp.data.select('core/block-editor')?.getBlocks?.().length > 0
+      );
+    },
+    null,
+    { timeout: 30000 },
+  );
+}
+
+async function saveEditorPost(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const wp = (window as any).wp;
+    await wp.data.dispatch('core/editor').savePost();
+  });
+
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const editor = (window as any).wp.data.select('core/editor');
+          return editor.isSavingPost() || editor.isAutosavingPost();
+        }),
+      { timeout: 30000 },
+    )
+    .toBe(false);
+
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          return (window as any).wp.data
+            .select('core/editor')
+            .isEditedPostDirty();
+        }),
+      { timeout: 30000 },
+    )
+    .toBe(false);
+}
+
 test.describe('Keyed Block Merging', () => {
   test.describe('Basic Merging', () => {
     test('initial sync creates page with keyed blocks', async ({
@@ -100,6 +146,58 @@ test.describe('Keyed Block Merging', () => {
       expect(content).toContain('"__BLOCKSTUDIO_KEY":"outro"');
       expect(content).toContain('Default Title');
       expect(content).toContain('Default intro text.');
+    });
+
+    test('editor save preserves keyed block metadata', async ({
+      page,
+      request,
+    }) => {
+      const template = '<p key="intro">Default intro text.</p>';
+
+      try {
+        await forceSync(request, template);
+
+        await login(page, BASE);
+        await page.goto(`${BASE}/wp-admin/post.php?post=${postId}&action=edit`);
+        await waitForEditorBlocks(page);
+
+        const key = await page.evaluate(() => {
+          const [block] = (window as any).wp.data
+            .select('core/block-editor')
+            .getBlocks();
+          return block?.attributes?.__BLOCKSTUDIO_KEY;
+        });
+        expect(key).toBe('intro');
+
+        const editedText = 'Editor saved intro text.';
+        await page.evaluate((content) => {
+          const wp = (window as any).wp;
+          const [block] = wp.data.select('core/block-editor').getBlocks();
+
+          wp.data
+            .dispatch('core/block-editor')
+            .updateBlockAttributes(block.clientId, { content });
+        }, editedText);
+        await saveEditorPost(page);
+
+        const afterSave = await getPostContent(request);
+        expect(afterSave).toContain('"__BLOCKSTUDIO_KEY":"intro"');
+        expect(afterSave).toContain(editedText);
+
+        await triggerSync(
+          request,
+          `${template}
+<p key="after">Second default.</p>`,
+        );
+
+        const afterSync = await getPostContent(request);
+        expect(afterSync).toContain('"__BLOCKSTUDIO_KEY":"intro"');
+        expect(afterSync).toContain('"__BLOCKSTUDIO_KEY":"after"');
+        expect(afterSync).toContain(editedText);
+        expect(afterSync).not.toContain('Default intro text.');
+      } finally {
+        await forceSync(request, ORIGINAL_TEMPLATE);
+      }
     });
 
     test('keyed leaf block preserves user text', async ({ request }) => {

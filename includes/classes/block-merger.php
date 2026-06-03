@@ -89,8 +89,61 @@ class Block_Merger {
 		$new_block['innerHTML']    = $old_block['innerHTML'];
 		$new_block['innerContent'] = $old_block['innerContent'];
 		$new_block['innerBlocks']  = $old_block['innerBlocks'];
+		$new_block['attrs']        = $this->merge_attrs(
+			$new_block['attrs'] ?? array(),
+			$old_block['attrs'] ?? array()
+		);
 
 		return $new_block;
+	}
+
+	/**
+	 * Merge keyed block attributes.
+	 *
+	 * Template attributes remain the default so structural changes like
+	 * className, level, or media URLs still apply. User-editable content stored
+	 * in attributes is preserved from the old block.
+	 *
+	 * @param array $new_attrs Attributes from the template block.
+	 * @param array $old_attrs Attributes from the existing post block.
+	 *
+	 * @return array The merged attributes.
+	 */
+	private function merge_attrs( array $new_attrs, array $old_attrs ): array {
+		$merged = $new_attrs;
+
+		if ( array_key_exists( 'content', $old_attrs ) ) {
+			$merged['content'] = $old_attrs['content'];
+		}
+
+		$old_blockstudio_attributes = $old_attrs['blockstudio']['attributes'] ?? null;
+
+		if ( is_array( $old_blockstudio_attributes ) ) {
+			if ( ! isset( $merged['blockstudio'] ) || ! is_array( $merged['blockstudio'] ) ) {
+				$merged['blockstudio'] = array();
+			}
+
+			$new_blockstudio_attributes = $merged['blockstudio']['attributes'] ?? array();
+
+			if ( ! is_array( $new_blockstudio_attributes ) ) {
+				$new_blockstudio_attributes = array();
+			}
+
+			$merged['blockstudio']['attributes'] = array_merge(
+				$new_blockstudio_attributes,
+				$old_blockstudio_attributes
+			);
+		}
+
+		if ( array_key_exists( 'disabled', $old_attrs['blockstudio'] ?? array() ) ) {
+			if ( ! isset( $merged['blockstudio'] ) || ! is_array( $merged['blockstudio'] ) ) {
+				$merged['blockstudio'] = array();
+			}
+
+			$merged['blockstudio']['disabled'] = $old_attrs['blockstudio']['disabled'];
+		}
+
+		return $merged;
 	}
 
 	/**
