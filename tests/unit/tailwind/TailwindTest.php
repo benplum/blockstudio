@@ -148,6 +148,33 @@ class TailwindTest extends TestCase {
 		$this->assertStringContainsString( 'height:calc(var(--spacing) * 4)', $css );
 	}
 
+	public function test_scoped_tailwind_preserves_full_import_layer_order(): void {
+		require_once BLOCKSTUDIO_DIR . '/lib/tailwindphp-autoload.php';
+
+		$css = \BlockstudioVendor\TailwindPHP\Tailwind::generate(
+			array(
+				'content' => '<div class="text-red-500"></div>',
+				'css'     => '@import "tailwindcss"; @layer base { .text-red-500 { color: blue; } }',
+				'minify'  => false,
+			)
+		);
+
+		$layer_order       = strpos( $css, '@layer theme, base, components, utilities;' );
+		$base_layer        = strpos( $css, '@layer base' );
+		$utilities_layer   = strpos( $css, '@layer utilities' );
+		$custom_base_layer = strrpos( $css, '@layer base' );
+
+		$this->assertNotFalse( $layer_order );
+		$this->assertNotFalse( $base_layer );
+		$this->assertNotFalse( $utilities_layer );
+		$this->assertNotFalse( $custom_base_layer );
+
+		$this->assertLessThan( $base_layer, $layer_order );
+		$this->assertLessThan( $utilities_layer, $layer_order );
+		$this->assertLessThan( $custom_base_layer, $layer_order );
+		$this->assertMatchesRegularExpression( '/@layer utilities\s*\{[^}]*\.text-red-500/s', $css );
+	}
+
 	public function test_get_cdn_url_returns_empty_when_disabled(): void {
 		$cb = function () {
 			return false;

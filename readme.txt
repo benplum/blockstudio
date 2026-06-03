@@ -66,6 +66,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Fix: Composer autoload bootstrap now defers until WordPress starts plugin loading to avoid early initialization in Bedrock site-level installs
 * Fix: keyed file-based page blocks now preserve `__BLOCKSTUDIO_KEY` through WordPress 7.0 editor saves and keep user-edited content attributes during template sync
 * Fix: link fields now persist the Open in new tab setting as `target="_blank"` with matching `opensInNewTab` data
+* Fix: bundled TailwindPHP now preserves Tailwind's canonical cascade layer order so utilities override component and base layers
 * Fix: duplicate editor media fallback requests are deduplicated across simultaneous field controls
 * Fix: URL-format file fields no longer trigger impossible `/wp/v2/media` attachment lookups
 
