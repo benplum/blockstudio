@@ -31,12 +31,20 @@ Activate Blockstudio through the WordPress admin or WP-CLI:
 wp plugin activate blockstudio
 ```
 
-Your project's Composer autoloader must be loaded before WordPress initializes. In Bedrock this is handled automatically. In other setups, use a must-use plugin:
+Your project's Composer autoloader must be loaded by the WordPress app so
+Composer can register Blockstudio. In Bedrock this is handled automatically. In
+other setups, use a must-use plugin:
 
 ```php title="wp-content/mu-plugins/autoloader.php"
 <?php
 require_once dirname( __DIR__, 2 ) . '/vendor/autoload.php';
 ```
+
+When Blockstudio is included through Composer's autoloader before WordPress has
+started loading plugins, the Composer bootstrap defers initialization until the
+plugin loading environment is available. This lets Bedrock and other
+site-level Composer setups include the package early without booting
+Blockstudio before WordPress plugin APIs are ready.
 
 ## As a Must-Use Plugin
 
@@ -84,7 +92,10 @@ Load it in your theme's `functions.php`:
 require_once __DIR__ . '/vendor/autoload.php';
 ```
 
-Blockstudio bootstraps automatically through Composer's autoloader. Asset URLs resolve to the correct theme directory. Blocks defined in your theme's `blockstudio/` folder work exactly as they would with a plugin install.
+Blockstudio bootstraps automatically through Composer's autoloader when it is
+loaded by WordPress. Asset URLs resolve to the correct theme directory. Blocks
+defined in your theme's `blockstudio/` folder work exactly as they would with a
+plugin install.
 
 ## Bundled in a Plugin
 

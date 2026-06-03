@@ -5,9 +5,37 @@ description: Control how blocks are loaded in the editor.
 
 # Loading
 
-Blockstudio blocks are dynamic, meaning that they must be rendered on the server to be displayed in Gutenberg. This rendering is facilitated by a `fetch` call to the Blockstudio block renderer. Upon first opening the editor, each block fetches its respective template, which results in multiple requests depending on the number of blocks present on the page.
+Blockstudio blocks are dynamic, meaning that they are rendered on the server to
+be displayed in Gutenberg. Blockstudio preloads the rendered output for blocks
+that already exist in the editor payload and reuses it for the first editor
+paint when possible.
 
-On some hosts, this can cause timeouts and errors while loading other essential assets needed for the editor to function properly.
+This avoids a separate renderer request for each saved block on initial editor
+load. Nested Blockstudio blocks inside synced patterns and reusable
+`core/block` references are included in the preload payload.
+
+## Fallback renders
+
+The editor still calls the Blockstudio renderer when a block is inserted,
+edited, or cannot be matched to preloaded output. This can happen when the
+attributes, context, or inner block tree no longer match the preloaded entry.
+The fallback keeps the preview accurate while allowing most initial renders to
+come from preloaded data.
+
+On slower hosts, many fallback renderer requests can still cause timeouts or
+delay other editor assets. For blocks that do not need an immediate preview,
+loading can be disabled.
+
+## Media hydration
+
+File fields and media-enabled attributes are hydrated from the initial editor
+payload where possible. Blockstudio follows nested groups, tabs, repeaters, and
+field ID prefixes when preparing the media data.
+
+When a field stores a URL return format, Blockstudio treats it as a URL and does
+not try to resolve it through the WordPress media endpoint. If attachment data
+is not available in the preload payload, the editor may still request
+`/wp/v2/media` as a fallback.
 
 ## Disabling
 

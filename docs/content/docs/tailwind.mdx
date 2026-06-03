@@ -124,6 +124,10 @@ To define reusable class aliases, use `@layer utilities` with Tailwind's `@apply
 
 This compiles these classes alongside all standard Tailwind utilities. They work both on the frontend (server-side compilation) and in the editor (CDN preview).
 
+Blockstudio preserves Tailwind's canonical cascade layer order:
+`theme`, `base`, `components`, then `utilities`. This matches Tailwind CSS, so
+rules in later layers can override earlier layers as expected.
+
 ## Classes Field Type
 
 To use Tailwind classes in a block's `classes` field with autocomplete support, set `tailwind: true` on the field:
