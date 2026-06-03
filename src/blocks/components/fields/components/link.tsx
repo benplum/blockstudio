@@ -1,6 +1,5 @@
-// @ts-ignore
-import { __experimentalLinkControl as LinkControl } from '@wordpress/block-editor';
 import apiFetch from '@wordpress/api-fetch';
+import * as blockEditor from '@wordpress/block-editor';
 import {
   Button,
   Modal,
@@ -11,17 +10,79 @@ import { useState } from '@wordpress/element';
 import { BlockstudioAttribute } from '@/types/block';
 import { __ } from '@/utils/__';
 
+// @ts-ignore
+const LinkControl = blockEditor.__experimentalLinkControl;
+
 type Link = {
   id?: number | string;
   url: string;
   title?: string;
   opensInNewTab?: boolean;
+  target?: string;
+  linkTarget?: string;
+  rel?: string;
   type?: string;
 };
 
 type CreatedPage = {
   id: number;
   link?: string;
+};
+
+const NEW_TAB_TARGET = '_blank';
+const NEW_TAB_REL = ['noreferrer', 'noopener'];
+
+const isNewTabLink = (link: Link): boolean =>
+  typeof link.opensInNewTab === 'boolean'
+    ? link.opensInNewTab
+    : link.target === NEW_TAB_TARGET || link.linkTarget === NEW_TAB_TARGET;
+
+const normalizeRel = (rel: string | undefined, opensInNewTab: boolean) => {
+  const tokens = new Set((rel ?? '').split(/\s+/).filter(Boolean));
+
+  NEW_TAB_REL.forEach((token) => {
+    if (opensInNewTab) {
+      tokens.add(token);
+    } else {
+      tokens.delete(token);
+    }
+  });
+
+  const normalized = Array.from(tokens).join(' ');
+
+  return normalized || undefined;
+};
+
+const normalizeLinkValue = (value: string | NonNullable<unknown>) => {
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const link = value as Link;
+
+  return {
+    ...link,
+    opensInNewTab: isNewTabLink(link),
+  };
+};
+
+const normalizeLinkChange = (link: Link): Link => {
+  const normalized = {
+    ...link,
+    opensInNewTab: isNewTabLink(link),
+  };
+
+  if (normalized.opensInNewTab) {
+    normalized.target = NEW_TAB_TARGET;
+    normalized.linkTarget = NEW_TAB_TARGET;
+  } else {
+    delete normalized.target;
+    delete normalized.linkTarget;
+  }
+
+  normalized.rel = normalizeRel(normalized.rel, normalized.opensInNewTab);
+
+  return normalized;
 };
 
 const createPageSuggestion = async (title: string): Promise<Link> => {
@@ -70,8 +131,8 @@ export const LinkModal = ({
         createSuggestion={
           withCreateSuggestion ? createPageSuggestion : undefined
         }
-        value={value}
-        onChange={(link: Link) => onChange(link)}
+        value={normalizeLinkValue(value)}
+        onChange={(link: Link) => onChange(normalizeLinkChange(link))}
         onRemove={(link: Link) => onRemove(link)}
         settings={
           opensInNewTab

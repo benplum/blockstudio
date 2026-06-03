@@ -17,7 +17,7 @@ testType(
         testFunction: async (page: Page, canvas: Frame) => {
           await canvas.click('[data-type="blockstudio/type-link"]');
           await page.click(
-            '.blockstudio-fields__field--link .components-button'
+            '.blockstudio-fields__field--link .components-button',
           );
           const edit = await page.$('[aria-label="Edit link"]');
           if (edit) {
@@ -25,10 +25,26 @@ testType(
           }
           await page.fill(
             '.block-editor-link-control__text-content .components-text-control__input',
-            'Blockstudio'
+            'Blockstudio',
           );
           await page.fill('[value="https://google.com"]', 'blockstudio.dev');
-          await page.click('.block-editor-link-control__search-submit');
+          const modal = page.locator('.blockstudio-fields__link-modal');
+          const opensInNewTab = modal.getByRole('checkbox', {
+            name: 'Open in new tab',
+          });
+          const advanced = modal.getByRole('button', { name: 'Advanced' });
+
+          await advanced.click();
+          try {
+            await opensInNewTab.waitFor({ state: 'visible', timeout: 1000 });
+          } catch {
+            await advanced.click();
+            await opensInNewTab.waitFor({ state: 'visible' });
+          }
+          await opensInNewTab.check();
+          await modal
+            .locator('.block-editor-link-control__search-submit')
+            .click();
           await page.click('.components-modal__header [aria-label="Close"]');
           await saveAndReload(page);
         },
@@ -38,6 +54,8 @@ testType(
         testFunction: async (_page: Page, canvas: Frame) => {
           await canvas.click('[data-type="blockstudio/type-link"]');
           await count(canvas, 'text=blockstudio.dev', 1);
+          await text(canvas, '"opensInNewTab":true');
+          await text(canvas, '"target":"_blank"');
         },
       },
       {
@@ -47,7 +65,7 @@ testType(
 
           await canvas.click('[data-type="blockstudio/type-link"]');
           await page.click(
-            '.blockstudio-fields__field--link .components-button'
+            '.blockstudio-fields__field--link .components-button',
           );
 
           const edit = await page.$('[aria-label="Edit link"]');
@@ -73,5 +91,5 @@ testType(
         },
       },
     ];
-  }
+  },
 );
