@@ -68,16 +68,8 @@ testType(
           await page.keyboard.type('Heading test', {
             delay: 100,
           });
-          await page.click('[data-id="allClasses"] input');
-          await page.keyboard.type('is-', {
-            delay: 100,
-          });
-          // await page.keyboard.press('ArrowDown');
-          // await page.keyboard.press('ArrowDown');
-          // await count(canvas, '.wp-block-heading.is-style-squared', 1);
-          // await page.keyboard.press('Escape');
-          // await count(canvas, '.wp-block-heading.is-style-squared', 0);
-          await page.click('[data-id="allClasses"] *:has-text("is-large")');
+          await page.fill('[data-id="allClasses"] input', 'is-large');
+          await page.keyboard.press('Enter');
           await page.click('text=Add Attribute');
           await page.fill('[placeholder="Attribute"]', 'data-test');
           await page.locator('.cm-line').nth(0).click();

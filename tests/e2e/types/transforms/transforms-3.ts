@@ -1,4 +1,4 @@
-import { Page, Frame } from '@playwright/test';
+import { Page, Frame, expect } from '@playwright/test';
 import { count, testType } from '../../utils/playwright-utils';
 
 testType('transforms-3', '"text":19', () => {
@@ -10,8 +10,12 @@ testType('transforms-3', '"text":19', () => {
         await page.click(
           '.block-editor-block-toolbar__block-controls .components-dropdown-menu__toggle'
         );
-        await count(page, 'text=Native Transforms 1', 1);
-        await count(page, 'text=Native Transforms 2', 1);
+        await expect(
+          page.getByRole('menuitem', { name: /Native Transforms 1/ })
+        ).toHaveCount(0);
+        await expect(
+          page.getByRole('menuitem', { name: /Native Transforms 2/ })
+        ).toHaveCount(0);
       },
     },
     {

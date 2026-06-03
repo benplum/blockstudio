@@ -9,16 +9,26 @@ test.describe('assets in legacy non-iframed editor', () => {
   }) => {
     await login(page);
 
-    await page.goto('/wp-admin/post.php?post=3900&action=edit');
-    await expect(page.locator('.is-root-container')).toBeVisible({
-      timeout: 30000,
+    await page.request.post('/wp-json/blockstudio-test/v1/e2e/legacy-api-block', {
+      data: { enabled: true },
     });
-    await expect(page.locator('iframe[name="editor-canvas"]')).toHaveCount(0);
-    await expect
-      .poll(
-        () => page.locator('#blockstudio-blockstudio-assets-test-css').count(),
-        { timeout: 30000 },
-      )
-      .toBeGreaterThan(0);
+
+    try {
+      await page.goto('/wp-admin/post.php?post=3950&action=edit');
+      await expect(page.locator('.is-root-container')).toBeVisible({
+        timeout: 30000,
+      });
+      await expect(page.locator('iframe[name="editor-canvas"]')).toHaveCount(0);
+      await expect
+        .poll(
+          () => page.locator('#blockstudio-blockstudio-assets-test-css').count(),
+          { timeout: 30000 },
+        )
+        .toBeGreaterThan(0);
+    } finally {
+      await page.request.post('/wp-json/blockstudio-test/v1/e2e/legacy-api-block', {
+        data: { enabled: false },
+      });
+    }
   });
 });

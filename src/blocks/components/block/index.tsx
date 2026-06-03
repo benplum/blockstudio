@@ -4,7 +4,7 @@ import { useBlockProps } from '@wordpress/block-editor';
 import { Spinner } from '@wordpress/components';
 import { useDebounce } from '@wordpress/compose';
 import { useSelect } from '@wordpress/data';
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import parse from 'html-react-parser';
 import { DomElement } from 'htmlparser2';
 import { cloneDeep } from 'lodash-es';
@@ -222,7 +222,6 @@ export const Block = ({
   const renderedModeRef = useRef<'editor' | 'preview' | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
   const attributesRef = useRef(attributes);
-  const prevContextRef = useRef(JSON.stringify(context));
   const [disableLoading, setDisableLoading] = useState(
     block?.blockstudio?.blockEditor?.disableLoading,
   );
@@ -236,6 +235,51 @@ export const Block = ({
       (select: Any) => select('core/editor')?.getCurrentPostType(),
       [],
     ) || false;
+  const blockstudioEditorContext = useSelect(
+    (select: Any) => {
+      const contextNames = (block?.usesContext || []).filter(
+        (name: string) =>
+          !!(
+            window.blockstudioAdmin?.data?.blocksNative as unknown as Record<
+              string,
+              unknown
+            >
+          )?.[name],
+      );
+
+      if (contextNames.length === 0) {
+        return {};
+      }
+
+      const blockEditor = select('core/block-editor');
+      const parentClientIds = blockEditor?.getBlockParents?.(clientId) || [];
+
+      return contextNames.reduce<Record<string, Any>>((nextContext, name) => {
+        const providerClientId = parentClientIds.find(
+          (parentClientId: string) =>
+            blockEditor?.getBlockName?.(parentClientId) === name,
+        );
+        const providerAttributes = providerClientId
+          ? blockEditor?.getBlockAttributes?.(providerClientId)
+          : null;
+
+        if (providerAttributes?.blockstudio) {
+          nextContext[name] = providerAttributes.blockstudio;
+        }
+
+        return nextContext;
+      }, {});
+    },
+    [clientId, block?.usesContext?.join('|')],
+  );
+  const memoizedRenderContext = useMemo(
+    () => ({
+      ...context,
+      ...blockstudioEditorContext,
+    }),
+    [context, blockstudioEditorContext],
+  );
+  const prevContextRef = useRef(JSON.stringify(memoizedRenderContext));
 
   const [renderState, setRenderState] = useState<RenderState>(() => {
     if (block?.blockstudio?.blockEditor?.disableLoading) {
@@ -314,7 +358,7 @@ export const Block = ({
         clientId,
         block.name,
         attributes,
-        context,
+        memoizedRenderContext,
         getPostParams(mode),
       )
       .then((rendered) => {
@@ -347,7 +391,7 @@ export const Block = ({
       method: 'POST',
       data: {
         attributes: sendAttrs,
-        context,
+        context: memoizedRenderContext,
       },
     })
       .then((response) => {
@@ -440,7 +484,7 @@ export const Block = ({
 
   useEffect(
     function onContextChange() {
-      const contextStr = JSON.stringify(context);
+      const contextStr = JSON.stringify(memoizedRenderContext);
       if (prevContextRef.current === contextStr) {
         return;
       }
@@ -449,7 +493,7 @@ export const Block = ({
         debouncedFetchSingle();
       }
     },
-    [context],
+    [memoizedRenderContext],
   );
 
   useEffect(function onRefreshEvent() {
