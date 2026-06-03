@@ -53,6 +53,20 @@ test.describe('Block visibility (issue #26)', () => {
       await page.keyboard.press('ControlOrMeta+Shift+h');
     }
 
+    const hideDialog = page.getByRole('dialog', { name: 'Hide block' });
+    if (await hideDialog.isVisible({ timeout: 2000 }).catch(() => false)) {
+      const omitToggle = hideDialog.getByRole('checkbox', {
+        name: 'Omit from published content',
+      });
+
+      if (await omitToggle.isChecked()) {
+        await omitToggle.uncheck();
+      }
+
+      await hideDialog.getByRole('button', { name: 'Apply' }).click();
+      await expect(hideDialog).toBeHidden({ timeout: 10000 });
+    }
+
     await page.waitForTimeout(5000);
 
     await page.locator('button[aria-label="Document Overview"]').click();

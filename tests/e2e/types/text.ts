@@ -33,8 +33,8 @@ testType(
       {
         description: 'add custom classes and attributes',
         testFunction: async (page: Page, canvas: Frame) => {
-          await page.fill('[data-id="textClasses"] input', 'is-');
-          await page.click('[data-id="textClasses"] *:has-text("is-large")');
+          await page.fill('[data-id="textClasses"] input', 'is-large');
+          await page.keyboard.press('Enter');
           await page.click('text=Add Attribute');
           await page.fill('[placeholder="Attribute"]', 'data-test');
           await page.click('.cm-content');

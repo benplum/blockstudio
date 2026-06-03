@@ -31,12 +31,23 @@ test.describe('component-innerblocks-context', () => {
 
 	test('context working', async () => {
 		await openSidebar(page);
-		await canvas.click('.wp-block-post-title');
-		await page.keyboard.press('ArrowDown');
 		await canvas.waitForSelector('#blockstudio-component-innerblocks-context-child');
+		await page.evaluate(() => {
+			const { dispatch, select } = (window as any).wp.data;
+			const block = select('core/block-editor')
+				.getBlocks()
+				.find(
+					(item: any) =>
+						item.name === 'blockstudio/component-innerblocks-context'
+				);
+
+			if (block) {
+				dispatch('core/block-editor').selectBlock(block.clientId);
+			}
+		});
 		await openSidebar(page);
 		await page.click('.blockstudio-fields__field--text input');
-		await page.keyboard.type('$CONTEXT', { delay: 100 });
+		await page.locator('.blockstudio-fields__field--text input').fill('$CONTEXT');
 		await count(canvas, 'text=Text: $CONTEXT', 2);
 		await page.click('.editor-post-publish-button');
 		await count(page, '.components-snackbar', 1);

@@ -1029,6 +1029,27 @@ add_action(
 						$created['posts'][] = 3700;
 					}
 
+					// Post 3900 - Legacy API v1 editor assets test.
+					$legacy_assets_content = '<!-- wp:blockstudio/assets /--><!-- wp:blockstudio-test/legacy-api-v1 /-->';
+					if ( ! get_post( 3900 ) ) {
+						$wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+							$wpdb->posts,
+							array(
+								'ID'            => 3900,
+								'post_author'   => 1,
+								'post_date'     => current_time( 'mysql' ),
+								'post_date_gmt' => current_time( 'mysql', 1 ),
+								'post_content'  => $legacy_assets_content,
+								'post_title'    => 'Legacy Assets Editor Test',
+								'post_status'   => 'publish',
+								'post_name'     => 'legacy-assets-editor-test',
+								'post_type'     => 'post',
+								'guid'          => home_url( '/?p=3900' ),
+							)
+						);
+						$created['posts'][] = 3900;
+					}
+
 					// Post 3800 - Duplicate block attributes test (issue #22).
 					$dup_content = '<!-- wp:blockstudio/type-text {"blockstudio":{"name":"blockstudio/type-text","attributes":{"text":"First"}}} /-->'
 						. '<!-- wp:blockstudio/type-text {"blockstudio":{"name":"blockstudio/type-text","attributes":{"text":"First"}}} /-->'

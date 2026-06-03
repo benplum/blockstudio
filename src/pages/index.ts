@@ -23,6 +23,7 @@ interface EditorStore {
 
 interface BlockEditorStore {
   getBlocks: () => Block[];
+  getBlockEditingMode?: (clientId: string) => string | undefined;
 }
 
 interface BlockEditorActions {
@@ -87,8 +88,6 @@ function getAllBlocks(blocks: Block[]): Block[] {
 }
 
 domReady(() => {
-  const applied: Record<string, string> = {};
-
   subscribe(() => {
     const editor = select('core/editor') as EditorStore | undefined;
 
@@ -129,9 +128,10 @@ domReady(() => {
         mode = 'contentOnly';
       }
 
-      if (mode && applied[block.clientId] !== mode) {
+      const currentMode = blockEditor.getBlockEditingMode?.(block.clientId);
+
+      if (mode && currentMode !== mode) {
         blockEditorActions.setBlockEditingMode(block.clientId, mode);
-        applied[block.clientId] = mode;
       }
     });
   });

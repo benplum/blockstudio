@@ -44,6 +44,23 @@ export const getEditorCanvas = async (page: Page): Promise<Frame> => {
   return frame;
 };
 
+export const dismissEditorOverlays = async (page: Page): Promise<void> => {
+  const closeInserter = page.getByRole('button', {
+    name: 'Close Block Inserter',
+  });
+
+  if (await closeInserter.isVisible({ timeout: 500 }).catch(() => false)) {
+    await closeInserter.click();
+  }
+
+  await page.keyboard.press('Escape');
+  await expect(
+    page.locator('.components-popover__fallback-container > *')
+  )
+    .toHaveCount(0, { timeout: 1000 })
+    .catch(() => {});
+};
+
 export const waitForCanvasSurface = async (page: Page): Promise<void> => {
   await expect(page.locator('#blockstudio-canvas')).toBeVisible({ timeout: 30000 });
   await expect(page.locator('[data-canvas-surface]')).toBeVisible({ timeout: 30000 });
@@ -88,8 +105,7 @@ export const resetPageState = async (page: Page) => {
 
   // Wait for root container and remove all blocks
   await canvas.waitForSelector('.is-root-container', { timeout: 10000 });
-  // Press Escape to dismiss any popovers, then reset blocks via JS
-  await page.keyboard.press('Escape');
+  await dismissEditorOverlays(page);
   await page.evaluate(() => {
     (window as any).wp.data.dispatch('core/block-editor').resetBlocks([]);
   });
@@ -266,8 +282,7 @@ export const removeBlocks = async (page: Page) => {
     await removeBlocks(page);
     return;
   }
-  // Press Escape to dismiss any popovers, then reset blocks via JS
-  await page.keyboard.press('Escape');
+  await dismissEditorOverlays(page);
   await page.evaluate(() => {
     (window as any).wp.data.dispatch('core/block-editor').resetBlocks([]);
   });
@@ -476,6 +491,7 @@ export const testType = async (
                               const { description, testFunction } =
                                 nestedTestCase;
                               test(description, async () => {
+                                await dismissEditorOverlays(page);
                                 const canvas = await getEditorCanvas(page);
                                 await testFunction(page, canvas);
                               });
@@ -493,6 +509,7 @@ export const testType = async (
                     for (const testCase of testItem.testCases) {
                       const { description, testFunction } = testCase;
                       test(description, async () => {
+                        await dismissEditorOverlays(page);
                         const canvas = await getEditorCanvas(page);
                         await testFunction(page, canvas);
                       });
@@ -503,6 +520,7 @@ export const testType = async (
                   typeof testItem.testFunction === 'function'
                 ) {
                   test(testItem.description, async () => {
+                    await dismissEditorOverlays(page);
                     const canvas = await getEditorCanvas(page);
                     await testItem.testFunction(page, canvas);
                   });

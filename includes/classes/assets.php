@@ -520,8 +520,13 @@ class Assets {
 		$module_output = ob_get_clean();
 
 		// Build an importmap from the rendered module src URL.
-		$importmap = '';
-		if ( preg_match( '/src=["\']([^"\']+)["\'][^>]*id=["\']@wordpress\/interactivity/', $module_output, $matches ) ) {
+		$importmap                    = '';
+		$interactivity_module_pattern = '/<script\b'
+			. '(?=[^>]*id=["\']@wordpress\/interactivity[^"\']*["\'])'
+			. '(?=[^>]*src=["\']([^"\']+)["\'])'
+			. '[^>]*>/i';
+
+		if ( preg_match( $interactivity_module_pattern, $module_output, $matches ) ) {
 			$importmap = '<script type="importmap">' . wp_json_encode(
 				array(
 					'imports' => array(

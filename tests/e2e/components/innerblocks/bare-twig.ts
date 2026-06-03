@@ -32,7 +32,7 @@ test.describe('component-innerblocks-bare-twig', () => {
 	});
 
 	test('add content', async () => {
-		await canvas.click('[aria-label="Block: Heading"]');
+		await canvas.locator('[data-type="core/heading"]').first().click();
 		await page.keyboard.type('TEST$');
 		await page.keyboard.press('Enter');
 		await page.keyboard.type('TEST$');
