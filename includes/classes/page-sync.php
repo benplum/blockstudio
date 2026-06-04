@@ -204,7 +204,9 @@ class Page_Sync {
 	 */
 	private function blocks_have_keys( array $blocks ): bool {
 		foreach ( $blocks as $block ) {
-			if ( ! empty( $block['attrs']['__BLOCKSTUDIO_KEY'] ) ) {
+			$key = $block['attrs']['__BLOCKSTUDIO_KEY'] ?? null;
+
+			if ( is_scalar( $key ) && '' !== (string) $key ) {
 				return true;
 			}
 

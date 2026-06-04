@@ -132,6 +132,7 @@ final class Build_Cache {
 					'version'      => defined( 'BLOCKSTUDIO_VERSION' ) ? BLOCKSTUDIO_VERSION : '',
 					'cacheVersion' => self::VERSION,
 					'assets'       => self::get_editor_assets_fingerprint( Build::data() ),
+					'disabled'     => self::get_disabled_assets_fingerprint(),
 					'settings'     => self::get_settings_fingerprint(),
 					'wpVersion'    => get_bloginfo( 'version' ),
 				)
@@ -590,6 +591,40 @@ final class Build_Cache {
 			static fn( $a, $b ) => ( $a['block'] . '|' . $a['id'] . '|' . $a['path'] ) <=>
 				( $b['block'] . '|' . $b['id'] . '|' . $b['path'] )
 		);
+
+		return $fingerprint;
+	}
+
+	/**
+	 * Get disabled asset handles that affect rendered editor asset output.
+	 *
+	 * @return array Disabled asset handles.
+	 */
+	private static function get_disabled_assets_fingerprint(): array {
+		$disabled = apply_filters( 'blockstudio/assets/disable', array() );
+
+		if ( ! is_array( $disabled ) ) {
+			$disabled = array( $disabled );
+		}
+
+		$fingerprint = array_values(
+			array_unique(
+				array_filter(
+					array_map(
+						static function ( $asset ): string {
+							if ( is_scalar( $asset ) || null === $asset ) {
+								return (string) $asset;
+							}
+
+							return (string) wp_json_encode( $asset );
+						},
+						$disabled
+					)
+				)
+			)
+		);
+
+		sort( $fingerprint );
 
 		return $fingerprint;
 	}

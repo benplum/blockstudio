@@ -1707,6 +1707,10 @@ class Build {
 			$properties[ $property ] = self::normalize_cache_value( $value );
 		}
 
+		foreach ( array( 'uses_context', 'variations' ) as $property ) {
+			$properties[ $property ] = self::normalize_cache_value( $block->{$property} );
+		}
+
 		return array(
 			'name'       => $block->name,
 			'properties' => $properties,

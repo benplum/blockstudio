@@ -1375,7 +1375,11 @@ class Block_Tags {
 		static $trait_renderers = null;
 
 		// Remap key → __BLOCKSTUDIO_KEY for keyed block merging.
-		if ( ! empty( $attrs['key'] ) ) {
+		if (
+			array_key_exists( 'key', $attrs ) &&
+			is_scalar( $attrs['key'] ) &&
+			'' !== (string) $attrs['key']
+		) {
 			$attrs['__BLOCKSTUDIO_KEY'] = $attrs['key'];
 			unset( $attrs['key'] );
 		}

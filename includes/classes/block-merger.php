@@ -54,7 +54,7 @@ class Block_Merger {
 		$merged = array();
 
 		foreach ( $new_blocks as $new_block ) {
-			$key = $new_block['attrs']['__BLOCKSTUDIO_KEY'] ?? null;
+			$key = $this->normalize_key( $new_block['attrs']['__BLOCKSTUDIO_KEY'] ?? null );
 
 			if ( null !== $key && isset( $this->old_key_map[ $key ] ) ) {
 				$merged[] = $this->merge_block( $new_block, $this->old_key_map[ $key ] );
@@ -67,6 +67,26 @@ class Block_Merger {
 		}
 
 		return $merged;
+	}
+
+	/**
+	 * Normalize a blockstudio key value for comparisons.
+	 *
+	 * Empty keys are intentionally treated as unkeyed, while numeric zero
+	 * remains a valid key.
+	 *
+	 * @param mixed $key Raw key value.
+	 *
+	 * @return string|null Normalized key, or null for unkeyed blocks.
+	 */
+	private function normalize_key( mixed $key ): ?string {
+		if ( null === $key || ! is_scalar( $key ) ) {
+			return null;
+		}
+
+		$key = (string) $key;
+
+		return '' === $key ? null : $key;
 	}
 
 	/**
@@ -161,7 +181,7 @@ class Block_Merger {
 		$map = array();
 
 		foreach ( $blocks as $block ) {
-			$key = $block['attrs']['__BLOCKSTUDIO_KEY'] ?? null;
+			$key = $this->normalize_key( $block['attrs']['__BLOCKSTUDIO_KEY'] ?? null );
 
 			if ( null !== $key ) {
 				if ( isset( $map[ $key ] ) ) {

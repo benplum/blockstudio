@@ -1,5 +1,4 @@
 import { test, expect, Page } from '@playwright/test';
-
 import { login } from './utils/playwright-utils';
 
 const BASE = 'http://localhost:8888';
@@ -47,10 +46,7 @@ async function getPostContent(request: any): Promise<string> {
   return body.post_content;
 }
 
-async function updatePostContent(
-  request: any,
-  content: string,
-): Promise<void> {
+async function updatePostContent(request: any, content: string): Promise<void> {
   const res = await request.post(`${TEST_API}/pages/content/${postId}`, {
     data: { content },
   });
@@ -133,9 +129,7 @@ async function saveEditorPost(page: Page): Promise<void> {
 
 test.describe('Keyed Block Merging', () => {
   test.describe('Basic Merging', () => {
-    test('initial sync creates page with keyed blocks', async ({
-      request,
-    }) => {
+    test('initial sync creates page with keyed blocks', async ({ request }) => {
       const content = await getPostContent(request);
 
       expect(content).toContain('__BLOCKSTUDIO_KEY');
@@ -296,9 +290,7 @@ test.describe('Keyed Block Merging', () => {
   });
 
   test.describe('Template Changes', () => {
-    test('template attribute update on keyed block', async ({
-      request,
-    }) => {
+    test('template attribute update on keyed block', async ({ request }) => {
       await forceSync(request, ORIGINAL_TEMPLATE);
 
       const content = await getPostContent(request);
@@ -346,17 +338,12 @@ test.describe('Keyed Block Merging', () => {
       expect(after).not.toContain('Default outro text.');
     });
 
-    test('block type change (same key), template wins', async ({
-      request,
-    }) => {
+    test('block type change (same key), template wins', async ({ request }) => {
       await forceSync(request, ORIGINAL_TEMPLATE);
 
       const content = await getPostContent(request);
 
-      const edited = content.replace(
-        'Default intro text.',
-        'User intro text.',
-      );
+      const edited = content.replace('Default intro text.', 'User intro text.');
       await updatePostContent(request, edited);
 
       const newTemplate = ORIGINAL_TEMPLATE.replace(
@@ -471,10 +458,9 @@ test.describe('Keyed Block Merging', () => {
       );
       await updatePostContent(request, edited);
 
-      const lockRes = await request.post(
-        `${TEST_API}/pages/lock/${postId}`,
-        { data: { lock: true } },
-      );
+      const lockRes = await request.post(`${TEST_API}/pages/lock/${postId}`, {
+        data: { lock: true },
+      });
       expect(lockRes.ok()).toBeTruthy();
 
       const newTemplate = ORIGINAL_TEMPLATE.replace(
@@ -590,9 +576,7 @@ test.describe('Keyed Block Merging', () => {
       expect(after).toContain('new-bg.jpg');
     });
 
-    test('keyed block moves from nested to top-level', async ({
-      request,
-    }) => {
+    test('keyed block moves from nested to top-level', async ({ request }) => {
       const nestedTemplate = `<p key="top">Top paragraph.</p>
 <div key="wrapper">
   <h2>Wrapper heading</h2>
@@ -682,6 +666,33 @@ test.describe('Keyed Block Merging', () => {
       expect(after).toContain('User valid key edit.');
       expect(after).toContain('Empty key paragraph.');
       expect(after).not.toContain('User empty key edit.');
+    });
+
+    test('zero key attribute is preserved and mergeable', async ({
+      request,
+    }) => {
+      const zeroKeyTemplate = `<p key="0">Zero key paragraph.</p>
+<p key="valid">Valid key paragraph.</p>`;
+
+      await forceSync(request, zeroKeyTemplate);
+
+      const content = await getPostContent(request);
+
+      expect(content).toMatch(/"__BLOCKSTUDIO_KEY":(?:"0"|0)/);
+      expect(content).toContain('"__BLOCKSTUDIO_KEY":"valid"');
+
+      const edited = content
+        .replace('Zero key paragraph.', 'User zero key edit.')
+        .replace('Valid key paragraph.', 'User valid key edit.');
+      await updatePostContent(request, edited);
+
+      await triggerSync(request, zeroKeyTemplate);
+
+      const after = await getPostContent(request);
+      expect(after).toContain('User zero key edit.');
+      expect(after).toContain('User valid key edit.');
+      expect(after).not.toContain('Zero key paragraph.');
+      expect(after).not.toContain('Valid key paragraph.');
     });
   });
 });

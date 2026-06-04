@@ -5,6 +5,8 @@
  * @package Blockstudio
  */
 
+use Blockstudio\Block_Registry;
+use Blockstudio\Build;
 use Blockstudio\Build_Cache;
 use Blockstudio\Files;
 use PHPUnit\Framework\TestCase;
@@ -87,6 +89,37 @@ class BuildCacheTest extends TestCase {
 	private function write_file( string $path, string $contents ): void {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writing temporary test fixture files.
 		file_put_contents( $path, $contents );
+	}
+
+	/**
+	 * Snapshot the registry state that should match between cold and cached builds.
+	 *
+	 * @param string $block_name Block name.
+	 *
+	 * @return array Registry payload snapshot.
+	 */
+	private function snapshot_runtime_registry( string $block_name ): array {
+		$registry = Block_Registry::instance();
+		$block    = $registry->get_block( $block_name );
+
+		$this->assertInstanceOf( \WP_Block_Type::class, $block );
+
+		return array(
+			'block'               => array(
+				'name'             => $block->name,
+				'attributes'       => $block->attributes,
+				'uses_context'     => $block->uses_context,
+				'provides_context' => $block->provides_context,
+				'path'             => wp_normalize_path( $block->path ),
+				'blockstudio'      => $block->blockstudio,
+				'variations'       => $block->variations,
+			),
+			'data'                => $registry->get_block_data( $block_name ),
+			'assets'              => $registry->get_assets(),
+			'assets_admin'        => $registry->get_assets_admin(),
+			'assets_block_editor' => $registry->get_assets_block_editor(),
+			'assets_global'       => $registry->get_assets_global(),
+		);
 	}
 
 	/**
@@ -353,6 +386,75 @@ class BuildCacheTest extends TestCase {
 	}
 
 	/**
+	 * Runtime cache hydration matches a cold runtime build.
+	 *
+	 * @return void
+	 */
+	public function test_runtime_cache_hydrates_equivalent_registry_payload(): void {
+		$directory       = $this->create_temporary_directory();
+		$block_directory = $directory . '/cache-parity';
+		wp_mkdir_p( $block_directory );
+
+		$block_name = 'blockstudio-test/cache-parity';
+		$block_json = $block_directory . '/block.json';
+		$template   = $block_directory . '/index.php';
+		$style      = $block_directory . '/style.css';
+
+		$this->write_file(
+			$block_json,
+			wp_json_encode(
+				array(
+					'$schema'     => 'https://blockstudio.dev/schema/block',
+					'name'        => $block_name,
+					'title'       => 'Cache Parity',
+					'category'    => 'widgets',
+					'blockstudio' => array(
+						'attributes' => array(
+							array(
+								'id'      => 'text',
+								'type'    => 'text',
+								'default' => 'Default text',
+							),
+						),
+					),
+				)
+			)
+		);
+		$this->write_file( $template, '<?php echo esc_html( $a["text"] ?? "" );' );
+		$this->write_file( $style, '.cache-parity { color: red; }' );
+
+		$path     = wp_normalize_path( $directory );
+		$instance = Build::get_instance_name( $path );
+		$key      = Build_Cache::get_runtime_key( $path, $instance );
+		$registry = Block_Registry::instance();
+
+		$this->track_cache_file( 'runtime', $key );
+
+		try {
+			$registry->reset();
+
+			Build::init( array( 'dir' => $path ) );
+			$this->assertIsArray( Build_Cache::load_runtime( $path, $instance ) );
+			$cold = $this->snapshot_runtime_registry( $block_name );
+
+			$registry->reset();
+
+			Build::init( array( 'dir' => $path ) );
+			$warm = $this->snapshot_runtime_registry( $block_name );
+
+			$this->assertSame( $cold, $warm );
+		} finally {
+			$registry->reset();
+
+			$default_build_dir = Build::get_build_dir();
+
+			if ( is_dir( $default_build_dir ) ) {
+				Build::init( $default_build_dir );
+			}
+		}
+	}
+
+	/**
 	 * Editor asset fingerprints use cached metadata before file snapshots.
 	 *
 	 * @return void
@@ -403,5 +505,23 @@ class BuildCacheTest extends TestCase {
 		$this->assertSame( 'dependency-aware-version', $fingerprint[0]['version'] );
 		$this->assertSame( 'view-js', $fingerprint[1]['id'] );
 		$this->assertSame( 456, $fingerprint[1]['version'] );
+	}
+
+	/**
+	 * Editor asset cache keys track disabled asset filters.
+	 *
+	 * @return void
+	 */
+	public function test_editor_asset_cache_key_tracks_disabled_asset_filter(): void {
+		$baseline = Build_Cache::get_editor_assets_key();
+		$callback = static fn() => array( 'blockstudio-test-disabled-asset' );
+
+		add_filter( 'blockstudio/assets/disable', $callback );
+
+		try {
+			$this->assertNotSame( $baseline, Build_Cache::get_editor_assets_key() );
+		} finally {
+			remove_filter( 'blockstudio/assets/disable', $callback );
+		}
 	}
 }

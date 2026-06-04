@@ -516,12 +516,12 @@ class BlockMergerTest extends TestCase {
 
 	// Empty string key
 
-	public function test_empty_string_key_is_valid(): void {
+	public function test_empty_string_key_treated_as_unkeyed(): void {
 		$new = array( $this->keyed_block( 'core/paragraph', '', '<p>New</p>' ) );
 		$old = array( $this->keyed_block( 'core/paragraph', '', '<p>Old</p>' ) );
 
 		$result = $this->merger->merge( $new, $old );
-		$this->assertSame( '<p>Old</p>', $result[0]['innerHTML'] );
+		$this->assertSame( '<p>New</p>', $result[0]['innerHTML'] );
 	}
 
 	// Large number of blocks
