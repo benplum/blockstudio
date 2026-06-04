@@ -62,11 +62,14 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Enhancement: editor media fields now hydrate initial attachment data from Blockstudio `files` and media-enabled `attributes` fields
 * Enhancement: media hydration now follows nested groups, tabs, and repeaters, including grouped field ID prefixes
 * Fix: cached extension definitions now preserve populated option data needed by set templates
+* Fix: cached runtime block definitions now preserve WordPress context and variation metadata on warm cache hits
 * Fix: cached Blockstudio block variations remain registered in the editor
+* Fix: editor asset cache entries now invalidate when disabled asset filters change
 * Fix: Composer autoload bootstrap now defers until WordPress starts plugin loading to avoid early initialization in Bedrock site-level installs
 * Fix: keyed file-based page blocks now preserve `__BLOCKSTUDIO_KEY` through WordPress 7.0 editor saves and keep user-edited content attributes during template sync
 * Fix: link fields now persist the Open in new tab setting as `target="_blank"` with matching `opensInNewTab` data
 * Fix: bundled TailwindPHP now preserves Tailwind's canonical cascade layer order so utilities override component and base layers
+* Fix: preloaded editor media attachments now hydrate fields without redundant `/wp/v2/media` fallback requests
 * Fix: duplicate editor media fallback requests are deduplicated across simultaneous field controls
 * Fix: URL-format file fields no longer trigger impossible `/wp/v2/media` attachment lookups
 
