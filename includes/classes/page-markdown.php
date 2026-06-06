@@ -290,7 +290,7 @@ class Page_Markdown {
 			}
 
 			if ( preg_match_all( '/^- (.+)$/m', $block, $matches ) ) {
-				$items = array_map(
+				$items  = array_map(
 					static fn ( string $item ): string => '<li>' . esc_html( $item ) . '</li>',
 					$matches[1]
 				);

@@ -866,10 +866,10 @@ class Page_Discovery {
 
 			$parent_key = $this->path_index[ $collection ][ $parent_path ];
 
-			$this->pages[ $key ]['parent_key']             = $parent_key;
-			$this->pages[ $key ]['parent_name']            = $this->pages[ $parent_key ]['name'];
-			$this->pages[ $key ]['parent_path']            = $parent_path;
-			$this->pages[ $parent_key ]['children'][]      = $key;
+			$this->pages[ $key ]['parent_key']        = $parent_key;
+			$this->pages[ $key ]['parent_name']       = $this->pages[ $parent_key ]['name'];
+			$this->pages[ $key ]['parent_path']       = $parent_path;
+			$this->pages[ $parent_key ]['children'][] = $key;
 		}
 	}
 
