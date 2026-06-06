@@ -53,10 +53,22 @@ spl_autoload_register(
 		}
 
 		$relative_class = substr( $class_name, $len );
-		$file           = $base_dir . str_replace( '\\', '/', $relative_class ) . '.php';
+		$relative_path  = implode(
+			'/',
+			array_map(
+				function ( string $segment ): string {
+					$segment = str_replace( '_', '-', $segment );
+					$segment = preg_replace( '/(?<!^)[A-Z]/', '-$0', $segment );
+
+					return strtolower( preg_replace( '/-+/', '-', $segment ) );
+				},
+				explode( '\\', $relative_class )
+			)
+		);
+		$file           = $base_dir . $relative_path . '.php';
 
 		if ( file_exists( $file ) ) {
-			require $file;
+			require_once $file;
 		}
 	}
 );
