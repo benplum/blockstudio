@@ -25,6 +25,34 @@ class Pages {
 	private static bool $initialized = false;
 
 	/**
+	 * Whether page hooks have been registered.
+	 *
+	 * @var bool
+	 */
+	private static bool $hooks_registered = false;
+
+	/**
+	 * Current page while rendering a layout.
+	 *
+	 * @var array|null
+	 */
+	private static ?array $current_page = null;
+
+	/**
+	 * Current page content while rendering a layout.
+	 *
+	 * @var string
+	 */
+	private static string $current_page_content = '';
+
+	/**
+	 * Whether a layout is currently rendering.
+	 *
+	 * @var bool
+	 */
+	private static bool $rendering_layout = false;
+
+	/**
 	 * Initialize the pages system.
 	 *
 	 * @param array $args Optional arguments.
@@ -40,6 +68,8 @@ class Pages {
 			return;
 		}
 
+		self::register_collection_post_types();
+
 		$paths = self::get_paths();
 
 		/**
@@ -49,34 +79,68 @@ class Pages {
 		 */
 		$paths = apply_filters( 'blockstudio/pages/paths', $paths );
 
-		$registry  = Page_Registry::instance();
-		$discovery = new Page_Discovery();
-		$sync      = new Page_Sync();
+		$registry = Page_Registry::instance();
+		$sync     = new Page_Sync();
+
+		if ( ! empty( $args['force'] ) ) {
+			$registry->reset();
+		}
+
+		$active_sources = array();
+		$post_types     = array();
 
 		foreach ( $paths as $path ) {
 			if ( ! is_dir( $path ) ) {
 				continue;
 			}
 
+			$path      = untrailingslashit( wp_normalize_path( $path ) );
+			$discovery = new Page_Discovery();
+
 			$registry->add_path( $path );
 
 			$pages = $discovery->discover( $path );
 
+			foreach ( $discovery->get_collections() as $collection => $collection_data ) {
+				$registry->register_collection( $collection, $collection_data );
+			}
+
+			$registry->add_errors( $discovery->get_errors() );
+
 			foreach ( $pages as $name => $page_data ) {
 				$registry->register( $name, $page_data );
+			}
+		}
 
-				$post_id = $sync->sync( $page_data );
+		foreach ( $registry->get_pages() as $name => $page_data ) {
+			$post_id = $sync->sync( $page_data );
 
-				if ( is_int( $post_id ) && $post_id > 0 ) {
-					$registry->set_synced_post( $page_data['source_path'], $post_id );
-					$registry->update_page_data( $name, 'post_id', $post_id );
+			if ( is_int( $post_id ) && $post_id > 0 ) {
+				$registry->set_synced_post( $page_data['source_path'], $post_id );
+				$registry->update_page_data( $name, 'post_id', $post_id );
+				$registry->update_page_data( $name, 'post_parent', (int) get_post_field( 'post_parent', $post_id ) );
+
+				$collection = $page_data['collection'] ?? null;
+
+				if ( $collection ) {
+					$active_sources[ $collection ][]                  = $page_data['source_path'];
+					$post_types[ $collection ][ $page_data['postType'] ] = true;
 				}
 			}
 		}
 
-		self::register_template_for_hooks();
-		self::register_template_lock_hooks();
-		self::register_block_editing_mode_hooks();
+		foreach ( $active_sources as $collection => $sources ) {
+			$sync->mark_stale_missing( $sources, $collection, array_keys( $post_types[ $collection ] ?? array() ) );
+		}
+
+		if ( ! self::$hooks_registered ) {
+			self::register_template_for_hooks();
+			self::register_template_lock_hooks();
+			self::register_block_editing_mode_hooks();
+			self::register_layout_hooks();
+
+			self::$hooks_registered = true;
+		}
 
 		self::$initialized = true;
 
@@ -86,6 +150,67 @@ class Pages {
 		 * @param Page_Registry $registry The page registry instance.
 		 */
 		do_action( 'blockstudio/pages/synced', $registry );
+	}
+
+	/**
+	 * Register custom post types declared by page collection manifests.
+	 *
+	 * @return void
+	 */
+	public static function register_collection_post_types(): void {
+		$paths = self::get_paths();
+
+		/** This filter is documented in init(). */
+		$paths = apply_filters( 'blockstudio/pages/paths', $paths );
+
+		foreach ( $paths as $path ) {
+			if ( ! is_dir( $path ) ) {
+				continue;
+			}
+
+			foreach ( Page_Discovery::discover_manifests( $path ) as $collection ) {
+				self::register_collection_post_type( $collection );
+			}
+		}
+	}
+
+	/**
+	 * Register one collection post type when needed.
+	 *
+	 * @param array $collection Collection data.
+	 *
+	 * @return void
+	 */
+	private static function register_collection_post_type( array $collection ): void {
+		$post_type = $collection['postType'] ?? 'page';
+
+		if ( 'page' === $post_type || post_type_exists( $post_type ) ) {
+			return;
+		}
+
+		$args = wp_parse_args(
+			$collection['postTypeArgs'] ?? array(),
+			array(
+				'label'        => $collection['title'] ?? Page_Discovery::title_from_value( $collection['slug'] ?? $post_type ),
+				'public'       => true,
+				'hierarchical' => true,
+				'show_in_rest' => true,
+				'supports'     => array( 'title', 'editor', 'page-attributes', 'thumbnail', 'excerpt', 'revisions' ),
+				'rewrite'      => array(
+					'slug' => $collection['slug'] ?? $post_type,
+				),
+			)
+		);
+
+		/**
+		 * Filter post type args for a page collection.
+		 *
+		 * @param array $args       Post type args.
+		 * @param array $collection Collection data.
+		 */
+		$args = apply_filters( 'blockstudio/pages/collection_post_type_args', $args, $collection );
+
+		register_post_type( $post_type, is_array( $args ) ? $args : array() );
 	}
 
 	/**
@@ -214,6 +339,11 @@ class Pages {
 
 		if ( false === $template_content ) {
 			return null;
+		}
+
+		if ( 'markdown' === ( $template_page['contentType'] ?? '' ) ) {
+			$parts            = Page_Markdown::split_frontmatter( $template_content );
+			$template_content = Page_Markdown::to_html( $parts['body'] );
 		}
 
 		$blocks = $parser->parse_to_array( $template_content );
@@ -355,12 +485,150 @@ class Pages {
 	}
 
 	/**
+	 * Register frontend layout rendering.
+	 *
+	 * @return void
+	 */
+	private static function register_layout_hooks(): void {
+		add_filter( 'the_content', array( __CLASS__, 'render_layout_content' ), 20 );
+	}
+
+	/**
+	 * Render collection layout.php around frontend page content.
+	 *
+	 * @param string $content Original post content.
+	 *
+	 * @return string Content.
+	 */
+	public static function render_layout_content( string $content ): string {
+		if ( is_admin() || self::$rendering_layout || ! is_singular() ) {
+			return $content;
+		}
+
+		$post_id = (int) get_the_ID();
+
+		if ( $post_id <= 0 ) {
+			return $content;
+		}
+
+		$page = self::page_for_post_id( $post_id );
+
+		if ( ! $page ) {
+			return $content;
+		}
+
+		$layout_path = (string) ( $page['layout_path'] ?? get_post_meta( $post_id, '_blockstudio_page_layout', true ) );
+
+		if ( '' === $layout_path || ! file_exists( $layout_path ) ) {
+			return $content;
+		}
+
+		self::$rendering_layout     = true;
+		self::$current_page         = $page;
+		self::$current_page_content = $content;
+
+		ob_start();
+		include $layout_path;
+		$layout_content = ob_get_clean();
+
+		self::$current_page         = null;
+		self::$current_page_content = '';
+		self::$rendering_layout     = false;
+
+		return false === $layout_content ? $content : $layout_content;
+	}
+
+	/**
+	 * Get the content currently being wrapped by a page layout.
+	 *
+	 * @return string Page content.
+	 */
+	public static function page_content(): string {
+		return self::$current_page_content;
+	}
+
+	/**
+	 * Get current Blockstudio page data.
+	 *
+	 * @return array|null Page data.
+	 */
+	public static function current_page(): ?array {
+		if ( null !== self::$current_page ) {
+			return self::$current_page;
+		}
+
+		$post_id = (int) get_queried_object_id();
+
+		return $post_id > 0 ? self::page_for_post_id( $post_id ) : null;
+	}
+
+	/**
+	 * Get Blockstudio page data by post ID.
+	 *
+	 * @param int $post_id Post ID.
+	 *
+	 * @return array|null Page data.
+	 */
+	public static function page_for_post_id( int $post_id ): ?array {
+		return Page_Registry::instance()->get_page_by_post_id( $post_id );
+	}
+
+	/**
 	 * Get all registered pages.
+	 *
+	 * @param string|null $collection Optional collection slug.
 	 *
 	 * @return array<string, array> The pages.
 	 */
-	public static function pages(): array {
-		return Page_Registry::instance()->get_pages();
+	public static function pages( ?string $collection = null ): array {
+		$registry = Page_Registry::instance();
+
+		return null === $collection ? $registry->get_pages() : $registry->in_collection( $collection );
+	}
+
+	/**
+	 * Get pages in a collection.
+	 *
+	 * @param string $collection Collection slug.
+	 *
+	 * @return array<string, array> Pages.
+	 */
+	public static function in_collection( string $collection ): array {
+		return Page_Registry::instance()->in_collection( $collection );
+	}
+
+	/**
+	 * Get a nested page tree.
+	 *
+	 * @param string|null $collection Optional collection slug.
+	 *
+	 * @return array<int, array> Page tree.
+	 */
+	public static function tree( ?string $collection = null ): array {
+		return Page_Registry::instance()->tree( $collection );
+	}
+
+	/**
+	 * Get direct child pages.
+	 *
+	 * @param string      $name       Page name or key.
+	 * @param string|null $collection Optional collection slug.
+	 *
+	 * @return array<string, array> Child pages.
+	 */
+	public static function children( string $name, ?string $collection = null ): array {
+		return Page_Registry::instance()->children( $name, $collection );
+	}
+
+	/**
+	 * Get collection data.
+	 *
+	 * @param string $collection Collection slug.
+	 *
+	 * @return array|null Collection data.
+	 */
+	public static function collection( string $collection ): ?array {
+		return Page_Registry::instance()->get_collection( $collection );
 	}
 
 	/**
@@ -496,6 +764,9 @@ class Pages {
 	 */
 	public static function reset(): void {
 		Page_Registry::instance()->reset();
-		self::$initialized = false;
+		self::$initialized          = false;
+		self::$current_page         = null;
+		self::$current_page_content = '';
+		self::$rendering_layout     = false;
 	}
 }

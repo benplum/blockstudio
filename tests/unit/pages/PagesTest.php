@@ -19,9 +19,17 @@ class PagesTest extends TestCase {
 		$registry  = Page_Registry::instance();
 		$sync      = new Page_Sync();
 
+		Pages::register_collection_post_types();
+
 		$registry->add_path( $this->pages_path );
 
 		$pages = $discovery->discover( $this->pages_path );
+
+		foreach ( $discovery->get_collections() as $collection => $collection_data ) {
+			$registry->register_collection( $collection, $collection_data );
+		}
+
+		$registry->add_errors( $discovery->get_errors() );
 
 		foreach ( $pages as $name => $page_data ) {
 			$registry->register( $name, $page_data );
@@ -31,6 +39,7 @@ class PagesTest extends TestCase {
 			if ( is_int( $post_id ) && $post_id > 0 ) {
 				$registry->set_synced_post( $page_data['source_path'], $post_id );
 				$registry->update_page_data( $name, 'post_id', $post_id );
+				$registry->update_page_data( $name, 'post_parent', (int) get_post_field( 'post_parent', $post_id ) );
 			}
 		}
 	}
@@ -59,6 +68,11 @@ class PagesTest extends TestCase {
 	public function test_pages_contains_sync_test_page(): void {
 		$pages = Pages::pages();
 		$this->assertArrayHasKey( 'blockstudio-sync-test', $pages );
+	}
+
+	public function test_pages_contains_standalone_markdown_page(): void {
+		$pages = Pages::pages();
+		$this->assertArrayHasKey( 'blockstudio-markdown-test', $pages );
 	}
 
 	// get_page()
@@ -92,6 +106,12 @@ class PagesTest extends TestCase {
 	public function test_get_page_has_template_lock(): void {
 		$page = Pages::get_page( 'blockstudio-e2e-test' );
 		$this->assertSame( 'all', $page['templateLock'] );
+	}
+
+	public function test_get_markdown_page_has_markdown_content_type(): void {
+		$page = Pages::get_page( 'blockstudio-markdown-test' );
+		$this->assertSame( 'markdown', $page['contentType'] );
+		$this->assertTrue( $page['is_markdown'] );
 	}
 
 	public function test_get_page_returns_null_for_unknown(): void {
@@ -249,6 +269,126 @@ class PagesTest extends TestCase {
 		foreach ( $expected_keys as $key ) {
 			$this->assertArrayHasKey( $key, $page, "Missing key: {$key}" );
 		}
+	}
+
+	public function test_collection_manifest_is_registered(): void {
+		$collection = Pages::collection( 'docs' );
+
+		$this->assertIsArray( $collection );
+		$this->assertSame( 'Documentation', $collection['title'] );
+		$this->assertSame( 'bs_docs', $collection['postType'] );
+		$this->assertSame( 'primary', $collection['meta']['navigation'] );
+	}
+
+	public function test_collection_post_type_is_registered(): void {
+		$this->assertTrue( post_type_exists( 'bs_docs' ) );
+		$this->assertTrue( is_post_type_hierarchical( 'bs_docs' ) );
+	}
+
+	public function test_collection_pages_are_namespaced(): void {
+		$pages = Pages::in_collection( 'docs' );
+
+		$this->assertArrayHasKey( 'docs:docs-home', $pages );
+		$this->assertArrayHasKey( 'docs:docs-reference', $pages );
+		$this->assertArrayHasKey( 'docs:docs-loader-api', $pages );
+	}
+
+	public function test_collection_generates_missing_container_pages(): void {
+		$guide = Pages::get_page( 'docs-guide' );
+		$api   = Pages::get_page( 'docs-api' );
+
+		$this->assertIsArray( $guide );
+		$this->assertTrue( $guide['generated'] );
+		$this->assertSame( 'guide', $guide['path'] );
+		$this->assertIsArray( $api );
+		$this->assertTrue( $api['generated'] );
+		$this->assertSame( 'api', $api['path'] );
+	}
+
+	public function test_collection_children_use_logical_paths(): void {
+		$children = Pages::children( 'docs-home', 'docs' );
+		$names    = array_column( $children, 'name' );
+
+		$this->assertContains( 'docs-guide', $names );
+		$this->assertContains( 'docs-reference', $names );
+		$this->assertContains( 'docs-api', $names );
+	}
+
+	public function test_collection_tree_nests_generated_containers(): void {
+		$tree = Pages::tree( 'docs' );
+
+		$this->assertCount( 1, $tree );
+		$this->assertSame( 'docs-home', $tree[0]['name'] );
+
+		$guide = array_values(
+			array_filter(
+				$tree[0]['children'],
+				static fn ( array $child ): bool => 'docs-guide' === $child['name']
+			)
+		);
+
+		$this->assertCount( 1, $guide );
+		$this->assertSame( 'docs-install', $guide[0]['children'][0]['name'] );
+	}
+
+	public function test_markdown_content_syncs_to_heading_blocks_with_anchor(): void {
+		$post_id = Pages::get_post_id( 'docs-home' );
+		$post    = get_post( $post_id );
+
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertStringContainsString( 'wp:heading', $post->post_content );
+		$this->assertStringContainsString( 'documentation-home', $post->post_content );
+	}
+
+	public function test_page_json_can_use_index_markdown_content(): void {
+		$post_id = Pages::get_post_id( 'docs-reference' );
+		$post    = get_post( $post_id );
+
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertStringContainsString( 'Reference', $post->post_content );
+	}
+
+	public function test_loader_markdown_page_syncs_and_is_sanitized_generated_content(): void {
+		$page    = Pages::get_page( 'docs-loader-api' );
+		$post_id = Pages::get_post_id( 'docs-loader-api' );
+		$post    = get_post( $post_id );
+
+		$this->assertIsArray( $page );
+		$this->assertTrue( $page['generated'] );
+		$this->assertSame( 'markdown', $page['contentType'] );
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertStringContainsString( 'Loader API', $post->post_content );
+	}
+
+	public function test_synced_collection_pages_store_identity_meta(): void {
+		$post_id = Pages::get_post_id( 'docs-install' );
+
+		$this->assertSame( 'docs:docs-install', get_post_meta( $post_id, '_blockstudio_page_key', true ) );
+		$this->assertSame( 'docs', get_post_meta( $post_id, '_blockstudio_page_collection', true ) );
+		$this->assertSame( 'guide/install', get_post_meta( $post_id, '_blockstudio_page_path', true ) );
+		$this->assertNotEmpty( get_post_meta( $post_id, '_blockstudio_page_fingerprint', true ) );
+	}
+
+	public function test_collection_children_have_wordpress_parent_ids(): void {
+		$parent_id = Pages::get_post_id( 'docs-guide' );
+		$child_id  = Pages::get_post_id( 'docs-install' );
+
+		$this->assertGreaterThan( 0, $parent_id );
+		$this->assertSame( $parent_id, (int) get_post_field( 'post_parent', $child_id ) );
+	}
+
+	public function test_layout_file_is_not_discovered_as_page_source(): void {
+		$sources = array_column( Pages::in_collection( 'docs' ), 'source_path' );
+
+		foreach ( $sources as $source ) {
+			$this->assertStringNotContainsString( 'layout.php', $source );
+		}
+	}
+
+	public function test_global_page_helpers_proxy_pages_api(): void {
+		$this->assertSame( Pages::in_collection( 'docs' ), blockstudio_pages( 'docs' ) );
+		$this->assertSame( Pages::collection( 'docs' ), blockstudio_page_collection( 'docs' ) );
+		$this->assertSame( Pages::children( 'docs-home', 'docs' ), blockstudio_page_children( 'docs-home', 'docs' ) );
 	}
 
 	// get_registered_paths()

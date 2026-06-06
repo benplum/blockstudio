@@ -1,0 +1,20 @@
+{
+  "collection": "docs",
+  "title": "Documentation",
+  "postType": "bs_docs",
+  "postTypeArgs": {
+    "label": "Docs",
+    "rewrite": {
+      "slug": "docs"
+    },
+    "supports": ["title", "editor", "page-attributes"]
+  },
+  "defaults": {
+    "postStatus": "publish",
+    "templateLock": "contentOnly"
+  },
+  "source": {
+    "type": "local"
+  },
+  "navigation": "primary"
+}

@@ -51,13 +51,20 @@ class Page_Sync {
 			return $existing ? $existing->ID : 0;
 		}
 
-		$existing   = $this->find_existing_post( $page_data );
-		$file_mtime = filemtime( $page_data['template_path'] );
+		$existing    = $this->find_existing_post( $page_data );
+		$file_mtime  = $this->get_source_mtime( $page_data );
+		$fingerprint = $this->build_fingerprint( $page_data );
 
 		if ( $existing ) {
-			$stored_mtime = (int) get_post_meta( $existing->ID, '_blockstudio_page_mtime', true );
+			$stored_fingerprint = (string) get_post_meta( $existing->ID, '_blockstudio_page_fingerprint', true );
+			$stored_mtime       = (int) get_post_meta( $existing->ID, '_blockstudio_page_mtime', true );
 
-			if ( $stored_mtime >= $file_mtime ) {
+			if ( '' !== $stored_fingerprint && hash_equals( $stored_fingerprint, $fingerprint ) ) {
+				update_post_meta( $existing->ID, '_blockstudio_page_stale', false );
+				return $existing->ID;
+			}
+
+			if ( '' === $stored_fingerprint && $stored_mtime >= $file_mtime ) {
 				return $existing->ID;
 			}
 
@@ -72,7 +79,7 @@ class Page_Sync {
 				$content = serialize_blocks( $new_blocks );
 			}
 
-			return $this->update_post( $existing, $page_data, $content, $file_mtime );
+			return $this->update_post( $existing, $page_data, $content, $file_mtime, $fingerprint );
 		}
 
 		if ( $this->has_slug_conflict( $page_data ) ) {
@@ -80,7 +87,7 @@ class Page_Sync {
 		}
 
 		$content = $this->get_parsed_content( $page_data );
-		return $this->create_post( $page_data, $content, $file_mtime );
+		return $this->create_post( $page_data, $content, $file_mtime, $fingerprint );
 	}
 
 	/**
@@ -91,25 +98,7 @@ class Page_Sync {
 	 * @return string The parsed block content.
 	 */
 	private function get_parsed_content( array $page_data ): string {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local template file.
-		$template_content = file_get_contents( $page_data['template_path'] );
-
-		if ( false === $template_content ) {
-			return '';
-		}
-
-		if ( ! empty( $page_data['is_blade'] ) && class_exists( 'Jenssegers\Blade\Blade' ) ) {
-			$blade            = new \Jenssegers\Blade\Blade( $page_data['directory'], sys_get_temp_dir() );
-			$template_content = $blade->render( 'index', array() );
-		} elseif ( ! empty( $page_data['is_twig'] ) && class_exists( 'Timber\Timber' ) ) {
-			\Timber\Timber::init();
-			$template_content = \Timber\Timber::compile_string( $template_content, array() );
-		}
-
-		$blocks = $this->parser->parse_to_array( $template_content );
-		$blocks = $this->apply_template_overrides( $blocks );
-
-		return serialize_blocks( $blocks );
+		return serialize_blocks( $this->get_parsed_blocks( $page_data ) );
 	}
 
 	/**
@@ -120,24 +109,65 @@ class Page_Sync {
 	 * @return array The parsed block array.
 	 */
 	private function get_parsed_blocks( array $page_data ): array {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local template file.
-		$template_content = file_get_contents( $page_data['template_path'] );
+		$template_content = $this->get_template_content( $page_data );
+		$content_type     = $page_data['contentType'] ?? 'php';
 
-		if ( false === $template_content ) {
-			return array();
-		}
+		if ( 'markdown' === $content_type ) {
+			$template_content = Page_Markdown::to_html( $template_content );
 
-		if ( ! empty( $page_data['is_blade'] ) && class_exists( 'Jenssegers\Blade\Blade' ) ) {
-			$blade            = new \Jenssegers\Blade\Blade( $page_data['directory'], sys_get_temp_dir() );
-			$template_content = $blade->render( 'index', array() );
-		} elseif ( ! empty( $page_data['is_twig'] ) && class_exists( 'Timber\Timber' ) ) {
-			\Timber\Timber::init();
-			$template_content = \Timber\Timber::compile_string( $template_content, array() );
+			if ( ! empty( $page_data['sanitize_content'] ) ) {
+				$template_content = Page_Markdown::sanitize_docs_html( $template_content );
+			}
+		} elseif ( 'html' === $content_type && ! empty( $page_data['sanitize_content'] ) ) {
+			$template_content = Page_Markdown::sanitize_docs_html( $template_content );
 		}
 
 		$blocks = $this->parser->parse_to_array( $template_content );
 
 		return $this->apply_template_overrides( $blocks );
+	}
+
+	/**
+	 * Read or render source content for a page.
+	 *
+	 * @param array $page_data Page data.
+	 *
+	 * @return string Template/content string.
+	 */
+	private function get_template_content( array $page_data ): string {
+		if ( isset( $page_data['inline_content'] ) && is_string( $page_data['inline_content'] ) ) {
+			return $page_data['inline_content'];
+		}
+
+		$content_path = $page_data['content_path'] ?? $page_data['template_path'] ?? null;
+
+		if ( ! is_string( $content_path ) || '' === $content_path || ! file_exists( $content_path ) ) {
+			return '';
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local page source file.
+		$template_content = file_get_contents( $content_path );
+
+		if ( false === $template_content ) {
+			return '';
+		}
+
+		if ( 'markdown' === ( $page_data['contentType'] ?? '' ) ) {
+			$parts = Page_Markdown::split_frontmatter( $template_content );
+			return $parts['body'];
+		}
+
+		if ( ! empty( $page_data['is_blade'] ) && class_exists( 'Jenssegers\Blade\Blade' ) ) {
+			$blade = new \Jenssegers\Blade\Blade( $page_data['directory'], sys_get_temp_dir() );
+			return $blade->render( 'index', array() );
+		}
+
+		if ( ! empty( $page_data['is_twig'] ) && class_exists( 'Timber\Timber' ) ) {
+			\Timber\Timber::init();
+			return \Timber\Timber::compile_string( $template_content, array() );
+		}
+
+		return $template_content;
 	}
 
 	/**
@@ -232,10 +262,27 @@ class Page_Sync {
 			if ( $post instanceof WP_Post && $post->post_type === $page_data['postType'] ) {
 				$source = get_post_meta( $post->ID, '_blockstudio_page_source', true );
 				$name   = get_post_meta( $post->ID, '_blockstudio_page_name', true );
+				$key    = get_post_meta( $post->ID, '_blockstudio_page_key', true );
 
-				if ( empty( $source ) || $source === $page_data['source_path'] || $name === $page_data['name'] ) {
+				if ( empty( $source ) || $source === $page_data['source_path'] || $name === $page_data['name'] || $key === ( $page_data['key'] ?? null ) ) {
 					return $post;
 				}
+			}
+		}
+
+		if ( ! empty( $page_data['key'] ) ) {
+			$posts = get_posts(
+				array(
+					'meta_key'       => '_blockstudio_page_key', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+					'meta_value'     => $page_data['key'], // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+					'post_type'      => $page_data['postType'],
+					'posts_per_page' => 1,
+					'post_status'    => 'any',
+				)
+			);
+
+			if ( ! empty( $posts ) ) {
+				return $posts[0];
 			}
 		}
 
@@ -253,10 +300,23 @@ class Page_Sync {
 			return $posts[0];
 		}
 
+		$meta_query = array(
+			array(
+				'key'   => '_blockstudio_page_name',
+				'value' => $page_data['name'],
+			),
+		);
+
+		if ( ! empty( $page_data['collection'] ) ) {
+			$meta_query[] = array(
+				'key'   => '_blockstudio_page_collection',
+				'value' => $page_data['collection'],
+			);
+		}
+
 		$posts = get_posts(
 			array(
-				'meta_key'       => '_blockstudio_page_name', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-				'meta_value'     => $page_data['name'], // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'meta_query'     => $meta_query, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
 				'post_type'      => $page_data['postType'],
 				'posts_per_page' => 1,
 				'post_status'    => 'any',
@@ -278,16 +338,26 @@ class Page_Sync {
 	 * @return bool True when the slug is occupied by a different page.
 	 */
 	private function has_slug_conflict( array $page_data ): bool {
-		$post = get_page_by_path( $page_data['slug'], OBJECT, $page_data['postType'] );
+		$posts = get_posts(
+			array(
+				'name'           => $page_data['slug'],
+				'post_type'      => $page_data['postType'],
+				'post_parent'    => $this->resolve_parent_id( $page_data ),
+				'posts_per_page' => 1,
+				'post_status'    => 'any',
+			)
+		);
 
-		if ( ! $post instanceof WP_Post ) {
+		if ( empty( $posts ) ) {
 			return false;
 		}
 
+		$post   = $posts[0];
 		$source = get_post_meta( $post->ID, '_blockstudio_page_source', true );
 		$name   = get_post_meta( $post->ID, '_blockstudio_page_name', true );
+		$key    = get_post_meta( $post->ID, '_blockstudio_page_key', true );
 
-		return $source !== $page_data['source_path'] && $name !== $page_data['name'];
+		return $source !== $page_data['source_path'] && $name !== $page_data['name'] && $key !== ( $page_data['key'] ?? null );
 	}
 
 	/**
@@ -296,10 +366,11 @@ class Page_Sync {
 	 * @param array  $page_data  The page data.
 	 * @param string $content    The parsed block content.
 	 * @param int    $file_mtime The file modification time.
+	 * @param string $fingerprint Source fingerprint.
 	 *
 	 * @return int|WP_Error The post ID or WP_Error on failure.
 	 */
-	private function create_post( array $page_data, string $content, int $file_mtime ): int|WP_Error {
+	private function create_post( array $page_data, string $content, int $file_mtime, string $fingerprint ): int|WP_Error {
 		$post_data = array(
 			'post_title'   => $page_data['title'],
 			'post_name'    => $page_data['slug'],
@@ -307,6 +378,12 @@ class Page_Sync {
 			'post_type'    => $page_data['postType'],
 			'post_status'  => $page_data['postStatus'],
 		);
+
+		$post_parent = $this->resolve_parent_id( $page_data );
+
+		if ( $post_parent > 0 ) {
+			$post_data['post_parent'] = $post_parent;
+		}
 
 		if ( ! empty( $page_data['postId'] ) ) {
 			$post_data['import_id'] = (int) $page_data['postId'];
@@ -326,7 +403,7 @@ class Page_Sync {
 			return $post_id;
 		}
 
-		$this->update_post_meta( $post_id, $page_data, $file_mtime );
+		$this->update_post_meta( $post_id, $page_data, $file_mtime, $fingerprint );
 
 		/**
 		 * Fires after a page post is created.
@@ -346,10 +423,11 @@ class Page_Sync {
 	 * @param array   $page_data  The page data.
 	 * @param string  $content    The parsed block content.
 	 * @param int     $file_mtime The file modification time.
+	 * @param string  $fingerprint Source fingerprint.
 	 *
 	 * @return int|WP_Error The post ID or WP_Error on failure.
 	 */
-	private function update_post( WP_Post $post, array $page_data, string $content, int $file_mtime ): int|WP_Error {
+	private function update_post( WP_Post $post, array $page_data, string $content, int $file_mtime, string $fingerprint ): int|WP_Error {
 		$is_locked = (bool) get_post_meta( $post->ID, '_blockstudio_page_locked', true );
 
 		if ( $is_locked ) {
@@ -359,8 +437,16 @@ class Page_Sync {
 		$post_data = array(
 			'ID'           => $post->ID,
 			'post_title'   => $page_data['title'],
+			'post_name'    => $page_data['slug'],
 			'post_content' => $content,
+			'post_status'  => $page_data['postStatus'],
 		);
+
+		$post_parent = $this->resolve_parent_id( $page_data );
+
+		if ( $post_parent > 0 || (int) $post->post_parent > 0 ) {
+			$post_data['post_parent'] = $post_parent;
+		}
 
 		/**
 		 * Filter the post data before updating a page.
@@ -377,7 +463,7 @@ class Page_Sync {
 			return $result;
 		}
 
-		$this->update_post_meta( $post->ID, $page_data, $file_mtime );
+		$this->update_post_meta( $post->ID, $page_data, $file_mtime, $fingerprint );
 
 		/**
 		 * Fires after a page post is updated.
@@ -396,20 +482,50 @@ class Page_Sync {
 	 * @param int   $post_id    The post ID.
 	 * @param array $page_data  The page data.
 	 * @param int   $file_mtime The file modification time.
+	 * @param string $fingerprint Source fingerprint.
 	 *
 	 * @return void
 	 */
-	private function update_post_meta( int $post_id, array $page_data, int $file_mtime ): void {
+	private function update_post_meta( int $post_id, array $page_data, int $file_mtime, string $fingerprint ): void {
 		update_post_meta( $post_id, '_blockstudio_page_source', $page_data['source_path'] );
 		update_post_meta( $post_id, '_blockstudio_page_mtime', $file_mtime );
 		update_post_meta( $post_id, '_blockstudio_page_name', $page_data['name'] );
+		update_post_meta( $post_id, '_blockstudio_page_key', $page_data['key'] ?? $page_data['name'] );
+		update_post_meta( $post_id, '_blockstudio_page_fingerprint', $fingerprint );
+		update_post_meta( $post_id, '_blockstudio_page_collection', $page_data['collection'] ?? '' );
+		update_post_meta( $post_id, '_blockstudio_page_path', $page_data['path'] ?? '' );
+		update_post_meta( $post_id, '_blockstudio_page_generated', ! empty( $page_data['generated'] ) );
+		update_post_meta( $post_id, '_blockstudio_page_content_type', $page_data['contentType'] ?? 'php' );
+		update_post_meta( $post_id, '_blockstudio_page_stale', false );
+
+		if ( ! empty( $page_data['parent_key'] ) ) {
+			update_post_meta( $post_id, '_blockstudio_page_parent_key', $page_data['parent_key'] );
+		} else {
+			delete_post_meta( $post_id, '_blockstudio_page_parent_key' );
+		}
+
+		if ( ! empty( $page_data['layout_path'] ) ) {
+			update_post_meta( $post_id, '_blockstudio_page_layout', $page_data['layout_path'] );
+		} else {
+			delete_post_meta( $post_id, '_blockstudio_page_layout' );
+		}
+
+		if ( ! empty( $page_data['meta'] ) ) {
+			update_post_meta( $post_id, '_blockstudio_page_meta', $page_data['meta'] );
+		} else {
+			delete_post_meta( $post_id, '_blockstudio_page_meta' );
+		}
 
 		if ( ! empty( $page_data['templateLock'] ) ) {
 			update_post_meta( $post_id, '_blockstudio_template_lock', $page_data['templateLock'] );
+		} else {
+			delete_post_meta( $post_id, '_blockstudio_template_lock' );
 		}
 
 		if ( ! empty( $page_data['blockEditingMode'] ) ) {
 			update_post_meta( $post_id, '_blockstudio_block_editing_mode', $page_data['blockEditingMode'] );
+		} else {
+			delete_post_meta( $post_id, '_blockstudio_block_editing_mode' );
 		}
 	}
 
@@ -443,20 +559,138 @@ class Page_Sync {
 	 * @return int|WP_Error The post ID or WP_Error on failure.
 	 */
 	public function force_sync( array $page_data ): int|WP_Error {
-		$existing   = $this->find_existing_post( $page_data );
-		$content    = $this->get_parsed_content( $page_data );
-		$file_mtime = filemtime( $page_data['template_path'] );
+		$existing    = $this->find_existing_post( $page_data );
+		$content     = $this->get_parsed_content( $page_data );
+		$file_mtime  = $this->get_source_mtime( $page_data );
+		$fingerprint = $this->build_fingerprint( $page_data );
 
 		if ( $existing ) {
 			delete_post_meta( $existing->ID, '_blockstudio_page_locked' );
-			return $this->update_post( $existing, $page_data, $content, $file_mtime );
+			return $this->update_post( $existing, $page_data, $content, $file_mtime, $fingerprint );
 		}
 
 		if ( $this->has_slug_conflict( $page_data ) ) {
 			return 0;
 		}
 
-		return $this->create_post( $page_data, $content, $file_mtime );
+		return $this->create_post( $page_data, $content, $file_mtime, $fingerprint );
+	}
+
+	/**
+	 * Mark generated posts missing from the latest loader output as stale.
+	 *
+	 * @param array       $active_sources Active source identifiers.
+	 * @param string|null $collection     Collection slug.
+	 * @param array       $post_types     Post types to scan.
+	 *
+	 * @return void
+	 */
+	public function mark_stale_missing( array $active_sources, ?string $collection, array $post_types ): void {
+		if ( ! $collection || empty( $post_types ) ) {
+			return;
+		}
+
+		$posts = get_posts(
+			array(
+				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+					array(
+						'key'   => '_blockstudio_page_collection',
+						'value' => $collection,
+					),
+					array(
+						'key'   => '_blockstudio_page_generated',
+						'value' => '1',
+					),
+				),
+				'post_type'      => $post_types,
+				'posts_per_page' => -1,
+				'post_status'    => 'any',
+			)
+		);
+
+		foreach ( $posts as $post ) {
+			$source = (string) get_post_meta( $post->ID, '_blockstudio_page_source', true );
+
+			if ( ! in_array( $source, $active_sources, true ) ) {
+				update_post_meta( $post->ID, '_blockstudio_page_stale', true );
+			}
+		}
+	}
+
+	/**
+	 * Resolve the synced parent post ID for hierarchical post types.
+	 *
+	 * @param array $page_data Page data.
+	 *
+	 * @return int Parent post ID or 0.
+	 */
+	private function resolve_parent_id( array $page_data ): int {
+		if ( empty( $page_data['parent_key'] ) || ! is_post_type_hierarchical( $page_data['postType'] ) ) {
+			return 0;
+		}
+
+		$parent = Page_Registry::instance()->get_page( (string) $page_data['parent_key'] );
+
+		return (int) ( $parent['post_id'] ?? 0 );
+	}
+
+	/**
+	 * Get the newest mtime among a page's source files.
+	 *
+	 * @param array $page_data Page data.
+	 *
+	 * @return int Source mtime.
+	 */
+	private function get_source_mtime( array $page_data ): int {
+		$mtime = 0;
+		$paths = $page_data['source_mtime_paths'] ?? array_filter(
+			array(
+				$page_data['json_path'] ?? null,
+				$page_data['content_path'] ?? $page_data['template_path'] ?? null,
+			)
+		);
+
+		foreach ( $paths as $path ) {
+			if ( is_string( $path ) && file_exists( $path ) ) {
+				$mtime = max( $mtime, (int) filemtime( $path ) );
+			}
+		}
+
+		return $mtime;
+	}
+
+	/**
+	 * Build a content fingerprint from relevant page inputs.
+	 *
+	 * @param array $page_data Page data.
+	 *
+	 * @return string Fingerprint.
+	 */
+	private function build_fingerprint( array $page_data ): string {
+		$parts = array(
+			'name'         => $page_data['name'] ?? '',
+			'key'          => $page_data['key'] ?? '',
+			'title'        => $page_data['title'] ?? '',
+			'slug'         => $page_data['slug'] ?? '',
+			'path'         => $page_data['path'] ?? '',
+			'postType'     => $page_data['postType'] ?? '',
+			'postStatus'   => $page_data['postStatus'] ?? '',
+			'templateLock' => $page_data['templateLock'] ?? '',
+			'contentType'  => $page_data['contentType'] ?? '',
+			'parent_key'   => $page_data['parent_key'] ?? '',
+			'generated'    => ! empty( $page_data['generated'] ),
+			'inline'       => $page_data['inline_content'] ?? null,
+			'meta'         => $page_data['meta'] ?? array(),
+		);
+
+		foreach ( $page_data['source_mtime_paths'] ?? array() as $path ) {
+			if ( is_string( $path ) && file_exists( $path ) ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local source fingerprint.
+				$parts['files'][ $path ] = file_get_contents( $path );
+			}
+		}
+
+		return hash( 'sha256', wp_json_encode( $parts ) ?: serialize( $parts ) );
 	}
 
 	/**

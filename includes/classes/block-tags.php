@@ -1495,8 +1495,16 @@ class Block_Tags {
 	private static function build_heading( array $attrs, string $inner ): array {
 		$level          = isset( $attrs['level'] ) ? max( 1, min( 6, (int) $attrs['level'] ) ) : 2;
 		$attrs['level'] = $level;
-		$tag            = 'h' . $level;
-		$html           = "<{$tag} class=\"wp-block-heading\">{$inner}</{$tag}>";
+		$anchor         = $attrs['anchor'] ?? $attrs['id'] ?? sanitize_title( wp_strip_all_tags( $inner ) );
+
+		if ( '' !== $anchor ) {
+			$attrs['anchor'] = $anchor;
+			unset( $attrs['id'] );
+		}
+
+		$tag     = 'h' . $level;
+		$id_attr = '' !== $anchor ? ' id="' . esc_attr( $anchor ) . '"' : '';
+		$html    = "<{$tag}{$id_attr} class=\"wp-block-heading\">{$inner}</{$tag}>";
 		return array(
 			'blockName'    => 'core/heading',
 			'attrs'        => $attrs,

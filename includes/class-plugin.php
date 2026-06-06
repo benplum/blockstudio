@@ -153,6 +153,7 @@ class Plugin {
 		require_once $classes_dir . 'github-updater.php';
 
 		// File-based pages system.
+		require_once $classes_dir . 'page-markdown.php';
 		require_once $classes_dir . 'page-discovery.php';
 		require_once $classes_dir . 'page-registry.php';
 
@@ -223,6 +224,16 @@ class Plugin {
 				}
 			},
 			PHP_INT_MAX - 1
+		);
+
+		add_action(
+			'init',
+			function () {
+				if ( class_exists( 'Blockstudio\Pages' ) ) {
+					Pages::register_collection_post_types();
+				}
+			},
+			1
 		);
 
 		add_action(
