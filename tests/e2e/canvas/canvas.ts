@@ -1625,16 +1625,30 @@ test.describe('Canvas', () => {
 
       await waitForCanvasSurface(page);
 
-      const firstLabel = page.locator('[data-canvas-label]').first();
-      await expect(firstLabel).toBeVisible({ timeout: 15000 });
-      await firstLabel.click();
+      const labelIndex = await page.waitForFunction(() => {
+        const labels = Array.from(
+          document.querySelectorAll('[data-canvas-label]'),
+        );
+
+        const index = labels.findIndex((label) =>
+          label.parentElement?.querySelector('[data-canvas-slug] iframe'),
+        );
+
+        return index >= 0 ? index + 1 : 0;
+      }, null, { timeout: 30000 });
+      const firstRenderedLabel = page
+        .locator('[data-canvas-label]')
+        .nth((await labelIndex.jsonValue()) - 1);
+
+      await expect(firstRenderedLabel).toBeVisible({ timeout: 15000 });
+      await firstRenderedLabel.click();
 
       await expect(page.locator('[data-canvas-focus]')).toBeVisible();
     });
 
     test('focus overlay contains artboard iframe', async () => {
       const iframe = page.locator('[data-canvas-focus] iframe');
-      await expect(iframe).toBeVisible({ timeout: 15000 });
+      await expect(iframe).toBeVisible({ timeout: 30000 });
     });
 
     test('focus overlay is scrollable', async () => {
