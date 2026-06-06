@@ -1947,6 +1947,8 @@ class Build {
 			fn( $e ) => Assets::is_css( $e ) || str_ends_with( $e, '.js' )
 		);
 
+		$file_classifier = new File_Classifier();
+
 		foreach ( $assets as $asset ) {
 			$is_css = Assets::is_css( $asset );
 
@@ -2027,10 +2029,7 @@ class Build {
 			}
 
 			$handle          = Assets::get_id( $id, $data );
-			$is_editor_asset =
-				str_ends_with( $asset, '-editor.css' ) ||
-				str_ends_with( $asset, '-editor.scss' ) ||
-				str_ends_with( $asset, '-editor.js' );
+			$is_editor_asset = $file_classifier->is_editor_asset( $asset );
 
 			$data['assets'][ $id ] = array(
 				'type'     =>
