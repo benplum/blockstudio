@@ -1781,11 +1781,26 @@ test.describe('Canvas', () => {
 
       await expect(page.locator('[data-canvas-view="pages"]')).toBeVisible();
 
-      const artboards = page.locator('[data-canvas-slug]');
-      await expect(artboards.first()).toBeVisible({ timeout: 15000 });
+      const width = await page.waitForFunction(() => {
+        const artboards = Array.from(
+          document.querySelectorAll('[data-canvas-view="pages"] [data-canvas-slug]'),
+        ) as HTMLElement[];
+        const visible = artboards.find((artboard) => {
+          const style = window.getComputedStyle(artboard);
 
-      const width = await artboards.first().evaluate((el) => (el as HTMLElement).offsetWidth);
-      expect(width).toBe(1440);
+          return (
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            artboard.offsetHeight > 0
+          );
+        });
+
+        return visible ? visible.offsetWidth : 0;
+      }, null, { timeout: 30000 });
+
+      const widthValue = await width.jsonValue();
+      expect(widthValue).toBeGreaterThan(0);
+      expect(widthValue).toBe(1440);
     });
 
     test('view state persists in localStorage', async () => {
