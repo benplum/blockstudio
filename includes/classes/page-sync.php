@@ -44,7 +44,7 @@ class Page_Sync {
 	 * @return int|WP_Error The post ID or WP_Error on failure.
 	 */
 	public function sync( array $page_data ): int|WP_Error {
-		$page_data   = $this->prepare_page_data( $page_data );
+		$page_data    = $this->prepare_page_data( $page_data );
 		$sync_enabled = $page_data['sync'] ?? true;
 
 		if ( ! $sync_enabled ) {
@@ -580,7 +580,7 @@ class Page_Sync {
 	 * @return int|WP_Error The post ID or WP_Error on failure.
 	 */
 	public function force_sync( array $page_data ): int|WP_Error {
-		$page_data    = $this->prepare_page_data( $page_data );
+		$page_data   = $this->prepare_page_data( $page_data );
 		$existing    = $this->find_existing_post( $page_data );
 		$content     = $this->get_parsed_content( $page_data );
 		$file_mtime  = $this->get_source_mtime( $page_data );
