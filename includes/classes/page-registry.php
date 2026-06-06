@@ -228,8 +228,8 @@ final class Page_Registry {
 	 * @return void
 	 */
 	public function register( string $name, array $data ): void {
-		$key                  = (string) ( $data['key'] ?? $name );
-		$this->pages[ $key ]  = $data;
+		$key                        = (string) ( $data['key'] ?? $name );
+		$this->pages[ $key ]        = $data;
 		$this->pages[ $key ]['key'] = $key;
 
 		if ( ! empty( $data['templateFor'] ) ) {
@@ -343,8 +343,8 @@ final class Page_Registry {
 		}
 
 		$build = function ( string $key ) use ( &$build, &$pages ): array {
-			$node          = $pages[ $key ];
-			$children_keys = $node['children'] ?? array();
+			$node             = $pages[ $key ];
+			$children_keys    = $node['children'] ?? array();
 			$node['children'] = array();
 
 			foreach ( $children_keys as $child_key ) {

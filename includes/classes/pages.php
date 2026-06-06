@@ -123,7 +123,7 @@ class Pages {
 				$collection = $page_data['collection'] ?? null;
 
 				if ( $collection ) {
-					$active_sources[ $collection ][]                  = $page_data['source_path'];
+					$active_sources[ $collection ][]                     = $page_data['source_path'];
 					$post_types[ $collection ][ $page_data['postType'] ] = true;
 				}
 			}

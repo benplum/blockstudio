@@ -94,7 +94,14 @@ class Page_Discovery {
 			}
 
 			if ( isset( $this->collections[ $collection['slug'] ] ) ) {
-				$this->add_error( 'duplicate_collection', 'Duplicate collection slug.', array( 'collection' => $collection['slug'], 'path' => $manifest_path ) );
+				$this->add_error(
+					'duplicate_collection',
+					'Duplicate collection slug.',
+					array(
+						'collection' => $collection['slug'],
+						'path'       => $manifest_path,
+					)
+				);
 				continue;
 			}
 
@@ -378,7 +385,14 @@ class Page_Discovery {
 		$path         = self::normalize_logical_path( $raw_path );
 
 		if ( null === $path ) {
-			$this->add_error( 'invalid_path', 'Page has an unsafe logical path.', array( 'path' => $json_path, 'value' => $raw_path ) );
+			$this->add_error(
+				'invalid_path',
+				'Page has an unsafe logical path.',
+				array(
+					'path'  => $json_path,
+					'value' => $raw_path,
+				)
+			);
 			return null;
 		}
 
@@ -400,15 +414,15 @@ class Page_Discovery {
 		$page_data = $this->normalize_page_data(
 			$page_data,
 			array(
-				'name'            => $name,
-				'path'            => $path,
-				'json_path'       => $json_path,
-				'template_path'   => $template_path,
-				'content_path'    => $template_path,
-				'contentType'     => $content_type,
-				'directory'       => $directory,
-				'source_path'     => $collection ? $collection['slug'] . '/' . self::relative_path( $base_path, '' !== $relative_dir ? $directory : $json_path ) : $relative_dir,
-				'collection_data' => $collection,
+				'name'               => $name,
+				'path'               => $path,
+				'json_path'          => $json_path,
+				'template_path'      => $template_path,
+				'content_path'       => $template_path,
+				'contentType'        => $content_type,
+				'directory'          => $directory,
+				'source_path'        => $collection ? $collection['slug'] . '/' . self::relative_path( $base_path, '' !== $relative_dir ? $directory : $json_path ) : $relative_dir,
+				'collection_data'    => $collection,
 				'source_mtime_paths' => array_filter( array( $json_path, $template_path ) ),
 			),
 			$page_json,
@@ -462,7 +476,14 @@ class Page_Discovery {
 		$path         = self::normalize_logical_path( $raw_path );
 
 		if ( null === $path ) {
-			$this->add_error( 'invalid_path', 'Markdown page has an unsafe logical path.', array( 'path' => $markdown_path, 'value' => $raw_path ) );
+			$this->add_error(
+				'invalid_path',
+				'Markdown page has an unsafe logical path.',
+				array(
+					'path'  => $markdown_path,
+					'value' => $raw_path,
+				)
+			);
 			return null;
 		}
 
@@ -555,14 +576,28 @@ class Page_Discovery {
 	 */
 	private function process_loader_page( mixed $loader_page, mixed $index, string $loader_path, array $collection, array $loader_meta, array $loader_paths ): ?array {
 		if ( ! is_array( $loader_page ) ) {
-			$this->add_error( 'invalid_loader_page', 'Loader page must be an array.', array( 'path' => $loader_path, 'index' => $index ) );
+			$this->add_error(
+				'invalid_loader_page',
+				'Loader page must be an array.',
+				array(
+					'path'  => $loader_path,
+					'index' => $index,
+				)
+			);
 			return null;
 		}
 
 		$path = self::normalize_logical_path( $loader_page['path'] ?? $loader_page['slug'] ?? $index );
 
 		if ( null === $path ) {
-			$this->add_error( 'invalid_loader_path', 'Loader page has an unsafe logical path.', array( 'path' => $loader_path, 'index' => $index ) );
+			$this->add_error(
+				'invalid_loader_path',
+				'Loader page has an unsafe logical path.',
+				array(
+					'path'  => $loader_path,
+					'index' => $index,
+				)
+			);
 			return null;
 		}
 
@@ -594,7 +629,14 @@ class Page_Discovery {
 		}
 
 		if ( null === $content_type ) {
-			$this->add_error( 'invalid_loader_content', 'Loader page has no supported content.', array( 'path' => $loader_path, 'index' => $index ) );
+			$this->add_error(
+				'invalid_loader_content',
+				'Loader page has no supported content.',
+				array(
+					'path'  => $loader_path,
+					'index' => $index,
+				)
+			);
 			return null;
 		}
 
@@ -657,16 +699,16 @@ class Page_Discovery {
 			$page_data['title'] = self::title_from_value( '.' === $path ? $name : $path );
 		}
 
-		$page_data['postType']   = sanitize_key( (string) ( $page_data['postType'] ?? 'page' ) );
-		$page_data['postStatus'] = sanitize_key( (string) ( $page_data['postStatus'] ?? 'draft' ) );
-		$page_data['collection'] = $collection_slug;
-		$page_data['key']        = self::page_key( $collection_slug, $name );
-		$page_data['is_twig']    = 'twig' === $page_data['contentType'];
-		$page_data['is_blade']   = 'blade' === $page_data['contentType'];
+		$page_data['postType']    = sanitize_key( (string) ( $page_data['postType'] ?? 'page' ) );
+		$page_data['postStatus']  = sanitize_key( (string) ( $page_data['postStatus'] ?? 'draft' ) );
+		$page_data['collection']  = $collection_slug;
+		$page_data['key']         = self::page_key( $collection_slug, $name );
+		$page_data['is_twig']     = 'twig' === $page_data['contentType'];
+		$page_data['is_blade']    = 'blade' === $page_data['contentType'];
 		$page_data['is_markdown'] = 'markdown' === $page_data['contentType'];
-		$page_data['generated']  = (bool) ( $page_data['generated'] ?? false );
+		$page_data['generated']   = (bool) ( $page_data['generated'] ?? false );
 		$page_data['layout_path'] = $collection['layout_path'] ?? null;
-		$page_data['paths']      = array(
+		$page_data['paths']       = array(
 			'base'       => $collection['base_path'] ?? null,
 			'collection' => $collection['root'] ?? null,
 			'source'     => $page_data['template_path'] ?? $page_data['json_path'] ?? null,
@@ -694,13 +736,27 @@ class Page_Discovery {
 		$path       = $page_data['path'] ?? '';
 
 		if ( isset( $this->pages[ $key ] ) ) {
-			$this->add_error( 'duplicate_name', 'Duplicate page name.', array( 'name' => $page_data['name'], 'key' => $key ) );
+			$this->add_error(
+				'duplicate_name',
+				'Duplicate page name.',
+				array(
+					'name' => $page_data['name'],
+					'key'  => $key,
+				)
+			);
 			return;
 		}
 
 		if ( $collection && $path ) {
 			if ( isset( $this->path_index[ $collection ][ $path ] ) ) {
-				$this->add_error( 'duplicate_path', 'Duplicate collection page path.', array( 'collection' => $collection, 'path' => $path ) );
+				$this->add_error(
+					'duplicate_path',
+					'Duplicate collection page path.',
+					array(
+						'collection' => $collection,
+						'path'       => $path,
+					)
+				);
 				return;
 			}
 
@@ -726,10 +782,11 @@ class Page_Discovery {
 				continue;
 			}
 
-			$segments = explode( '/', $path );
-			$current  = array();
+			$segments   = explode( '/', $path );
+			$current    = array();
+			$last_index = count( $segments ) - 1;
 
-			for ( $i = 0; $i < count( $segments ) - 1; $i++ ) {
+			for ( $i = 0; $i < $last_index; ++$i ) {
 				$current[]      = $segments[ $i ];
 				$container_path = implode( '/', $current );
 
@@ -809,10 +866,10 @@ class Page_Discovery {
 
 			$parent_key = $this->path_index[ $collection ][ $parent_path ];
 
-			$this->pages[ $key ]['parent_key']  = $parent_key;
-			$this->pages[ $key ]['parent_name'] = $this->pages[ $parent_key ]['name'];
-			$this->pages[ $key ]['parent_path'] = $parent_path;
-			$this->pages[ $parent_key ]['children'][] = $key;
+			$this->pages[ $key ]['parent_key']             = $parent_key;
+			$this->pages[ $key ]['parent_name']            = $this->pages[ $parent_key ]['name'];
+			$this->pages[ $key ]['parent_path']            = $parent_path;
+			$this->pages[ $parent_key ]['children'][]      = $key;
 		}
 	}
 
@@ -1164,7 +1221,7 @@ class Page_Discovery {
 
 		while ( isset( $this->pages[ self::page_key( $collection, $name ) ] ) ) {
 			$name = $base . '-' . $i;
-			$i++;
+			++$i;
 		}
 
 		return $name;

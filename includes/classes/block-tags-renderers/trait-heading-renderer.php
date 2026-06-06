@@ -26,7 +26,7 @@ trait Heading_Renderer {
 			$level = 2;
 		}
 
-		$anchor = $attrs['anchor'] ?? $attrs['id'] ?? sanitize_title( wp_strip_all_tags( $inner_content ) );
+		$anchor = $attrs['anchor'] ?? $attrs['id'] ?? '';
 
 		if ( '' !== $anchor ) {
 			$attrs['anchor'] = $anchor;

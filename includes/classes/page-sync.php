@@ -44,6 +44,7 @@ class Page_Sync {
 	 * @return int|WP_Error The post ID or WP_Error on failure.
 	 */
 	public function sync( array $page_data ): int|WP_Error {
+		$page_data    = $this->prepare_page_data( $page_data );
 		$sync_enabled = $page_data['sync'] ?? true;
 
 		if ( ! $sync_enabled ) {
@@ -88,6 +89,22 @@ class Page_Sync {
 
 		$content = $this->get_parsed_content( $page_data );
 		return $this->create_post( $page_data, $content, $file_mtime, $fingerprint );
+	}
+
+	/**
+	 * Normalize sync identity values before lookup or persistence.
+	 *
+	 * @param array $page_data The page data.
+	 *
+	 * @return array Normalized page data.
+	 */
+	private function prepare_page_data( array $page_data ): array {
+		if ( ! empty( $page_data['name'] ) ) {
+			$collection       = ! empty( $page_data['collection'] ) ? (string) $page_data['collection'] : null;
+			$page_data['key'] = Page_Discovery::page_key( $collection, (string) $page_data['name'] );
+		}
+
+		return $page_data;
 	}
 
 	/**
@@ -264,7 +281,9 @@ class Page_Sync {
 				$name   = get_post_meta( $post->ID, '_blockstudio_page_name', true );
 				$key    = get_post_meta( $post->ID, '_blockstudio_page_key', true );
 
-				if ( empty( $source ) || $source === $page_data['source_path'] || $name === $page_data['name'] || $key === ( $page_data['key'] ?? null ) ) {
+				$expected_key = $page_data['key'] ?? null;
+
+				if ( empty( $source ) || $page_data['source_path'] === $source || $page_data['name'] === $name || $expected_key === $key ) {
 					return $post;
 				}
 			}
@@ -357,7 +376,9 @@ class Page_Sync {
 		$name   = get_post_meta( $post->ID, '_blockstudio_page_name', true );
 		$key    = get_post_meta( $post->ID, '_blockstudio_page_key', true );
 
-		return $source !== $page_data['source_path'] && $name !== $page_data['name'] && $key !== ( $page_data['key'] ?? null );
+		$expected_key = $page_data['key'] ?? null;
+
+		return $page_data['source_path'] !== $source && $page_data['name'] !== $name && $expected_key !== $key;
 	}
 
 	/**
@@ -479,9 +500,9 @@ class Page_Sync {
 	/**
 	 * Update post meta for a synced page.
 	 *
-	 * @param int   $post_id    The post ID.
-	 * @param array $page_data  The page data.
-	 * @param int   $file_mtime The file modification time.
+	 * @param int    $post_id     The post ID.
+	 * @param array  $page_data   The page data.
+	 * @param int    $file_mtime  The file modification time.
 	 * @param string $fingerprint Source fingerprint.
 	 *
 	 * @return void
@@ -559,6 +580,7 @@ class Page_Sync {
 	 * @return int|WP_Error The post ID or WP_Error on failure.
 	 */
 	public function force_sync( array $page_data ): int|WP_Error {
+		$page_data    = $this->prepare_page_data( $page_data );
 		$existing    = $this->find_existing_post( $page_data );
 		$content     = $this->get_parsed_content( $page_data );
 		$file_mtime  = $this->get_source_mtime( $page_data );
@@ -690,7 +712,13 @@ class Page_Sync {
 			}
 		}
 
-		return hash( 'sha256', wp_json_encode( $parts ) ?: serialize( $parts ) );
+		$encoded = wp_json_encode( $parts );
+
+		if ( false === $encoded ) {
+			$encoded = '';
+		}
+
+		return hash( 'sha256', $encoded );
 	}
 
 	/**

@@ -1495,7 +1495,7 @@ class Block_Tags {
 	private static function build_heading( array $attrs, string $inner ): array {
 		$level          = isset( $attrs['level'] ) ? max( 1, min( 6, (int) $attrs['level'] ) ) : 2;
 		$attrs['level'] = $level;
-		$anchor         = $attrs['anchor'] ?? $attrs['id'] ?? sanitize_title( wp_strip_all_tags( $inner ) );
+		$anchor         = $attrs['anchor'] ?? $attrs['id'] ?? '';
 
 		if ( '' !== $anchor ) {
 			$attrs['anchor'] = $anchor;

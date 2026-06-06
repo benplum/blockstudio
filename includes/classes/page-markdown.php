@@ -102,14 +102,14 @@ class Page_Markdown {
 						)
 					);
 
-					return (string) $converter->convert( $markdown );
+					return self::add_heading_ids( (string) $converter->convert( $markdown ) );
 				} catch ( Throwable ) {
 					break;
 				}
 			}
 		}
 
-		return self::simple_markdown_to_html( $markdown );
+		return self::add_heading_ids( self::simple_markdown_to_html( $markdown ) );
 	}
 
 	/**
@@ -192,7 +192,13 @@ class Page_Markdown {
 	private static function parse_simple_yaml( string $yaml ): array {
 		$data = array();
 
-		foreach ( preg_split( '/\r?\n/', $yaml ) ?: array() as $line ) {
+		$lines = preg_split( '/\r?\n/', $yaml );
+
+		if ( false === $lines ) {
+			$lines = array();
+		}
+
+		foreach ( $lines as $line ) {
 			if ( '' === trim( $line ) || str_starts_with( ltrim( $line ), '#' ) ) {
 				continue;
 			}
@@ -230,7 +236,11 @@ class Page_Markdown {
 		}
 
 		if ( is_numeric( $value ) ) {
-			return str_contains( $value, '.' ) ? (float) $value : (int) $value;
+			if ( str_contains( $value, '.' ) ) {
+				return (float) $value;
+			}
+
+			return (int) $value;
 		}
 
 		if (
@@ -258,8 +268,12 @@ class Page_Markdown {
 	 * @return string HTML.
 	 */
 	private static function simple_markdown_to_html( string $markdown ): string {
-		$blocks = preg_split( "/\n{2,}/", trim( $markdown ) ) ?: array();
+		$blocks = preg_split( "/\n{2,}/", trim( $markdown ) );
 		$html   = array();
+
+		if ( false === $blocks ) {
+			$blocks = array();
+		}
 
 		foreach ( $blocks as $block ) {
 			$block = trim( $block );
@@ -288,5 +302,50 @@ class Page_Markdown {
 		}
 
 		return implode( "\n", $html );
+	}
+
+	/**
+	 * Add stable IDs to markdown headings that do not already provide one.
+	 *
+	 * @param string $html Rendered markdown HTML.
+	 *
+	 * @return string HTML with heading ids.
+	 */
+	private static function add_heading_ids( string $html ): string {
+		$used_ids = array();
+
+		if ( preg_match_all( '/<h[1-6]\b[^>]*\bid=(["\'])(.*?)\1/i', $html, $matches ) ) {
+			foreach ( $matches[2] as $id ) {
+				$used_ids[ (string) $id ] = true;
+			}
+		}
+
+		return preg_replace_callback(
+			'/<h([1-6])([^>]*)>(.*?)<\/h\1>/is',
+			static function ( array $matches ) use ( &$used_ids ): string {
+				if ( preg_match( '/\bid=(["\']).*?\1/i', $matches[2] ) ) {
+					return $matches[0];
+				}
+
+				$base = sanitize_title( wp_strip_all_tags( html_entity_decode( $matches[3], ENT_QUOTES | ENT_HTML5, get_bloginfo( 'charset' ) ) ) );
+
+				if ( '' === $base ) {
+					return $matches[0];
+				}
+
+				$id     = $base;
+				$suffix = 2;
+
+				while ( isset( $used_ids[ $id ] ) ) {
+					$id = $base . '-' . $suffix;
+					++$suffix;
+				}
+
+				$used_ids[ $id ] = true;
+
+				return '<h' . $matches[1] . $matches[2] . ' id="' . esc_attr( $id ) . '">' . $matches[3] . '</h' . $matches[1] . '>';
+			},
+			$html
+		) ?? $html;
 	}
 }
