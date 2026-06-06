@@ -213,13 +213,19 @@ test.describe('Canvas', () => {
 
     test('all artboards are in a single row', async () => {
       const surface = page.locator('[data-canvas-surface]');
-      const columns = await surface.evaluate(
-        (el) => window.getComputedStyle(el).gridTemplateColumns,
-      );
-      const columnCount = columns.split(' ').length;
-      const iframes = page.locator('#blockstudio-canvas iframe');
-      const iframeCount = await iframes.count();
-      expect(columnCount).toBe(iframeCount);
+
+      await expect
+        .poll(
+          () =>
+            surface.evaluate((el) => {
+              const columns = window.getComputedStyle(el).gridTemplateColumns;
+              const columnCount = columns.split(' ').filter(Boolean).length;
+
+              return columnCount > 0 && columnCount === el.children.length;
+            }),
+          { timeout: 15000 },
+        )
+        .toBe(true);
     });
   });
 

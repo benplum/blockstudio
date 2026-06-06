@@ -1375,6 +1375,7 @@ add_action(
 
 					if ( ! empty( $posts ) ) {
 						update_post_meta( $posts[0]->ID, '_blockstudio_page_mtime', 0 );
+						delete_post_meta( $posts[0]->ID, '_blockstudio_page_fingerprint' );
 					}
 
 					$sync    = new \Blockstudio\Page_Sync();
