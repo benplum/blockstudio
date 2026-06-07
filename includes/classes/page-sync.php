@@ -607,7 +607,12 @@ class Page_Sync {
 	}
 
 	/**
-	 * Mark generated posts missing from the latest loader output as stale.
+	 * Mark synced collection posts missing from the latest sync as stale and prune them.
+	 *
+	 * Covers both generated container pages and source-backed pages. Any synced post
+	 * whose source is no longer present is flagged stale and pruned, so removing a page
+	 * source also removes the orphaned post instead of leaving it published and claiming
+	 * its slug.
 	 *
 	 * @param array       $active_sources Active source identifiers.
 	 * @param string|null $collection     Collection slug.
@@ -627,23 +632,48 @@ class Page_Sync {
 						'key'   => '_blockstudio_page_collection',
 						'value' => $collection,
 					),
-					array(
-						'key'   => '_blockstudio_page_generated',
-						'value' => '1',
-					),
 				),
 				'post_type'      => $post_types,
 				'posts_per_page' => -1,
-				'post_status'    => 'any',
+				'post_status'    => array( 'publish', 'draft', 'pending', 'private', 'future' ),
 			)
 		);
 
 		foreach ( $posts as $post ) {
 			$source = (string) get_post_meta( $post->ID, '_blockstudio_page_source', true );
 
-			if ( ! in_array( $source, $active_sources, true ) ) {
-				update_post_meta( $post->ID, '_blockstudio_page_stale', true );
+			if ( in_array( $source, $active_sources, true ) ) {
+				continue;
 			}
+
+			update_post_meta( $post->ID, '_blockstudio_page_stale', true );
+			$this->prune_orphan( $post );
+		}
+	}
+
+	/**
+	 * Prune a synced page whose source no longer exists.
+	 *
+	 * Only posts Blockstudio synced are eligible, so manually authored posts are
+	 * never touched. The action is filterable to support hard deletes or opting out.
+	 *
+	 * @param \WP_Post $post The orphaned post.
+	 *
+	 * @return void
+	 */
+	private function prune_orphan( \WP_Post $post ): void {
+		/**
+		 * Filters how an orphaned synced page is handled.
+		 *
+		 * @param string   $action The action: 'trash', 'delete', or 'keep'.
+		 * @param \WP_Post $post   The orphaned post.
+		 */
+		$action = apply_filters( 'blockstudio/pages/orphan_action', 'trash', $post );
+
+		if ( 'delete' === $action ) {
+			wp_delete_post( $post->ID, true );
+		} elseif ( 'trash' === $action ) {
+			wp_trash_post( $post->ID );
 		}
 	}
 

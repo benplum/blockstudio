@@ -599,6 +599,54 @@ class PagesTest extends TestCase {
 		$this->assertSame( $before, $registry->get_pages() );
 	}
 
+	// Orphan pruning
+
+	public function test_orphaned_collection_post_is_pruned_on_sync(): void {
+		$post_id = Pages::get_post_id( 'docs-install' );
+
+		$this->assertGreaterThan( 0, $post_id );
+		$this->assertSame( 'publish', get_post_status( $post_id ) );
+
+		$post_type = get_post_type( $post_id );
+		$active    = array();
+
+		foreach ( Pages::in_collection( 'docs' ) as $page ) {
+			$pid = $page['post_id'] ?? 0;
+
+			if ( $pid && $pid !== $post_id ) {
+				$active[] = (string) get_post_meta( $pid, '_blockstudio_page_source', true );
+			}
+		}
+
+		try {
+			( new Page_Sync() )->mark_stale_missing( $active, 'docs', array( $post_type ) );
+
+			$this->assertSame( 'trash', get_post_status( $post_id ) );
+		} finally {
+			wp_delete_post( $post_id, true );
+		}
+	}
+
+	public function test_orphan_action_filter_can_keep_post(): void {
+		$post_id = Pages::get_post_id( 'docs-install' );
+
+		$this->assertGreaterThan( 0, $post_id );
+
+		$post_type = get_post_type( $post_id );
+		$keep      = static fn (): string => 'keep';
+
+		add_filter( 'blockstudio/pages/orphan_action', $keep );
+
+		try {
+			( new Page_Sync() )->mark_stale_missing( array(), 'docs', array( $post_type ) );
+
+			$this->assertSame( 'publish', get_post_status( $post_id ) );
+			$this->assertSame( '1', get_post_meta( $post_id, '_blockstudio_page_stale', true ) );
+		} finally {
+			remove_filter( 'blockstudio/pages/orphan_action', $keep );
+		}
+	}
+
 	private function remove_dir( string $dir ): void {
 		if ( ! is_dir( $dir ) ) {
 			return;
