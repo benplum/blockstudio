@@ -369,6 +369,7 @@ class Page_Discovery {
 	 * @param string     $json_path  Path to the page.json file.
 	 * @param string     $base_path  Base path for the page source.
 	 * @param array|null $collection Collection data.
+	 * @param array      $extra_source_mtime_paths Additional fingerprint source paths.
 	 *
 	 * @return array|null The page data or null if invalid.
 	 */
@@ -478,6 +479,7 @@ class Page_Discovery {
 	 * @param string     $base_path           Base path.
 	 * @param array|null $collection          Collection data.
 	 * @param bool       $require_frontmatter Whether standalone legacy markdown needs frontmatter.
+	 * @param array      $extra_source_mtime_paths Additional fingerprint source paths.
 	 *
 	 * @return array|null Page data.
 	 */
