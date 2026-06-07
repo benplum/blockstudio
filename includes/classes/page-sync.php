@@ -418,7 +418,7 @@ class Page_Sync {
 		 */
 		$post_data = apply_filters( 'blockstudio/pages/create_post_data', $post_data, $page_data );
 
-		$post_id = wp_insert_post( $post_data, true );
+		$post_id = wp_insert_post( wp_slash( $post_data ), true );
 
 		if ( is_wp_error( $post_id ) ) {
 			return $post_id;
@@ -478,7 +478,7 @@ class Page_Sync {
 		 */
 		$post_data = apply_filters( 'blockstudio/pages/update_post_data', $post_data, $post, $page_data );
 
-		$result = wp_update_post( $post_data, true );
+		$result = wp_update_post( wp_slash( $post_data ), true );
 
 		if ( is_wp_error( $result ) ) {
 			return $result;
