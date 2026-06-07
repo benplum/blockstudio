@@ -69,6 +69,13 @@ final class Page_Registry {
 	private array $errors = array();
 
 	/**
+	 * Whether the registry has been hydrated from synced posts this request.
+	 *
+	 * @var bool
+	 */
+	private bool $hydrated = false;
+
+	/**
 	 * Get singleton instance.
 	 *
 	 * @return Page_Registry The singleton instance.
@@ -99,6 +106,76 @@ final class Page_Registry {
 		$this->paths        = array();
 		$this->collections  = array();
 		$this->errors       = array();
+		$this->hydrated     = false;
+	}
+
+	/**
+	 * Hydrate the registry from synced posts when it has not been populated by discovery.
+	 *
+	 * Discovery and sync run only in admin and WP-CLI. On the frontend the registry is
+	 * otherwise empty, so read APIs hydrate lazily from the posts that sync already wrote,
+	 * using their stored Blockstudio page meta. This keeps Pages::tree(), in_collection(),
+	 * current_page(), and layout rendering working on the frontend without a filesystem sync.
+	 *
+	 * @return void
+	 */
+	public function maybe_hydrate(): void {
+		if ( $this->hydrated || ! empty( $this->pages ) ) {
+			$this->hydrated = true;
+			return;
+		}
+		$this->hydrate_from_posts();
+	}
+
+	/**
+	 * Build registry entries from synced posts and their Blockstudio page meta.
+	 *
+	 * @return void
+	 */
+	public function hydrate_from_posts(): void {
+		$this->hydrated = true;
+		$posts          = get_posts(
+			array(
+				'post_type'        => 'any',
+				'post_status'      => 'publish',
+				'numberposts'      => -1,
+				'orderby'          => 'menu_order',
+				'order'            => 'ASC',
+				'meta_key'         => '_blockstudio_page_key', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'suppress_filters' => false,
+			)
+		);
+		foreach ( $posts as $post ) {
+			$key = (string) get_post_meta( $post->ID, '_blockstudio_page_key', true );
+			if ( '' === $key ) {
+				$key = (string) get_post_meta( $post->ID, '_blockstudio_page_name', true );
+			}
+			if ( '' === $key || isset( $this->pages[ $key ] ) ) {
+				continue;
+			}
+			$parent_key  = (string) get_post_meta( $post->ID, '_blockstudio_page_parent_key', true );
+			$collection  = (string) get_post_meta( $post->ID, '_blockstudio_page_collection', true );
+			$layout_path = (string) get_post_meta( $post->ID, '_blockstudio_page_layout', true );
+
+			$this->pages[ $key ] = array(
+				'name'        => (string) get_post_meta( $post->ID, '_blockstudio_page_name', true ),
+				'key'         => $key,
+				'title'       => get_the_title( $post ),
+				'slug'        => $post->post_name,
+				'path'        => (string) get_post_meta( $post->ID, '_blockstudio_page_path', true ),
+				'collection'  => '' !== $collection ? $collection : null,
+				'parent_key'  => '' !== $parent_key ? $parent_key : null,
+				'layout_path' => '' !== $layout_path ? $layout_path : null,
+				'contentType' => (string) get_post_meta( $post->ID, '_blockstudio_page_content_type', true ),
+				'post_id'     => (int) $post->ID,
+				'post_parent' => (int) $post->post_parent,
+				'permalink'   => (string) get_permalink( $post ),
+				'order'       => (int) $post->menu_order,
+				'generated'   => (bool) get_post_meta( $post->ID, '_blockstudio_page_generated', true ),
+				'children'    => array(),
+				'meta'        => array(),
+			);
+		}
 	}
 
 	/**
@@ -118,6 +195,7 @@ final class Page_Registry {
 	 * @return array|null The page data or null.
 	 */
 	public function get_page( string $name ): ?array {
+		$this->maybe_hydrate();
 		if ( isset( $this->pages[ $name ] ) ) {
 			return $this->pages[ $name ];
 		}
@@ -314,6 +392,7 @@ final class Page_Registry {
 	 * @return array<string, array> Pages.
 	 */
 	public function in_collection( string $collection ): array {
+		$this->maybe_hydrate();
 		return $this->sort_page_list(
 			array_filter(
 				$this->pages,
@@ -330,6 +409,7 @@ final class Page_Registry {
 	 * @return array<int, array> Tree nodes.
 	 */
 	public function tree( ?string $collection = null ): array {
+		$this->maybe_hydrate();
 		$pages = null === $collection ? $this->sort_page_list( $this->pages ) : $this->in_collection( $collection );
 
 		foreach ( $pages as $key => $page ) {
@@ -380,6 +460,7 @@ final class Page_Registry {
 	 * @return array<string, array> Child pages.
 	 */
 	public function children( string $name, ?string $collection = null ): array {
+		$this->maybe_hydrate();
 		$key = $this->find_page_key( $name, $collection );
 
 		if ( null === $key ) {
@@ -402,6 +483,7 @@ final class Page_Registry {
 	 * @return array|null Page data.
 	 */
 	public function get_page_by_post_id( int $post_id ): ?array {
+		$this->maybe_hydrate();
 		foreach ( $this->pages as $page ) {
 			if ( (int) ( $page['post_id'] ?? 0 ) === $post_id ) {
 				return $page;

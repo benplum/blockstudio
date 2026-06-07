@@ -32,6 +32,13 @@ class Pages {
 	private static bool $hooks_registered = false;
 
 	/**
+	 * Whether frontend runtime hooks have been registered.
+	 *
+	 * @var bool
+	 */
+	private static bool $runtime_hooks_registered = false;
+
+	/**
 	 * Current page while rendering a layout.
 	 *
 	 * @var array|null
@@ -60,6 +67,7 @@ class Pages {
 	 * @return void
 	 */
 	public static function init( array $args = array() ): void {
+		self::register_runtime_hooks();
 		if ( ! self::can_init_in_current_context( $args ) ) {
 			return;
 		}
@@ -155,7 +163,6 @@ class Pages {
 			self::register_template_for_hooks();
 			self::register_template_lock_hooks();
 			self::register_block_editing_mode_hooks();
-			self::register_layout_hooks();
 
 			self::$hooks_registered = true;
 		}
@@ -507,7 +514,11 @@ class Pages {
 	 *
 	 * @return void
 	 */
-	private static function register_layout_hooks(): void {
+	private static function register_runtime_hooks(): void {
+		if ( self::$runtime_hooks_registered ) {
+			return;
+		}
+		self::$runtime_hooks_registered = true;
 		add_filter( 'the_content', array( __CLASS__, 'render_layout_content' ), 20 );
 	}
 
@@ -519,7 +530,7 @@ class Pages {
 	 * @return string Content.
 	 */
 	public static function render_layout_content( string $content ): string {
-		if ( is_admin() || self::$rendering_layout || ! is_singular() ) {
+		if ( is_admin() || self::$rendering_layout || ! is_singular() || ! in_the_loop() || ! is_main_query() ) {
 			return $content;
 		}
 
@@ -529,17 +540,13 @@ class Pages {
 			return $content;
 		}
 
-		$page = self::page_for_post_id( $post_id );
-
-		if ( ! $page ) {
-			return $content;
-		}
-
-		$layout_path = (string) ( $page['layout_path'] ?? get_post_meta( $post_id, '_blockstudio_page_layout', true ) );
+		$layout_path = (string) get_post_meta( $post_id, '_blockstudio_page_layout', true );
 
 		if ( '' === $layout_path || ! file_exists( $layout_path ) ) {
 			return $content;
 		}
+
+		$page = self::page_for_post_id( $post_id );
 
 		self::$rendering_layout     = true;
 		self::$current_page         = $page;

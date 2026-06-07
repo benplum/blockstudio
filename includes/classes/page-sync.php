@@ -400,6 +400,10 @@ class Page_Sync {
 			'post_status'  => $page_data['postStatus'],
 		);
 
+		if ( isset( $page_data['order'] ) && is_numeric( $page_data['order'] ) ) {
+			$post_data['menu_order'] = (int) $page_data['order'];
+		}
+
 		$post_parent = $this->resolve_parent_id( $page_data );
 
 		if ( $post_parent > 0 ) {
@@ -462,6 +466,10 @@ class Page_Sync {
 			'post_content' => $content,
 			'post_status'  => $page_data['postStatus'],
 		);
+
+		if ( isset( $page_data['order'] ) && is_numeric( $page_data['order'] ) ) {
+			$post_data['menu_order'] = (int) $page_data['order'];
+		}
 
 		$post_parent = $this->resolve_parent_id( $page_data );
 
