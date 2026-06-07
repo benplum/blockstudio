@@ -314,9 +314,11 @@ final class Page_Registry {
 	 * @return array<string, array> Pages.
 	 */
 	public function in_collection( string $collection ): array {
-		return array_filter(
-			$this->pages,
-			static fn ( array $page ): bool => ( $page['collection'] ?? null ) === $collection
+		return $this->sort_page_list(
+			array_filter(
+				$this->pages,
+				static fn ( array $page ): bool => ( $page['collection'] ?? null ) === $collection
+			)
 		);
 	}
 
@@ -328,7 +330,7 @@ final class Page_Registry {
 	 * @return array<int, array> Tree nodes.
 	 */
 	public function tree( ?string $collection = null ): array {
-		$pages = null === $collection ? $this->pages : $this->in_collection( $collection );
+		$pages = null === $collection ? $this->sort_page_list( $this->pages ) : $this->in_collection( $collection );
 
 		foreach ( $pages as $key => $page ) {
 			$pages[ $key ]['children'] = array();
@@ -384,9 +386,11 @@ final class Page_Registry {
 			return array();
 		}
 
-		return array_filter(
-			$this->pages,
-			static fn ( array $page ): bool => ( $page['parent_key'] ?? null ) === $key
+		return $this->sort_page_list(
+			array_filter(
+				$this->pages,
+				static fn ( array $page ): bool => ( $page['parent_key'] ?? null ) === $key
+			)
 		);
 	}
 
@@ -451,5 +455,43 @@ final class Page_Registry {
 		}
 
 		return 1 === count( $matches ) ? $matches[0] : null;
+	}
+
+	/**
+	 * Sort pages by explicit order, title, then name.
+	 *
+	 * @param array<string, array> $pages Pages keyed by registry key.
+	 *
+	 * @return array<string, array> Sorted pages.
+	 */
+	private function sort_page_list( array $pages ): array {
+		uasort(
+			$pages,
+			static function ( array $a, array $b ): int {
+				$a_has_order = isset( $a['order'] ) && is_numeric( $a['order'] );
+				$b_has_order = isset( $b['order'] ) && is_numeric( $b['order'] );
+
+				if ( $a_has_order || $b_has_order ) {
+					$a_order = $a_has_order ? (int) $a['order'] : PHP_INT_MAX;
+					$b_order = $b_has_order ? (int) $b['order'] : PHP_INT_MAX;
+
+					if ( $a_order !== $b_order ) {
+						return $a_order <=> $b_order;
+					}
+				}
+
+				$a_title = strtolower( (string) ( $a['title'] ?? '' ) );
+				$b_title = strtolower( (string) ( $b['title'] ?? '' ) );
+
+				if ( $a_title !== $b_title ) {
+					return $a_title <=> $b_title;
+				}
+
+				return strtolower( (string) ( $a['name'] ?? $a['key'] ?? '' ) )
+					<=> strtolower( (string) ( $b['name'] ?? $b['key'] ?? '' ) );
+			}
+		);
+
+		return $pages;
 	}
 }

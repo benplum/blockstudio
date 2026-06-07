@@ -113,12 +113,30 @@ class Pages {
 		}
 
 		foreach ( $registry->get_pages() as $name => $page_data ) {
+			if ( ! empty( $page_data['parent_key'] ) && ! is_post_type_hierarchical( $page_data['postType'] ) ) {
+				$registry->add_errors(
+					array(
+						array(
+							'code'    => 'non_hierarchical_collection_path',
+							'message' => 'Nested collection paths cannot be represented with post_parent on a non-hierarchical post type.',
+							'context' => array(
+								'collection' => $page_data['collection'] ?? null,
+								'name'       => $page_data['name'] ?? null,
+								'path'       => $page_data['path'] ?? null,
+								'postType'   => $page_data['postType'] ?? null,
+							),
+						),
+					)
+				);
+			}
+
 			$post_id = $sync->sync( $page_data );
 
 			if ( is_int( $post_id ) && $post_id > 0 ) {
 				$registry->set_synced_post( $page_data['source_path'], $post_id );
 				$registry->update_page_data( $name, 'post_id', $post_id );
 				$registry->update_page_data( $name, 'post_parent', (int) get_post_field( 'post_parent', $post_id ) );
+				$registry->update_page_data( $name, 'permalink', get_permalink( $post_id ) );
 
 				$collection = $page_data['collection'] ?? null;
 

@@ -698,10 +698,12 @@ class Page_Sync {
 			'postType'     => $page_data['postType'] ?? '',
 			'postStatus'   => $page_data['postStatus'] ?? '',
 			'templateLock' => $page_data['templateLock'] ?? '',
+			'collection'   => $page_data['collection'] ?? '',
 			'contentType'  => $page_data['contentType'] ?? '',
 			'parent_key'   => $page_data['parent_key'] ?? '',
 			'generated'    => ! empty( $page_data['generated'] ),
 			'inline'       => $page_data['inline_content'] ?? null,
+			'source'       => $page_data['source'] ?? null,
 			'meta'         => $page_data['meta'] ?? array(),
 		);
 

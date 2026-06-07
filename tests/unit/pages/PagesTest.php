@@ -13,6 +13,10 @@ class PagesTest extends TestCase {
 	protected function setUp(): void {
 		$this->pages_path = get_template_directory() . '/pages';
 
+		$this->load_pages();
+	}
+
+	private function load_pages(): void {
 		Pages::reset();
 
 		$discovery = new Page_Discovery();
@@ -40,6 +44,7 @@ class PagesTest extends TestCase {
 				$registry->set_synced_post( $page_data['source_path'], $post_id );
 				$registry->update_page_data( $name, 'post_id', $post_id );
 				$registry->update_page_data( $name, 'post_parent', (int) get_post_field( 'post_parent', $post_id ) );
+				$registry->update_page_data( $name, 'permalink', get_permalink( $post_id ) );
 			}
 		}
 	}
@@ -348,6 +353,14 @@ class PagesTest extends TestCase {
 		$this->assertStringContainsString( 'Reference', $post->post_content );
 	}
 
+	public function test_index_markdown_frontmatter_overrides_page_json(): void {
+		$page = Pages::get_page( 'docs-reference' );
+
+		$this->assertSame( 'Reference From Frontmatter', $page['title'] );
+		$this->assertSame( 12, $page['order'] );
+		$this->assertSame( 'API', $page['meta']['section'] );
+	}
+
 	public function test_loader_markdown_page_syncs_and_is_sanitized_generated_content(): void {
 		$page    = Pages::get_page( 'docs-loader-api' );
 		$post_id = Pages::get_post_id( 'docs-loader-api' );
@@ -356,8 +369,65 @@ class PagesTest extends TestCase {
 		$this->assertIsArray( $page );
 		$this->assertTrue( $page['generated'] );
 		$this->assertSame( 'markdown', $page['contentType'] );
+		$this->assertSame( "# Loader API\n\nThis page comes from loader.php.", $page['content'] );
 		$this->assertInstanceOf( WP_Post::class, $post );
 		$this->assertStringContainsString( 'Loader API', $post->post_content );
+	}
+
+	public function test_loader_paths_discover_allowed_external_local_pages(): void {
+		$temp_dir        = sys_get_temp_dir() . '/blockstudio-page-loader-' . uniqid();
+		$collection_root = $temp_dir . '/docs';
+		$external_root   = $temp_dir . '/external-pages';
+		$page_root       = $external_root . '/local';
+
+		mkdir( $collection_root, 0755, true );
+		mkdir( $page_root, 0755, true );
+
+		file_put_contents(
+			$collection_root . '/pages.json',
+			wp_json_encode(
+				array(
+					'collection' => 'docs',
+					'title'      => 'Docs',
+					'postType'   => 'page',
+					'defaults'   => array(
+						'postStatus' => 'publish',
+					),
+				)
+			)
+		);
+
+		file_put_contents(
+			$collection_root . '/loader.php',
+			"<?php\nreturn array(\n\t'paths' => array( " . var_export( $external_root, true ) . " ),\n);\n"
+		);
+
+		file_put_contents(
+			$page_root . '/page.json',
+			wp_json_encode(
+				array(
+					'name'  => 'docs-loader-local',
+					'title' => 'Loader Local',
+					'path'  => 'loader/local',
+				)
+			)
+		);
+
+		file_put_contents( $page_root . '/index.php', '<h1>Loader Local</h1>' );
+
+		add_filter( 'blockstudio/pages/allow_external_loader_path', '__return_true' );
+
+		try {
+			$discovery = new Page_Discovery();
+			$pages     = $discovery->discover( $collection_root );
+		} finally {
+			remove_filter( 'blockstudio/pages/allow_external_loader_path', '__return_true' );
+			$this->remove_dir( $temp_dir );
+		}
+
+		$this->assertArrayHasKey( 'docs:docs-loader-local', $pages );
+		$this->assertSame( 'loader/local', $pages['docs:docs-loader-local']['path'] );
+		$this->assertSame( 'publish', $pages['docs:docs-loader-local']['postStatus'] );
 	}
 
 	public function test_synced_collection_pages_store_identity_meta(): void {
@@ -367,6 +437,13 @@ class PagesTest extends TestCase {
 		$this->assertSame( 'docs', get_post_meta( $post_id, '_blockstudio_page_collection', true ) );
 		$this->assertSame( 'guide/install', get_post_meta( $post_id, '_blockstudio_page_path', true ) );
 		$this->assertNotEmpty( get_post_meta( $post_id, '_blockstudio_page_fingerprint', true ) );
+	}
+
+	public function test_collection_helpers_include_synced_permalink(): void {
+		$page = Pages::get_page( 'docs-install' );
+
+		$this->assertArrayHasKey( 'permalink', $page );
+		$this->assertSame( get_permalink( $page['post_id'] ), $page['permalink'] );
 	}
 
 	public function test_collection_children_have_wordpress_parent_ids(): void {
@@ -434,5 +511,26 @@ class PagesTest extends TestCase {
 
 		$this->assertTrue( $method->invoke( null, array(), true, false ) );
 		$this->assertTrue( $method->invoke( null, array(), false, true ) );
+	}
+
+	private function remove_dir( string $dir ): void {
+		if ( ! is_dir( $dir ) ) {
+			return;
+		}
+
+		$items = new RecursiveIteratorIterator(
+			new RecursiveDirectoryIterator( $dir, RecursiveDirectoryIterator::SKIP_DOTS ),
+			RecursiveIteratorIterator::CHILD_FIRST
+		);
+
+		foreach ( $items as $item ) {
+			if ( $item->isDir() ) {
+				rmdir( $item->getPathname() );
+			} else {
+				unlink( $item->getPathname() );
+			}
+		}
+
+		rmdir( $dir );
 	}
 }

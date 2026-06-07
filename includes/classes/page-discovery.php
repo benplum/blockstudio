@@ -214,8 +214,17 @@ class Page_Discovery {
 		$path = is_scalar( $path ) ? (string) $path : '';
 		$path = trim( str_replace( '\\', '/', $path ) );
 
-		if ( '' === $path || '.' === $path || '/' === $path ) {
+		if ( '' === $path || '.' === $path ) {
 			return '.';
+		}
+
+		if (
+			str_starts_with( $path, '/' ) ||
+			str_contains( $path, '?' ) ||
+			str_contains( $path, '#' ) ||
+			preg_match( '/^[A-Za-z][A-Za-z0-9+.-]*:/', $path )
+		) {
+			return null;
 		}
 
 		$path     = trim( $path, '/' );
@@ -363,7 +372,7 @@ class Page_Discovery {
 	 *
 	 * @return array|null The page data or null if invalid.
 	 */
-	private function process_page_json( string $json_path, string $base_path, ?array $collection ): ?array {
+	private function process_page_json( string $json_path, string $base_path, ?array $collection, array $extra_source_mtime_paths = array() ): ?array {
 		$directory = self::normalize_filesystem_path( dirname( $json_path ) );
 		$page_json = self::read_json_file( $json_path );
 
@@ -378,6 +387,19 @@ class Page_Discovery {
 		if ( ! $template_path && ! isset( $page_json['markdown'], $page_json['html'] ) ) {
 			$this->add_error( 'missing_template', 'Page source has no supported template or content.', array( 'path' => $json_path ) );
 			return null;
+		}
+
+		if ( $template_path && 'markdown' === $content_type ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local markdown file.
+			$markdown_content = file_get_contents( $template_path );
+
+			if ( false !== $markdown_content ) {
+				$parts = Page_Markdown::split_frontmatter( $markdown_content );
+
+				if ( ! empty( $parts['data'] ) ) {
+					$page_json = array_merge( $page_json, $parts['data'] );
+				}
+			}
 		}
 
 		$relative_dir = self::relative_path( $base_path, $directory );
@@ -423,7 +445,14 @@ class Page_Discovery {
 				'directory'          => $directory,
 				'source_path'        => $collection ? $collection['slug'] . '/' . self::relative_path( $base_path, '' !== $relative_dir ? $directory : $json_path ) : $relative_dir,
 				'collection_data'    => $collection,
-				'source_mtime_paths' => array_filter( array( $json_path, $template_path ) ),
+				'source_mtime_paths' => array_values(
+					array_filter(
+						array_merge(
+							array( $collection['manifest_path'] ?? null, $json_path, $template_path ),
+							$extra_source_mtime_paths
+						)
+					)
+				),
 			),
 			$page_json,
 			$collection
@@ -452,7 +481,7 @@ class Page_Discovery {
 	 *
 	 * @return array|null Page data.
 	 */
-	private function process_markdown_file( string $markdown_path, string $base_path, ?array $collection, bool $require_frontmatter ): ?array {
+	private function process_markdown_file( string $markdown_path, string $base_path, ?array $collection, bool $require_frontmatter, array $extra_source_mtime_paths = array() ): ?array {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local markdown file.
 		$contents = file_get_contents( $markdown_path );
 
@@ -514,7 +543,14 @@ class Page_Discovery {
 				'directory'          => $directory,
 				'source_path'        => $collection ? $collection['slug'] . '/' . $relative : ( '' === $relative_dir ? $name : $relative_dir ),
 				'collection_data'    => $collection,
-				'source_mtime_paths' => array( $markdown_path ),
+				'source_mtime_paths' => array_values(
+					array_filter(
+						array_merge(
+							array( $collection['manifest_path'] ?? null, $markdown_path ),
+							$extra_source_mtime_paths
+						)
+					)
+				),
 			),
 			$frontmatter,
 			$collection
@@ -560,6 +596,8 @@ class Page_Discovery {
 				$this->register_page_data( $page_data );
 			}
 		}
+
+		$this->process_loader_paths( $loader_paths, $loader_path, $collection );
 	}
 
 	/**
@@ -619,6 +657,13 @@ class Page_Discovery {
 		} elseif ( isset( $loader_page['html'] ) && is_string( $loader_page['html'] ) ) {
 			$content_type = 'html';
 			$inline       = $loader_page['html'];
+		} elseif ( isset( $loader_page['content'] ) && is_string( $loader_page['content'] ) ) {
+			$detected = $this->detect_content_type( null, $loader_page );
+
+			if ( in_array( $detected, array( 'markdown', 'html' ), true ) ) {
+				$content_type = $detected;
+				$inline       = $loader_page['content'];
+			}
 		} else {
 			$file = $loader_page['file'] ?? $loader_page['template'] ?? null;
 
@@ -661,15 +706,113 @@ class Page_Discovery {
 				'directory'          => $template_path ? dirname( $template_path ) : $collection['root'],
 				'source_path'        => $collection['slug'] . '/loader.php:' . $name,
 				'collection_data'    => $collection,
+				'content'            => $inline,
 				'inline_content'     => $inline,
 				'generated'          => $loader_page['generated'] ?? true,
 				'sanitize_content'   => true,
 				'meta'               => $meta,
-				'source_mtime_paths' => array_filter( array( $loader_path, $template_path ) ),
+				'source_mtime_paths' => array_filter(
+					array( $collection['manifest_path'] ?? null, $loader_path, $template_path )
+				),
 			),
 			$loader_page,
 			$collection
 		);
+	}
+
+	/**
+	 * Discover local page directories returned by a collection loader.
+	 *
+	 * @param array  $paths       Loader paths.
+	 * @param string $loader_path Loader file path.
+	 * @param array  $collection  Collection data.
+	 *
+	 * @return void
+	 */
+	private function process_loader_paths( array $paths, string $loader_path, array $collection ): void {
+		foreach ( $paths as $path ) {
+			if ( ! is_scalar( $path ) ) {
+				$this->add_error( 'invalid_loader_path', 'Loader path must be a local filesystem path.', array( 'path' => $loader_path ) );
+				continue;
+			}
+
+			$resolved = $this->resolve_loader_path(
+				(string) $path,
+				$collection['root'],
+				array(
+					'loader_path' => $loader_path,
+					'path_type'   => 'discovery',
+				)
+			);
+
+			if ( null === $resolved || ! is_dir( $resolved ) ) {
+				$this->add_error(
+					'invalid_loader_path',
+					'Loader path must resolve to an allowed local directory.',
+					array(
+						'path'  => $loader_path,
+						'value' => (string) $path,
+					)
+				);
+				continue;
+			}
+
+			if ( self::is_same_or_inside_path( $resolved, $collection['root'] ) ) {
+				continue;
+			}
+
+			$this->discover_loader_path( $resolved, $collection, array( $loader_path ) );
+		}
+	}
+
+	/**
+	 * Discover page sources in one loader-provided path.
+	 *
+	 * @param string $root                     Discovery root.
+	 * @param array  $collection               Collection data.
+	 * @param array  $extra_source_mtime_paths Additional fingerprint sources.
+	 *
+	 * @return void
+	 */
+	private function discover_loader_path( string $root, array $collection, array $extra_source_mtime_paths ): void {
+		$iterator = new RecursiveIteratorIterator(
+			new RecursiveDirectoryIterator( $root, RecursiveDirectoryIterator::SKIP_DOTS )
+		);
+
+		foreach ( $iterator as $file ) {
+			if ( ! $file->isFile() ) {
+				continue;
+			}
+
+			$file_path = self::normalize_filesystem_path( $file->getPathname() );
+			$basename  = $file->getBasename();
+
+			if ( in_array( $basename, array( 'pages.json', 'loader.php', 'layout.php' ), true ) ) {
+				continue;
+			}
+
+			if ( 'page.json' === $basename ) {
+				$page_data = $this->process_page_json( $file_path, $root, $collection, $extra_source_mtime_paths );
+
+				if ( $page_data ) {
+					$this->register_page_data( $page_data );
+				}
+
+				continue;
+			}
+
+			if ( 'md' === strtolower( $file->getExtension() ) ) {
+				if ( 'index.md' === $basename && file_exists( dirname( $file_path ) . '/page.json' ) ) {
+					continue;
+				}
+
+				$page_data = $this->process_markdown_file( $file_path, $root, $collection, false, $extra_source_mtime_paths );
+
+				if ( $page_data ) {
+					$this->register_page_data( $page_data );
+				}
+			}
+		}
 	}
 
 	/**
@@ -1041,6 +1184,8 @@ class Page_Discovery {
 		$known = array(
 			'blockEditingMode',
 			'collection',
+			'content',
+			'contentSource',
 			'contentType',
 			'defaults',
 			'file',
@@ -1049,6 +1194,7 @@ class Page_Discovery {
 			'markdown',
 			'meta',
 			'name',
+			'order',
 			'path',
 			'postId',
 			'postStatus',
@@ -1056,11 +1202,13 @@ class Page_Discovery {
 			'postTypeArgs',
 			'slug',
 			'source',
+			'source_fingerprint',
 			'sync',
 			'template',
 			'templateFor',
 			'templateLock',
 			'title',
+			'trusted',
 		);
 
 		$meta = array();
@@ -1126,7 +1274,7 @@ class Page_Discovery {
 			? (string) $manifest['title']
 			: self::title_from_value( $slug );
 
-		$known = array( 'collection', 'defaults', 'meta', 'name', 'postType', 'postTypeArgs', 'slug', 'source', 'title' );
+		$known = array( 'collection', 'defaults', 'meta', 'name', 'order', 'postType', 'postTypeArgs', 'slug', 'source', 'title' );
 		$meta  = isset( $manifest['meta'] ) && is_array( $manifest['meta'] ) ? $manifest['meta'] : array();
 
 		foreach ( $manifest as $key => $value ) {
@@ -1145,6 +1293,7 @@ class Page_Discovery {
 			'postTypeArgs'  => isset( $manifest['postTypeArgs'] ) && is_array( $manifest['postTypeArgs'] ) ? $manifest['postTypeArgs'] : array(),
 			'defaults'      => isset( $manifest['defaults'] ) && is_array( $manifest['defaults'] ) ? $manifest['defaults'] : array(),
 			'source'        => isset( $manifest['source'] ) && is_array( $manifest['source'] ) ? $manifest['source'] : array(),
+			'order'         => isset( $manifest['order'] ) && is_numeric( $manifest['order'] ) ? (int) $manifest['order'] : null,
 			'meta'          => $meta,
 			'layout_path'   => file_exists( $root . '/layout.php' ) ? $root . '/layout.php' : null,
 		);
