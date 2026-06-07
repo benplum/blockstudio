@@ -513,6 +513,92 @@ class PagesTest extends TestCase {
 		$this->assertTrue( $method->invoke( null, array(), false, true ) );
 	}
 
+	// Block content slashing
+
+	public function test_sync_preserves_hex_escaped_html_in_block_attributes(): void {
+		$page_data                   = Pages::get_page( 'blockstudio-e2e-test' );
+		$page_data['name']           = 'blockstudio-slash-test';
+		$page_data['title']          = 'Blockstudio Slash Test';
+		$page_data['slug']           = 'blockstudio-slash-test';
+		$page_data['source_path']    = 'pages/blockstudio-slash-test';
+		$page_data['postId']         = null;
+		$page_data['inline_content'] = '<bs:blockstudio-type-component heading="H" content="Inline <code>discard_sandbox</code> token" />';
+
+		$post_id = null;
+
+		try {
+			$post_id = ( new Page_Sync() )->sync( $page_data );
+
+			$this->assertIsInt( $post_id );
+			$this->assertGreaterThan( 0, $post_id );
+
+			$post = get_post( $post_id );
+			$this->assertInstanceOf( WP_Post::class, $post );
+
+			$backslash = chr( 92 );
+			$escaped   = $backslash . 'u003ccode' . $backslash . 'u003ediscard_sandbox' . $backslash . 'u003c/code' . $backslash . 'u003e';
+
+			$this->assertStringContainsString( $escaped, $post->post_content );
+		} finally {
+			if ( is_int( $post_id ) && $post_id > 0 ) {
+				wp_delete_post( $post_id, true );
+			}
+		}
+	}
+
+	// Order persistence
+
+	public function test_page_order_is_persisted_as_menu_order(): void {
+		$post_id = Pages::get_post_id( 'docs-reference' );
+		$post    = get_post( $post_id );
+
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertSame( 12, (int) $post->menu_order );
+	}
+
+	// Frontend registry hydration
+
+	public function test_registry_hydrates_from_synced_posts(): void {
+		$expected_post_id = Pages::get_post_id( 'docs-install' );
+		$this->assertGreaterThan( 0, $expected_post_id );
+
+		$registry = Page_Registry::instance();
+		$registry->reset();
+		$this->assertEmpty( $registry->get_pages() );
+
+		$registry->hydrate_from_posts();
+
+		$pages = $registry->get_pages();
+		$this->assertNotEmpty( $pages );
+		$this->assertArrayHasKey( 'docs:docs-install', $pages );
+
+		$hydrated = $pages['docs:docs-install'];
+		$this->assertSame( $expected_post_id, $hydrated['post_id'] );
+		$this->assertSame( 'docs', $hydrated['collection'] );
+		$this->assertSame( 'guide/install', $hydrated['path'] );
+	}
+
+	public function test_registry_hydration_carries_persisted_order(): void {
+		$registry = Page_Registry::instance();
+		$registry->reset();
+		$registry->hydrate_from_posts();
+
+		$pages = $registry->get_pages();
+		$this->assertArrayHasKey( 'docs:docs-reference', $pages );
+		$this->assertSame( 12, $pages['docs:docs-reference']['order'] );
+	}
+
+	public function test_maybe_hydrate_does_not_override_discovered_pages(): void {
+		$registry = Page_Registry::instance();
+		$before   = $registry->get_pages();
+
+		$this->assertNotEmpty( $before );
+
+		$registry->maybe_hydrate();
+
+		$this->assertSame( $before, $registry->get_pages() );
+	}
+
 	private function remove_dir( string $dir ): void {
 		if ( ! is_dir( $dir ) ) {
 			return;
