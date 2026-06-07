@@ -3,7 +3,7 @@ Contributors: dnnsjsk
 Requires at least: 6.7
 Tested up to: 7.0.0
 Requires PHP: 8.2
-Stable tag: 7.3.3
+Stable tag: 7.3.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,7 +53,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 
 == Changelog ==
 
-= 7.3.3 =
+= 7.3.4 =
 * New: file-backed build cache for Blockstudio runtime discovery and editor asset payloads, configurable via `cache.enabled`
 * Enhancement: runtime cache entries now track block files, field files, asset dependencies, settings, active plugins, WordPress, PHP, and Blockstudio versions for automatic invalidation
 * Enhancement: editor asset cache keys now use cached asset fingerprints and SCSS dependency metadata instead of repeatedly globbing compiled files
