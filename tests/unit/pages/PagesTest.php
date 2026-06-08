@@ -588,6 +588,16 @@ class PagesTest extends TestCase {
 		$this->assertSame( 12, $pages['docs:docs-reference']['order'] );
 	}
 
+	public function test_registry_hydration_carries_frontmatter_meta(): void {
+		$registry = Page_Registry::instance();
+		$registry->reset();
+		$registry->hydrate_from_posts();
+
+		$pages = $registry->get_pages();
+		$this->assertArrayHasKey( 'docs:docs-reference', $pages );
+		$this->assertSame( 'API', $pages['docs:docs-reference']['meta']['section'] ?? null );
+	}
+
 	public function test_maybe_hydrate_does_not_override_discovered_pages(): void {
 		$registry = Page_Registry::instance();
 		$before   = $registry->get_pages();

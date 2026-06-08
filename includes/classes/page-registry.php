@@ -156,6 +156,7 @@ final class Page_Registry {
 			$parent_key  = (string) get_post_meta( $post->ID, '_blockstudio_page_parent_key', true );
 			$collection  = (string) get_post_meta( $post->ID, '_blockstudio_page_collection', true );
 			$layout_path = (string) get_post_meta( $post->ID, '_blockstudio_page_layout', true );
+			$stored_meta = get_post_meta( $post->ID, '_blockstudio_page_meta', true );
 
 			$this->pages[ $key ] = array(
 				'name'        => (string) get_post_meta( $post->ID, '_blockstudio_page_name', true ),
@@ -173,7 +174,7 @@ final class Page_Registry {
 				'order'       => (int) $post->menu_order,
 				'generated'   => (bool) get_post_meta( $post->ID, '_blockstudio_page_generated', true ),
 				'children'    => array(),
-				'meta'        => array(),
+				'meta'        => is_array( $stored_meta ) ? $stored_meta : array(),
 			);
 		}
 	}
