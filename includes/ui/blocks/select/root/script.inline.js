@@ -46,6 +46,12 @@ function positionPopup( trigger, popup, isMulti ) {
 			minWidth: ( triggerRect.width + popupPadding * 2 + popupBorder * 2 + checkmarkSpace ) + 'px',
 		} );
 	} else {
+		const triggerRect = trigger.getBoundingClientRect();
+		Object.assign( popup.style, {
+			position: 'fixed',
+			left: triggerRect.left + 'px',
+			top: ( triggerRect.bottom + 4 ) + 'px',
+		} );
 		computePosition( window.__bsui.getAnchor( trigger ), popup, {
 			placement: 'bottom-start',
 			strategy: 'fixed',
