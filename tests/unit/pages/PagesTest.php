@@ -439,6 +439,16 @@ class PagesTest extends TestCase {
 		$this->assertNotEmpty( get_post_meta( $post_id, '_blockstudio_page_fingerprint', true ) );
 	}
 
+	public function test_markdown_page_stores_content_path(): void {
+		Pages::force_sync( 'docs-install' );
+		$post_id = Pages::get_post_id( 'docs-install' );
+		$path    = (string) get_post_meta( $post_id, '_blockstudio_page_content_path', true );
+
+		$this->assertNotEmpty( $path );
+		$this->assertStringEndsWith( '.md', $path );
+		$this->assertFileExists( $path );
+	}
+
 	public function test_collection_helpers_include_synced_permalink(): void {
 		$page = Pages::get_page( 'docs-install' );
 

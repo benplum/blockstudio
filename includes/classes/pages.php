@@ -520,6 +520,72 @@ class Pages {
 		}
 		self::$runtime_hooks_registered = true;
 		add_filter( 'the_content', array( __CLASS__, 'render_layout_content' ), 20 );
+		add_action( 'template_redirect', array( __CLASS__, 'serve_markdown' ), 1 );
+	}
+
+	/**
+	 * Serve the raw markdown source for a markdown-backed page.
+	 *
+	 * Responds when the request appends `.md` to a page permalink or sends an
+	 * `Accept: text/markdown` header, for any synced page whose content is a
+	 * markdown file, so documentation pages are readable by agents and tools.
+	 *
+	 * @return void
+	 */
+	public static function serve_markdown(): void {
+		if ( ! apply_filters( 'blockstudio/pages/serve_markdown', true ) ) {
+			return;
+		}
+
+		if ( 'GET' !== strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) ) ) ) {
+			return;
+		}
+
+		$accept       = sanitize_text_field( wp_unslash( $_SERVER['HTTP_ACCEPT'] ?? '' ) );
+		$wants_accept = false !== stripos( $accept, 'text/markdown' );
+		$uri_path     = (string) wp_parse_url( esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ?? '' ) ), PHP_URL_PATH );
+		$is_md_ext    = '.md' === substr( $uri_path, -3 );
+
+		if ( ! $wants_accept && ! $is_md_ext ) {
+			return;
+		}
+
+		$post = null;
+		if ( $is_md_ext ) {
+			$home_path = trim( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
+			$relative  = preg_replace( '/\.md$/', '', trim( $uri_path, '/' ) );
+			if ( '' !== $home_path && 0 === strpos( $relative, $home_path . '/' ) ) {
+				$relative = substr( $relative, strlen( $home_path ) + 1 );
+			} elseif ( $relative === $home_path ) {
+				$relative = '';
+			}
+			$post = get_page_by_path( $relative, OBJECT, get_post_types() );
+		} else {
+			$queried = (int) get_queried_object_id();
+			$post    = $queried > 0 ? get_post( $queried ) : null;
+		}
+
+		$file = $post ? (string) get_post_meta( $post->ID, '_blockstudio_page_content_path', true ) : '';
+		if ( '' === $file || ! is_file( $file ) ) {
+			if ( $is_md_ext ) {
+				status_header( 404 );
+			}
+			return;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$markdown = file_get_contents( $file );
+		if ( false === $markdown ) {
+			return;
+		}
+
+		$markdown = preg_replace( '/^---\R.*?\R---\R?/s', '', $markdown, 1 );
+		$markdown = ltrim( (string) $markdown );
+
+		nocache_headers();
+		header( 'Content-Type: text/markdown; charset=utf-8' );
+		echo $markdown; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		exit;
 	}
 
 	/**
