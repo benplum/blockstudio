@@ -749,10 +749,17 @@ class Page_Sync {
 			'generated'    => ! empty( $page_data['generated'] ),
 			'inline'       => $page_data['inline_content'] ?? null,
 			'source'       => $page_data['source'] ?? null,
+			'layout_path'  => $page_data['layout_path'] ?? '',
 			'meta'         => $page_data['meta'] ?? array(),
 		);
 
-		foreach ( $page_data['source_mtime_paths'] ?? array() as $path ) {
+		$fingerprint_paths = $page_data['source_mtime_paths'] ?? array();
+
+		if ( ! empty( $page_data['layout_path'] ) ) {
+			$fingerprint_paths[] = $page_data['layout_path'];
+		}
+
+		foreach ( $fingerprint_paths as $path ) {
 			if ( is_string( $path ) && file_exists( $path ) ) {
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local source fingerprint.
 				$parts['files'][ $path ] = file_get_contents( $path );
