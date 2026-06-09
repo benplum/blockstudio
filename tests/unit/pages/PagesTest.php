@@ -430,6 +430,55 @@ class PagesTest extends TestCase {
 		$this->assertSame( 'publish', $pages['docs:docs-loader-local']['postStatus'] );
 	}
 
+	public function test_legacy_nested_pages_link_to_their_parent(): void {
+		$temp_dir    = sys_get_temp_dir() . '/blockstudio-legacy-nested-' . uniqid();
+		$parent_root = $temp_dir . '/account';
+		$child_root  = $parent_root . '/purchases';
+
+		mkdir( $child_root, 0755, true );
+
+		file_put_contents(
+			$parent_root . '/page.json',
+			wp_json_encode(
+				array(
+					'name'  => 'account',
+					'title' => 'Account',
+					'slug'  => 'account',
+					'path'  => 'account',
+				)
+			)
+		);
+		file_put_contents( $parent_root . '/index.php', '<h1>Account</h1>' );
+
+		file_put_contents(
+			$child_root . '/page.json',
+			wp_json_encode(
+				array(
+					'name'  => 'account-purchases',
+					'title' => 'Purchases',
+					'slug'  => 'purchases',
+					'path'  => 'account/purchases',
+				)
+			)
+		);
+		file_put_contents( $child_root . '/index.php', '<h1>Purchases</h1>' );
+
+		try {
+			$discovery = new Page_Discovery();
+			$pages     = $discovery->discover( $temp_dir );
+		} finally {
+			$this->remove_dir( $temp_dir );
+		}
+
+		$this->assertArrayHasKey( 'account', $pages );
+		$this->assertArrayHasKey( 'account-purchases', $pages );
+		$this->assertSame( 'account/purchases', $pages['account-purchases']['path'] );
+		$this->assertSame( 'account', $pages['account-purchases']['parent_key'] ?? null );
+		$this->assertSame( 'purchases', $pages['account-purchases']['slug'] );
+		$this->assertContains( 'account-purchases', $pages['account']['children'] );
+		$this->assertArrayNotHasKey( 'parent_key', $pages['account'] );
+	}
+
 	public function test_synced_collection_pages_store_identity_meta(): void {
 		$post_id = Pages::get_post_id( 'docs-install' );
 

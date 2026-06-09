@@ -892,20 +892,22 @@ class Page_Discovery {
 			return;
 		}
 
-		if ( $collection && $path ) {
+		if ( '' !== (string) $path ) {
 			if ( isset( $this->path_index[ $collection ][ $path ] ) ) {
-				$this->add_error(
-					'duplicate_path',
-					'Duplicate collection page path.',
-					array(
-						'collection' => $collection,
-						'path'       => $path,
-					)
-				);
-				return;
+				if ( '' !== (string) $collection ) {
+					$this->add_error(
+						'duplicate_path',
+						'Duplicate collection page path.',
+						array(
+							'collection' => $collection,
+							'path'       => $path,
+						)
+					);
+					return;
+				}
+			} else {
+				$this->path_index[ $collection ][ $path ] = $key;
 			}
-
-			$this->path_index[ $collection ][ $path ] = $key;
 		}
 
 		$this->pages[ $key ] = $page_data;
@@ -990,10 +992,10 @@ class Page_Discovery {
 		}
 
 		foreach ( $this->pages as $key => $page ) {
-			$collection = $page['collection'] ?? null;
+			$collection = (string) ( $page['collection'] ?? '' );
 			$path       = $page['path'] ?? '.';
 
-			if ( ! $collection || '.' === $path ) {
+			if ( '.' === $path ) {
 				continue;
 			}
 
@@ -1001,7 +1003,7 @@ class Page_Discovery {
 
 			if ( false !== strpos( $path, '/' ) ) {
 				$parent_path = dirname( $path );
-			} elseif ( isset( $this->path_index[ $collection ]['.'] ) ) {
+			} elseif ( '' !== $collection && isset( $this->path_index[ $collection ]['.'] ) ) {
 				$parent_path = '.';
 			}
 
