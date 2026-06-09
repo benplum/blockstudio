@@ -77,8 +77,8 @@ class Page_Discovery {
 		$base_path           = self::normalize_filesystem_path( $base_path );
 		$this->discover_base = $base_path;
 		$collection_roots    = array();
-		$claimed_roots    = array();
-		$manifest_paths   = self::find_manifest_paths( $base_path );
+		$claimed_roots       = array();
+		$manifest_paths      = self::find_manifest_paths( $base_path );
 
 		foreach ( $manifest_paths as $manifest_path ) {
 			$root = self::normalize_filesystem_path( dirname( $manifest_path ) );
@@ -866,7 +866,7 @@ class Page_Discovery {
 			$directory                = isset( $page_data['directory'] ) && is_string( $page_data['directory'] ) ? $page_data['directory'] : '';
 			$page_data['layout_path'] = '' !== $directory ? $this->find_nearest_layout( $directory ) : null;
 		}
-		$page_data['paths']       = array(
+		$page_data['paths'] = array(
 			'base'       => $collection['base_path'] ?? null,
 			'collection' => $collection['root'] ?? null,
 			'source'     => $page_data['template_path'] ?? $page_data['json_path'] ?? null,
