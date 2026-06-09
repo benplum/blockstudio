@@ -51,6 +51,13 @@ class Page_Discovery {
 	private array $path_index = array();
 
 	/**
+	 * Base path of the active discovery run, used to bound layout lookups.
+	 *
+	 * @var string
+	 */
+	private string $discover_base = '';
+
+	/**
 	 * Discover pages in a directory path.
 	 *
 	 * @param string $base_path Absolute path to scan for pages.
@@ -67,8 +74,9 @@ class Page_Discovery {
 			return $this->pages;
 		}
 
-		$base_path        = self::normalize_filesystem_path( $base_path );
-		$collection_roots = array();
+		$base_path           = self::normalize_filesystem_path( $base_path );
+		$this->discover_base = $base_path;
+		$collection_roots    = array();
 		$claimed_roots    = array();
 		$manifest_paths   = self::find_manifest_paths( $base_path );
 
@@ -852,7 +860,12 @@ class Page_Discovery {
 		$page_data['is_blade']    = 'blade' === $page_data['contentType'];
 		$page_data['is_markdown'] = 'markdown' === $page_data['contentType'];
 		$page_data['generated']   = (bool) ( $page_data['generated'] ?? false );
-		$page_data['layout_path'] = $collection['layout_path'] ?? null;
+		if ( null !== $collection ) {
+			$page_data['layout_path'] = $collection['layout_path'] ?? null;
+		} else {
+			$directory                = isset( $page_data['directory'] ) && is_string( $page_data['directory'] ) ? $page_data['directory'] : '';
+			$page_data['layout_path'] = '' !== $directory ? $this->find_nearest_layout( $directory ) : null;
+		}
 		$page_data['paths']       = array(
 			'base'       => $collection['base_path'] ?? null,
 			'collection' => $collection['root'] ?? null,
@@ -1422,6 +1435,38 @@ class Page_Discovery {
 	 */
 	private static function normalize_filesystem_path( string $path ): string {
 		return untrailingslashit( wp_normalize_path( $path ) );
+	}
+
+	/**
+	 * Find the nearest layout.php for a non-collection page by walking up to the discovery base.
+	 *
+	 * @param string $directory Page directory.
+	 *
+	 * @return string|null Layout path or null.
+	 */
+	private function find_nearest_layout( string $directory ): ?string {
+		$current = self::normalize_filesystem_path( $directory );
+		$base    = $this->discover_base;
+
+		if ( '' === $base || ! self::is_inside_any_path( $current, array( $base ) ) ) {
+			$candidate = $current . '/layout.php';
+
+			return file_exists( $candidate ) ? $candidate : null;
+		}
+
+		while ( true ) {
+			$candidate = $current . '/layout.php';
+
+			if ( file_exists( $candidate ) ) {
+				return $candidate;
+			}
+
+			if ( $current === $base ) {
+				return null;
+			}
+
+			$current = self::normalize_filesystem_path( dirname( $current ) );
+		}
 	}
 
 	/**
