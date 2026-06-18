@@ -804,6 +804,87 @@ export const schema = async (extensions = false) => {
     },
   };
 
+  const dimensionSingle = {
+    example: 'single',
+    description:
+      'Renders a single dimensions value (for example 16px, 2rem, or 50%). It stores only the value and does not apply inline styles automatically.',
+    properties: {
+      type: { const: 'dimensionSingle' },
+      ...def(),
+      spacingSizes: {
+        type: 'boolean',
+        description:
+          'If true, uses the Gutenberg spacing size preset control for selecting a single value.',
+      },
+      spacingScale: {
+        type: 'array',
+        description:
+          'Optional custom per-field spacing scale. When set, this is used instead of the global spacing preset control and stores the selected value directly.',
+        items: {
+          type: 'object',
+          properties: {
+            label: {
+              type: 'string',
+            },
+            value: {
+              type: 'string',
+            },
+          },
+        },
+      },
+      units: {
+        type: 'array',
+        ...def('array'),
+        items: {
+          type: 'object',
+          properties: {
+            label: {
+              type: 'string',
+            },
+            value: {
+              type: 'string',
+            },
+          },
+        },
+      },
+    },
+  };
+
+  const dimensions = {
+    example: 'single',
+    description:
+      'Renders a multi-side dimensions control. Stores an object with side values and does not apply inline styles automatically.',
+    properties: {
+      type: { const: 'dimensions' },
+      ...def(),
+      spacingScale: {
+        type: 'array',
+        description:
+          'Optional custom per-field spacing scale. When set, this is used instead of the global spacing preset control and stores selected side values directly.',
+        items: {
+          type: 'object',
+          properties: {
+            label: {
+              type: 'string',
+            },
+            value: {
+              type: 'string',
+            },
+          },
+        },
+      },
+      sides: {
+        type: 'array',
+        description:
+          'Limits which sides can be edited. Supports top, right, bottom, left and axis aliases horizontal/vertical.',
+        items: {
+          type: 'string',
+          enum: ['top', 'right', 'bottom', 'left', 'horizontal', 'vertical'],
+        },
+      },
+    },
+  };
+
   const wysiwyg = {
     example: 'single',
     description: 'Renders a WYSIWYG editor.',
@@ -914,6 +995,8 @@ export const schema = async (extensions = false) => {
                         'color',
                         'date',
                         'datetime',
+                        'dimensionSingle',
+                        'dimensions',
                         'files',
                         'gradient',
                         g ? 'group' : false,
@@ -939,6 +1022,11 @@ export const schema = async (extensions = false) => {
                       pattern: '^custom/.+$',
                       description:
                         "Custom field reference in format 'custom/{name}'.",
+                    },
+                    {
+                      pattern: '^([a-z0-9-]+/)?[a-z0-9-]+:[a-z0-9-]+$',
+                      description:
+                        "Custom field type in namespaced format, for example 'my-plugin:spacing-scale' or 'my-vendor/my-plugin:token-field'.",
                     },
                   ],
                 },
@@ -1064,6 +1152,8 @@ export const schema = async (extensions = false) => {
                 r ? repeater() : false,
                 { ...richtext },
                 { ...unit },
+                { ...dimensionSingle },
+                { ...dimensions },
                 { ...wysiwyg },
                 {
                   properties: {
@@ -1071,6 +1161,16 @@ export const schema = async (extensions = false) => {
                       pattern: '^custom/.+$',
                       description:
                         'References a reusable custom field definition.',
+                    },
+                  },
+                  required: ['type'],
+                },
+                {
+                  properties: {
+                    type: {
+                      pattern: '^([a-z0-9-]+/)?[a-z0-9-]+:[a-z0-9-]+$',
+                      description:
+                        'References a registered custom field type.',
                     },
                   },
                   required: ['type'],

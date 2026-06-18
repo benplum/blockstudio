@@ -79,20 +79,43 @@ class Extensions {
 		$extensions = Build::extensions();
 		$matches    = self::get_matches( $block['blockName'], $extensions );
 
-		$attributes       = array();
-		$block_attributes = $block['attrs']['blockstudio']['attributes'] ?? array();
+		$attributes              = array();
+		$resolved_values         = array();
+		$raw_attrs               = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
+		$nested_block_attributes = is_array( $raw_attrs['blockstudio']['attributes'] ?? null )
+			? $raw_attrs['blockstudio']['attributes']
+			: array();
 
 		foreach ( $matches as $match ) {
 			foreach ( $match->attributes as $attribute_id => $attribute ) {
-				if ( isset( $block_attributes[ $attribute_id ] ) ) {
-					$attributes[ $attribute_id ] = $attribute;
+				if ( ! is_array( $attribute ) ) {
+					continue;
+				}
+
+				$resolved_id = '';
+				if ( is_string( $attribute_id ) ) {
+					$resolved_id = $attribute_id;
+				} elseif ( is_string( $attribute['id'] ?? null ) ) {
+					$resolved_id = $attribute['id'];
+				}
+
+				if ( '' === $resolved_id ) {
+					continue;
+				}
+
+				if ( array_key_exists( $resolved_id, $nested_block_attributes ) ) {
+					$attributes[ $resolved_id ]      = $attribute;
+					$resolved_values[ $resolved_id ] = $nested_block_attributes[ $resolved_id ];
+				} elseif ( array_key_exists( $resolved_id, $raw_attrs ) ) {
+					$attributes[ $resolved_id ]      = $attribute;
+					$resolved_values[ $resolved_id ] = $raw_attrs[ $resolved_id ];
 				}
 			}
 		}
 
 		$blockstudio_attributes = array(
 			'blockstudio' => array(
-				'attributes' => $block_attributes,
+				'attributes' => $resolved_values,
 				'disabled'   => $block['attrs']['blockstudio']['disabled'] ?? array(),
 			),
 		);
@@ -139,13 +162,19 @@ class Extensions {
 			}
 
 			foreach ( $attributes as $key => $value ) {
+				$attribute_value     = $blockstudio_attributes[ $key ] ?? $resolved_values[ $key ] ?? null;
+				$template_attributes = array_merge(
+					$resolved_values,
+					is_array( $blockstudio_attributes ) ? $blockstudio_attributes : array()
+				);
+
 				if (
 					! isset( $value['set'] ) &&
 					isset( $value['field'] ) &&
 					'attributes' === $value['field']
 				) {
-					if ( is_array( $blockstudio_attributes[ $key ] ) ) {
-						foreach ( $blockstudio_attributes[ $key ] as $attr ) {
+					if ( is_array( $attribute_value ) ) {
+						foreach ( $attribute_value as $attr ) {
 							$content->set_attribute(
 								$attr['attribute'],
 								$attr['value']
@@ -155,9 +184,9 @@ class Extensions {
 				}
 
 				foreach ( $value['set'] ?? array() as $set ) {
-					$val = $blockstudio_attributes[ $key ];
+					$val = $attribute_value;
 
-					if ( ! $val ) {
+					if ( null === $val || false === $val || '' === $val ) {
 						continue;
 					}
 
@@ -180,6 +209,7 @@ class Extensions {
 						}
 
 						if ( 'class' === $set['attribute'] ) {
+							$value  = self::normalize_spacing_preset_class_value( (string) $value );
 							$class .= ' ' . $value;
 						} elseif ( 'style' === $set['attribute'] ) {
 							$style .= ' ' . $value . ';';
@@ -194,19 +224,22 @@ class Extensions {
 						foreach ( $val as $v ) {
 							++$index;
 
-							if ( ! isset( $blockstudio_attributes[ $key ][ $index ] ) ) {
+							if ( ! isset( $val[ $index ] ) ) {
 								continue;
 							}
 
 							$apply_value(
 								$v,
-								array(
-									$key => $blockstudio_attributes[ $key ][ $index ],
+								array_merge(
+									$template_attributes,
+									array(
+										$key => $val[ $index ],
+									)
 								)
 							);
 						}
 					} else {
-						$apply_value( $value, $blockstudio_attributes );
+						$apply_value( $val, $template_attributes );
 					}
 				}
 			}
@@ -229,6 +262,19 @@ class Extensions {
 		$assets  = Assets::render_code_field_assets( $attribute_data );
 
 		return $element . $assets;
+	}
+
+	/**
+	 * Convert spacing preset tokens to class-friendly slugs.
+	 *
+	 * Example: var:preset|spacing|small -> small.
+	 *
+	 * @param string $value Class value.
+	 *
+	 * @return string Normalized class value.
+	 */
+	private static function normalize_spacing_preset_class_value( string $value ): string {
+		return (string) preg_replace( '/var:preset\\|spacing\\|([a-z0-9_-]+)/i', '$1', $value );
 	}
 
 	/**

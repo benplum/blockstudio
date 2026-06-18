@@ -9,11 +9,11 @@ class FieldTypeConfigTest extends TestCase {
 
 	public function test_types_contains_all_expected_field_types(): void {
 		$expected = array(
-			'code', 'date', 'datetime', 'text', 'textarea', 'unit', 'classes',
+			'code', 'date', 'datetime', 'text', 'textarea', 'unit', 'dimensionSingle', 'classes',
 			'richtext', 'wysiwyg',
 			'number', 'range',
 			'toggle',
-			'color', 'gradient', 'icon', 'link', 'radio', 'select',
+			'color', 'gradient', 'icon', 'link', 'dimensions', 'radio', 'select',
 			'repeater', 'checkbox', 'token', 'attributes',
 			'files', 'group', 'tabs', 'message',
 		);
@@ -44,6 +44,7 @@ class FieldTypeConfigTest extends TestCase {
 		$this->assertSame( 'string', Field_Type_Config::get_attribute_type( 'date' ) );
 		$this->assertSame( 'string', Field_Type_Config::get_attribute_type( 'datetime' ) );
 		$this->assertSame( 'string', Field_Type_Config::get_attribute_type( 'unit' ) );
+		$this->assertSame( 'string', Field_Type_Config::get_attribute_type( 'dimensionSingle' ) );
 		$this->assertSame( 'string', Field_Type_Config::get_attribute_type( 'classes' ) );
 		$this->assertSame( 'string', Field_Type_Config::get_attribute_type( 'richtext' ) );
 		$this->assertSame( 'string', Field_Type_Config::get_attribute_type( 'wysiwyg' ) );
@@ -63,6 +64,7 @@ class FieldTypeConfigTest extends TestCase {
 		$this->assertSame( 'object', Field_Type_Config::get_attribute_type( 'gradient' ) );
 		$this->assertSame( 'object', Field_Type_Config::get_attribute_type( 'icon' ) );
 		$this->assertSame( 'object', Field_Type_Config::get_attribute_type( 'link' ) );
+		$this->assertSame( 'object', Field_Type_Config::get_attribute_type( 'dimensions' ) );
 		$this->assertSame( 'object', Field_Type_Config::get_attribute_type( 'radio' ) );
 		$this->assertSame( 'object', Field_Type_Config::get_attribute_type( 'select' ) );
 		$this->assertSame( 'object', Field_Type_Config::get_attribute_type( 'group' ) );
@@ -96,6 +98,7 @@ class FieldTypeConfigTest extends TestCase {
 		$this->assertSame( '', Field_Type_Config::get_default_value( 'text' ) );
 		$this->assertSame( '', Field_Type_Config::get_default_value( 'textarea' ) );
 		$this->assertSame( '', Field_Type_Config::get_default_value( 'code' ) );
+		$this->assertSame( '', Field_Type_Config::get_default_value( 'dimensionSingle' ) );
 		$this->assertSame( '', Field_Type_Config::get_default_value( 'richtext' ) );
 	}
 
@@ -111,6 +114,7 @@ class FieldTypeConfigTest extends TestCase {
 	public function test_get_default_value_for_object_types(): void {
 		$this->assertNull( Field_Type_Config::get_default_value( 'color' ) );
 		$this->assertNull( Field_Type_Config::get_default_value( 'select' ) );
+		$this->assertNull( Field_Type_Config::get_default_value( 'dimensions' ) );
 		$this->assertNull( Field_Type_Config::get_default_value( 'group' ) );
 	}
 

@@ -41,8 +41,17 @@ class Option_Storage implements Storage_Handler_Interface {
 	 */
 	public function register( string $block_name, array $field ): void {
 		$option_key = $this->get_key( $block_name, $field );
-		$type       = $field['type'] ?? 'text';
-		$meta_type  = $field['__blockstudio_storage_value_type'] ?? $this->get_meta_type( $type );
+		$meta_type  = $field['__blockstudio_storage_value_type'] ?? $this->get_meta_type( $field );
+
+		/**
+		 * Filter storage value type for field registration.
+		 *
+		 * @param string $meta_type  Resolved storage value type.
+		 * @param array  $field      Field configuration.
+		 * @param string $block_name Block name.
+		 * @param string $storage    Storage handler type.
+		 */
+		$meta_type = (string) apply_filters( 'blockstudio/storage/meta_type', $meta_type, $field, $block_name, $this->get_type() );
 
 		$show_in_rest = true;
 		if ( 'array' === $meta_type ) {
@@ -85,11 +94,18 @@ class Option_Storage implements Storage_Handler_Interface {
 	 *
 	 * Maps Blockstudio field types to WordPress setting types.
 	 *
-	 * @param string $field_type The field type.
+	 * @param array $field The field configuration.
 	 *
 	 * @return string The setting type.
 	 */
-	private function get_meta_type( string $field_type ): string {
+	private function get_meta_type( array $field ): string {
+		$field_type = $field['type'] ?? 'text';
+
+		$storage_type = Field_Type_Config::get_storage_value_type( $field_type );
+		if ( null !== $storage_type ) {
+			return $storage_type;
+		}
+
 		if ( Field_Type_Config::is_string_type( $field_type ) ) {
 			return 'string';
 		}
@@ -104,6 +120,10 @@ class Option_Storage implements Storage_Handler_Interface {
 
 		if ( Field_Type_Config::is_array_type( $field_type ) ) {
 			return 'array';
+		}
+
+		if ( Field_Type_Config::is_object_type( $field_type ) ) {
+			return 'string';
 		}
 
 		// Default to string for object types and unknown types.

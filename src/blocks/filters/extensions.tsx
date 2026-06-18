@@ -58,6 +58,10 @@ export const getMatches = (string: string) => {
   return getMatchesWithWildcard(string);
 };
 
+const normalizeSpacingPresetClassValue = (value: string) => {
+  return value.replace(/var:preset\|spacing\|([a-z0-9_-]+)/gi, '$1');
+};
+
 const getAttributes = (
   attributes: BlockstudioBlockAttributes,
   name: string,
@@ -102,7 +106,7 @@ const getAttributes = (
                 : value;
 
               if (set.attribute === 'class') {
-                classNames.push(val);
+                classNames.push(normalizeSpacingPresetClassValue(String(val)));
               } else if (set.attribute === 'style') {
                 styles.push(val.replace(/;+$/, ''));
               } else {

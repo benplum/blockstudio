@@ -602,6 +602,46 @@ Renders a number input with a unit dropdown.
 | `isUnitSelectTabbable` | `boolean` | Determines if the unit select field is tabbable. |
 | `units` | `array` |  |
 
+## dimensionSingle
+
+Renders a single dimensions value (for example 16px, 2rem, or 50%). It stores only the value and does not apply inline styles automatically.
+
+```json
+{
+  "type": "dimensionSingle"
+}
+```
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `default` | `string` | Default value that should be applied when first adding the block. |
+| `fallback` | `string` | Fallback value that that will display when field value is empty. |
+| `spacingSizes` | `boolean` | If true, uses the Gutenberg spacing size preset control for selecting a single value. |
+| `spacingScale` | `array` | Optional custom per-field spacing scale. When set, this is used instead of the global spacing preset control and stores the selected value directly. |
+| `units` | `array` |  |
+
+## dimensions
+
+Renders a multi-side dimensions control. Stores an object with side values and does not apply inline styles automatically.
+
+```json
+{
+  "type": "dimensions"
+}
+```
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `default` | `string` | Default value that should be applied when first adding the block. |
+| `fallback` | `string` | Fallback value that that will display when field value is empty. |
+| `spacingSizes` | `boolean` | If true, uses the Gutenberg spacing size interface with linked and per-side editing modes. |
+| `spacingScale` | `array` | Optional custom per-field spacing scale. When set, this is used instead of the global spacing preset control and stores selected side values directly. |
+| `sides` | `array` | Limits which sides can be edited. Supports top, right, bottom, left and axis aliases horizontal/vertical. |
+
 ## wysiwyg
 
 Renders a WYSIWYG editor.

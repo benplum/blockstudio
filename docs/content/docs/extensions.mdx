@@ -184,6 +184,27 @@ It is also possible to get nested values when attributes are not returning a sin
 
 The example above will set the `style` attribute to `color: #f00` or `color: #00f` and the `data-color` attribute to `Red` or `Blue` depending on the value.
 
+### dimensionSingle Example
+
+`dimensionSingle` works with `set` like other scalar fields and stores only the value.
+
+```json
+{
+  "id": "spacing",
+  "type": "dimensionSingle",
+  "label": "Spacing",
+  "default": "8px",
+  "set": [
+    {
+      "attribute": "class",
+      "value": "spacing-{attributes.spacing}"
+    }
+  ]
+}
+```
+
+This produces class output such as `spacing-8px`. It does not auto-generate inline styles unless you explicitly map it to `style` in `set`.
+
 For now, only values from the current attribute can be used inside `set` definitions. The ability to use values from other attributes might be added in the future.
 
 ### Arrays

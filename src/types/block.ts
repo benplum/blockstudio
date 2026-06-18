@@ -1762,6 +1762,8 @@ export enum AttributeType {
   Textarea = 'textarea',
   Toggle = 'toggle',
   Unit = 'unit',
+  DimensionSingle = 'dimensionSingle',
+  Dimensions = 'dimensions',
   WYSIWYG = 'wysiwyg',
 }
 
@@ -2078,6 +2080,8 @@ export enum PurpleType {
   Textarea = 'textarea',
   Toggle = 'toggle',
   Unit = 'unit',
+  DimensionSingle = 'dimensionSingle',
+  Dimensions = 'dimensions',
   WYSIWYG = 'wysiwyg',
 }
 
@@ -2395,6 +2399,8 @@ export enum FluffyType {
   Textarea = 'textarea',
   Toggle = 'toggle',
   Unit = 'unit',
+  DimensionSingle = 'dimensionSingle',
+  Dimensions = 'dimensions',
   WYSIWYG = 'wysiwyg',
 }
 
@@ -4987,6 +4993,8 @@ const typeMap: any = {
     'textarea',
     'toggle',
     'unit',
+    'dimensionSingle',
+    'dimensions',
     'wysiwyg',
   ],
   PurpleType: [
@@ -5014,6 +5022,8 @@ const typeMap: any = {
     'textarea',
     'toggle',
     'unit',
+    'dimensionSingle',
+    'dimensions',
     'wysiwyg',
   ],
   FluffyType: [
@@ -5042,6 +5052,8 @@ const typeMap: any = {
     'textarea',
     'toggle',
     'unit',
+    'dimensionSingle',
+    'dimensions',
     'wysiwyg',
   ],
   AlignElement: ['center', 'full', 'left', 'right', 'wide'],

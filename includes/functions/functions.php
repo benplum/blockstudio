@@ -296,3 +296,37 @@ function bs_get_scoped_class( $name ): string {
 
 	return isset( $blocks[ $name ] ) ? $blocks[ $name ]['scopedClass'] : '';
 }
+
+/**
+ * Register a custom field type.
+ *
+ * @since 7.3.3
+ *
+ * @param string $type       Field type name in namespaced format.
+ * @param array  $definition Field type definition.
+ * @param array  $options    Optional registration settings.
+ *
+ * @return bool True when registration succeeds.
+ *
+ * @phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound -- Public API function.
+ */
+function bs_register_field_type( string $type, array $definition, array $options = array() ): bool {
+	// phpcs:enable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound
+	return \Blockstudio\Field_Types::register( $type, $definition, $options );
+}
+
+/**
+ * Unregister a previously registered custom field type.
+ *
+ * @since 7.3.3
+ *
+ * @param string $type Field type name in namespaced format.
+ *
+ * @return void
+ *
+ * @phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound -- Public API function.
+ */
+function bs_unregister_field_type( string $type ): void {
+	// phpcs:enable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound
+	\Blockstudio\Field_Types::unregister( $type );
+}

@@ -72,6 +72,124 @@ class Block {
 	private static array $count_by_block = array();
 
 	/**
+	 * Check whether an array is sequential (0..n keys).
+	 *
+	 * @param array $value Array to inspect.
+	 *
+	 * @return bool
+	 */
+	private static function is_sequential_array( array $value ): bool {
+		return array_keys( $value ) === range( 0, count( $value ) - 1 );
+	}
+
+	/**
+	 * Convert spacing preset tokens to class-friendly slugs.
+	 *
+	 * @param string $value Class value.
+	 *
+	 * @return string
+	 */
+	private static function normalize_spacing_preset_class_value( string $value ): string {
+		return (string) preg_replace( '/var:preset\\|spacing\\|([a-z0-9_-]+)/i', '$1', $value );
+	}
+
+	/**
+	 * Apply `set` rules from block attribute definitions onto rendered attributes.
+	 *
+	 * This enables templates using bs_render_attributes($a) to receive
+	 * computed class/style/data attributes for regular Blockstudio blocks.
+	 *
+	 * @param array $attributes            Transformed block attributes (passed by reference).
+	 * @param array $attribute_definitions Block attribute definitions.
+	 *
+	 * @return void
+	 */
+	private static function apply_set_rules( array &$attributes, array $attribute_definitions ): void {
+		foreach ( $attribute_definitions as $definition ) {
+			if ( ! is_array( $definition ) ) {
+				continue;
+			}
+
+			$attribute_id = $definition['id'] ?? null;
+			$set_rules    = $definition['set'] ?? array();
+
+			if (
+				! is_string( $attribute_id ) ||
+				'' === $attribute_id ||
+				! is_array( $set_rules ) ||
+				empty( $set_rules ) ||
+				! array_key_exists( $attribute_id, $attributes )
+			) {
+				continue;
+			}
+
+			$attribute_value = $attributes[ $attribute_id ];
+			if ( null === $attribute_value || false === $attribute_value || '' === $attribute_value ) {
+				continue;
+			}
+
+			foreach ( $set_rules as $set_rule ) {
+				if ( ! is_array( $set_rule ) || empty( $set_rule['attribute'] ) ) {
+					continue;
+				}
+
+				$target_attribute = (string) $set_rule['attribute'];
+
+				$apply_value = function ( $value, array $template_attributes ) use ( &$attributes, $set_rule, $target_attribute ) {
+					$resolved_value = $value;
+					if ( $set_rule['value'] ?? false ) {
+						$resolved_value = Extensions::parse_template(
+							$set_rule['value'],
+							array(
+								'attributes' => $template_attributes,
+							)
+						);
+					}
+
+					if ( ! is_scalar( $resolved_value ) ) {
+						return;
+					}
+
+					$resolved_value = trim( (string) $resolved_value );
+					if ( '' === $resolved_value ) {
+						return;
+					}
+
+					if ( 'class' === $target_attribute ) {
+						$resolved_value      = self::normalize_spacing_preset_class_value( $resolved_value );
+						$existing_class      = (string) ( $attributes['class'] ?? '' );
+						$attributes['class'] = trim( $existing_class . ' ' . $resolved_value );
+						return;
+					}
+
+					if ( 'style' === $target_attribute ) {
+						$existing_style = (string) ( $attributes['style'] ?? '' );
+						if ( '' !== trim( $existing_style ) && ! str_ends_with( trim( $existing_style ), ';' ) ) {
+							$existing_style = trim( $existing_style ) . ';';
+						}
+
+						$style_fragment      = rtrim( $resolved_value, ';' ) . ';';
+						$attributes['style'] = trim( $existing_style . ' ' . $style_fragment );
+						return;
+					}
+
+					$attributes[ $target_attribute ] = $resolved_value;
+				};
+
+				if ( is_array( $attribute_value ) && self::is_sequential_array( $attribute_value ) ) {
+					foreach ( $attribute_value as $row_value ) {
+						$template_attributes                  = $attributes;
+						$template_attributes[ $attribute_id ] = $row_value;
+						$apply_value( $row_value, $template_attributes );
+					}
+				} else {
+					$apply_value( $attribute_value, $attributes );
+				}
+			}
+		}
+	}
+
+	/**
 	 * Get unique ID.
 	 *
 	 * @since 5.5.0
@@ -1281,12 +1399,44 @@ class Block {
 		if ( count( $matches ) >= 1 ) {
 			foreach ( $matches as $match ) {
 				foreach ( $match->attributes as $key => $value ) {
-					if ( $value['field'] ?? false ) {
-						$extension_attributes[ $key ] = $value;
+					if ( ! ( $value['field'] ?? false ) ) {
+						continue;
+					}
+
+					$resolved_id = '';
+					if ( is_string( $key ) ) {
+						$resolved_id = $key;
+					} elseif ( is_string( $value['id'] ?? null ) ) {
+						$resolved_id = $value['id'];
+					}
+
+					if ( '' !== $resolved_id ) {
+						$extension_attributes[ $resolved_id ] = $value;
 					}
 				}
 			}
 		}
+
+		if ( ! isset( $attributes['blockstudio'] ) || ! is_array( $attributes['blockstudio'] ) ) {
+			$attributes['blockstudio'] = array();
+		}
+
+		$blockstudio_attribute_values = is_array( $attributes['blockstudio']['attributes'] ?? null )
+			? $attributes['blockstudio']['attributes']
+			: array();
+
+		foreach ( $extension_attributes as $attribute_id => $_definition ) {
+			if ( array_key_exists( $attribute_id, $blockstudio_attribute_values ) ) {
+				continue;
+			}
+
+			if ( array_key_exists( $attribute_id, $attributes ) ) {
+				$blockstudio_attribute_values[ $attribute_id ] = $attributes[ $attribute_id ];
+			}
+		}
+
+		$attributes['blockstudio']['attributes'] = $blockstudio_attribute_values;
+		$raw_blockstudio_attribute_values        = $blockstudio_attribute_values;
 
 		$blockstudio_id    = self::comment( $name );
 		$block_data        = Build::data()[ $name ];
@@ -1379,7 +1529,19 @@ class Block {
 			$is_preview,
 			Build::blocks()[ $name ]->attributes + $extension_attributes
 		);
-		$assets         = Assets::render_code_field_assets( $attribute_data, 'assetsAsset' );
+
+		foreach ( $raw_blockstudio_attribute_values as $attribute_id => $attribute_value ) {
+			if ( ! array_key_exists( $attribute_id, $attributes ) ) {
+				$attributes[ $attribute_id ] = $attribute_value;
+			}
+		}
+
+		self::apply_set_rules(
+			$attributes,
+			Build::blocks()[ $name ]->attributes + $extension_attributes
+		);
+
+		$assets = Assets::render_code_field_assets( $attribute_data, 'assetsAsset' );
 
 		if ( $perf_phase ) {
 			Perf::track( 'phase:transform', ( microtime( true ) - $perf_phase ) * 1000 );

@@ -80,6 +80,29 @@ class Blocks {
 			true
 		);
 
+		$style_basename = '';
+		$style_files    = array(
+			'style-index.tsx.css',
+			'style-index.css',
+		);
+
+		foreach ( $style_files as $candidate ) {
+			if ( file_exists( BLOCKSTUDIO_DIR . '/includes/admin/assets/blocks/' . $candidate ) ) {
+				$style_basename = $candidate;
+				break;
+			}
+		}
+
+		if ( '' !== $style_basename ) {
+			wp_enqueue_style(
+				'blockstudio-blocks-style',
+				BLOCKSTUDIO_URL . 'includes/admin/assets/blocks/' . $style_basename,
+				array( 'wp-components' ),
+				$block_scripts['version']
+			);
+			wp_style_add_data( 'blockstudio-blocks-style', 'rtl', 'replace' );
+		}
+
 		if ( Admin::is_capturing_assets() ) {
 			return;
 		}

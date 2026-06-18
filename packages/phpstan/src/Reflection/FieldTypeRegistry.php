@@ -34,7 +34,7 @@ final class FieldTypeRegistry
 
         return match ($type) {
             'text', 'textarea', 'richtext', 'wysiwyg', 'code',
-            'date', 'datetime', 'classes', 'html-tag', 'unit',
+            'date', 'datetime', 'classes', 'html-tag', 'unit', 'dimensionSingle',
             'gradient' => new StringType(),
 
             'number', 'range' => TypeCombinator::union(new IntegerType(), new FloatType()),
@@ -62,6 +62,11 @@ final class FieldTypeRegistry
                 'subSet' => new StringType(),
                 'icon' => new StringType(),
             ]),
+
+            'dimensions' => new ArrayType(
+                new StringType(),
+                TypeCombinator::union(new StringType(), new NullType())
+            ),
 
             'files' => $multiple
                 ? new ArrayType(new IntegerType(), $this->fileShape())

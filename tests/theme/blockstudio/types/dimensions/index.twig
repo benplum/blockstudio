@@ -1,0 +1,6 @@
+<div class="blockstudio-test__block" id="{{ b.name|replace({'/': '-'}) }}">
+  <h3>Dimensions</h3>
+
+  <code>Block: {{ b|json_encode }}</code>
+  <code>Attributes: {{ a|json_encode }}</code>
+</div>

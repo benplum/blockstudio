@@ -204,6 +204,18 @@
                 "value": "text-{attributes.textClass2}-2"
               }
             ]
+          },
+          {
+            "id": "textDimensionSingle",
+            "type": "dimensionSingle",
+            "label": "Text dimension class",
+            "default": "1px",
+            "set": [
+              {
+                "attribute": "class",
+                "value": "dimension-{attributes.textDimensionSingle}"
+              }
+            ]
           }
         ]
       }

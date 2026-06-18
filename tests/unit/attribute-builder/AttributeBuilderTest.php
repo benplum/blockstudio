@@ -182,6 +182,47 @@ class AttributeBuilderTest extends TestCase {
 		$this->assertSame( 'unit', $result['width']['field'] );
 	}
 
+	public function test_build_dimension_single_field(): void {
+		$fields = array(
+			array(
+				'id'   => 'gap',
+				'type' => 'dimensionSingle',
+				'default' => '1rem',
+			),
+		);
+
+		$result = $this->builder->build( $fields );
+
+		$this->assertSame( 'string', $result['gap']['type'] );
+		$this->assertSame( 'dimensionSingle', $result['gap']['field'] );
+		$this->assertSame( '1rem', $result['gap']['default'] );
+	}
+
+	public function test_build_dimensions_field(): void {
+		$fields = array(
+			array(
+				'id'      => 'margin',
+				'type'    => 'dimensions',
+				'default' => array(
+					'top'    => '1rem',
+					'bottom' => '1rem',
+				),
+			),
+		);
+
+		$result = $this->builder->build( $fields );
+
+		$this->assertSame( 'object', $result['margin']['type'] );
+		$this->assertSame( 'dimensions', $result['margin']['field'] );
+		$this->assertSame(
+			array(
+				'top'    => '1rem',
+				'bottom' => '1rem',
+			),
+			$result['margin']['default']
+		);
+	}
+
 	public function test_build_classes_field(): void {
 		$fields = array(
 			array(

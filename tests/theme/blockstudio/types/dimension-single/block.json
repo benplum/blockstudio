@@ -1,0 +1,43 @@
+{
+  "$schema": "https://blockstudio.dev/schema/block",
+  "name": "blockstudio/type-dimension-single",
+  "title": "Native Dimension Single",
+  "category": "blockstudio-test-native",
+  "icon": "star-filled",
+  "description": "Native Blockstudio Dimension Single block.",
+  "keywords": [
+    "dimension",
+    "single",
+    "native"
+  ],
+  "blockstudio": {
+    "attributes": [
+      {
+        "id": "dimensionSingle",
+        "type": "dimensionSingle",
+        "label": "Dimension",
+        "default": "default",
+        "spacingScale": [
+          {
+            "value": "default",
+            "label": "Default"
+          },
+          {
+            "value": "small",
+            "label": "Small"
+          },
+          {
+            "value": "large",
+            "label": "Large"
+          }
+        ],
+        "set": [
+          {
+            "attribute": "class",
+            "value": "margin-{attributes.dimensionSingle}"
+          }
+        ]
+      }
+    ]
+  }
+}

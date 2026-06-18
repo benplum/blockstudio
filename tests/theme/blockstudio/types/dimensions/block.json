@@ -1,0 +1,44 @@
+{
+  "$schema": "https://blockstudio.dev/schema/block",
+  "name": "blockstudio/type-dimensions",
+  "title": "Native Dimensions",
+  "category": "blockstudio-test-native",
+  "icon": "star-filled",
+  "description": "Native Blockstudio Dimensions block.",
+  "keywords": [
+    "dimension",
+    "sides",
+    "native"
+  ],
+  "blockstudio": {
+    "attributes": [
+      {
+        "id": "dimensions",
+        "type": "dimensions",
+        "label": "Dimensions",
+        "spacingScale": [
+          {
+            "value": "default",
+            "label": "Default"
+          },
+          {
+            "value": "small",
+            "label": "Small"
+          },
+          {
+            "value": "large",
+            "label": "Large"
+          }
+        ],
+        "sides": [
+          "top",
+          "bottom"
+        ],
+        "default": {
+          "top": "default",
+          "bottom": "default"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,226 @@
+---
+title: Custom Field Types
+description: Register and render custom field types from plugins or themes.
+---
+
+# Custom Field Types
+
+Custom field types let you define new type names and map them to storage and editor UI behavior.
+
+This is different from [Custom Fields](/docs/blocks/attributes/custom-fields):
+- Custom fields reuse a group of existing field definitions.
+- Custom field types add a new type that behaves like a first-class field.
+
+## Type Naming
+
+Use a namespaced type string:
+
+- plugin:field-name
+- vendor/plugin:field-name
+
+Examples:
+
+- acme:spacing-token
+- acme/ui:icon-token
+
+## 1. Register the Type in PHP
+
+Register metadata for your type with the blockstudio/field_types filter.
+
+```php
+add_filter( 'blockstudio/field_types', function( $types ) {
+	$types['acme:spacing-token'] = array(
+		'attribute'         => 'string',
+		'default'           => '',
+		'options'           => true,
+		'multiple'          => false,
+		'container'         => false,
+		'producesAttribute' => true,
+		'storageType'       => 'string',
+	);
+
+	return $types;
+} );
+```
+
+What each key does:
+
+| Key | Type | Purpose |
+|---|---|---|
+| attribute | string\|array\|null | WordPress attribute type used in block attributes. |
+| default | mixed | Default value used when no field default is set. |
+| options | boolean | Marks the type as option-like in server type checks. |
+| multiple | boolean | Marks the type as multi-value where relevant. |
+| container | boolean | Marks the type as container-like in type checks. |
+| producesAttribute | boolean | Whether the type should output a block attribute. |
+| storageType | string | Preferred storage type for postMeta/option registration. |
+
+## 2. Render the Type in the Editor
+
+Register a React component for the same type name.
+
+```js
+import { SelectControl } from '@wordpress/components';
+
+window.blockstudio.registerFieldType( 'acme:spacing-token', {
+	component: function SpacingTokenField( props ) {
+		const value = props.value || '';
+		const onChange = props.onChange;
+
+		return (
+			<SelectControl
+				label=""
+				value={ value }
+				onChange={ ( next ) => onChange?.( next ) }
+				options={ [
+					{ value: '', label: 'Select token' },
+					{ value: 'small', label: 'Small' },
+					{ value: 'default', label: 'Default' },
+					{ value: 'large', label: 'Large' },
+				] }
+			/>
+		);
+	},
+} );
+```
+
+Optionally add a normalizer when your component needs a different prop shape.
+
+```js
+window.blockstudio.registerFieldType( 'acme:spacing-token', {
+	component: SpacingTokenField,
+	normalizer: function( context ) {
+		return {
+			...context.allProps,
+			value: context.value || '',
+		};
+	},
+} );
+```
+
+## 3. Use the Type in block.json
+
+```json
+{
+  "blockstudio": {
+    "attributes": [
+      {
+        "id": "margin",
+        "type": "acme:spacing-token",
+        "label": "Margin",
+        "default": "default"
+      }
+    ]
+  }
+}
+```
+
+## 4. Optional: Custom Builder Handler
+
+If your type needs special attribute building logic, register a custom handler.
+
+```php
+use Blockstudio\Attribute_Builder;
+use Blockstudio\Interfaces\Field_Handler_Interface;
+
+class Acme_Spacing_Handler implements Field_Handler_Interface {
+	public function supports( string $type ): bool {
+		return 'acme:spacing-token' === $type;
+	}
+
+	public function build( array $field, array &$attributes, string $prefix = '' ): void {
+		$id = ( '' === $prefix ? '' : $prefix . '_' ) . ( $field['id'] ?? '' );
+
+		if ( '' === $id ) {
+			return;
+		}
+
+		$attributes[ $id ] = array(
+			'blockstudio' => true,
+			'type'        => 'string',
+			'field'       => 'acme:spacing-token',
+			'id'          => $id,
+			'default'     => $field['default'] ?? '',
+		);
+	}
+
+	public function get_default_value( array $field ): mixed {
+		return $field['default'] ?? '';
+	}
+}
+
+add_filter( 'blockstudio/attribute_builder/handlers', function( array $handlers, Attribute_Builder $builder ) {
+	$handlers[] = new Acme_Spacing_Handler();
+	return $handlers;
+}, 10, 2 );
+```
+
+If you do not register a custom handler, Blockstudio falls back to generic attribute creation using your field type metadata.
+
+## 5. Optional: Override Storage Type Resolution
+
+Use blockstudio/storage/meta_type when you need storage behavior that differs by field settings.
+
+```php
+add_filter( 'blockstudio/storage/meta_type', function( string $meta_type, array $field, string $block_name, string $storage ) {
+	if ( 'acme:spacing-token' !== ( $field['type'] ?? '' ) ) {
+		return $meta_type;
+	}
+
+	if ( 'postMeta' === $storage ) {
+		return 'string';
+	}
+
+	return $meta_type;
+}, 10, 4 );
+```
+
+## PHP Helper API
+
+Blockstudio now includes a helper API that wraps the related extension hooks into one call.
+
+### Helper Class
+
+```php
+Blockstudio\Field_Types::register(
+	'acme:spacing-token',
+	array(
+		'attribute'   => 'string',
+		'default'     => '',
+		'storageType' => 'string',
+	),
+	array(
+		'handler' => new Acme_Spacing_Handler(),
+		'storageResolver' => function( string $meta_type, array $field, string $block_name, string $storage ) {
+			return 'postMeta' === $storage ? 'string' : $meta_type;
+		},
+	)
+);
+```
+
+### Public Function Wrapper
+
+```php
+bs_register_field_type(
+	'acme:spacing-token',
+	array(
+		'attribute'   => 'string',
+		'default'     => '',
+		'storageType' => 'string',
+	)
+);
+```
+
+### Options
+
+| Option | Type | Description |
+|---|---|---|
+| replace | boolean | Replace an existing registration for the same type. Default false. |
+| handler | Field_Handler_Interface | Optional custom attribute builder handler for the type. |
+| storageResolver | callable | Optional resolver for storage value type. |
+
+### Unregister
+
+```php
+bs_unregister_field_type( 'acme:spacing-token' );
+```

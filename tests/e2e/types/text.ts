@@ -41,8 +41,13 @@ testType(
           await page.keyboard.type('test');
           await page.fill('[data-id="textClass"] input', 'test');
           await page.fill('[data-id="textClass2"] input', 'test2');
+          await page.fill('[data-id="textDimensionSingle"] input', '42');
           await count(canvas, '.text-test', 1);
           await count(canvas, '.text-test2-2', 1);
+          await count(canvas, '.dimension-42px', 1);
+          await expect(
+            canvas.locator('.blockstudio-test__block')
+          ).not.toHaveAttribute('style', /42px/);
           for (const item of ['.blockstudio-test__block']) {
             await count(canvas, `${item}.is-large`, 1);
             await count(canvas, `${item}[data-test="test"]`, 1);
@@ -117,6 +122,7 @@ testType(
           await page.goto('http://localhost:8888/native-single/');
           await count(page, '.text-test', 1);
           await count(page, '.text-test2-2', 1);
+          await count(page, '.dimension-42px', 1);
           await count(page, '.select-class-2', 1);
           await count(page, '.select-post-native', 1);
           await count(page, '.select-post-Reusable', 1);
@@ -135,6 +141,10 @@ testType(
             await count(page, `${item}.is-large`, 1);
             await count(page, `${item}[data-test="test"]`, 1);
             await checkStyle(page, item, 'color', 'rgb(255, 0, 0)');
+            await expect(page.locator(item)).not.toHaveAttribute(
+              'style',
+              /42px/
+            );
             await checkStyle(
               page,
               item,
