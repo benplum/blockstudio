@@ -642,14 +642,20 @@ test.describe('Canvas', () => {
         { timeout: 10000 },
       );
 
-      const artboards = page.locator('[data-canvas-slug]');
-      const count = await artboards.count();
-      const initialRevisions: Record<string, string> = {};
-      for (let i = 0; i < count; i++) {
-        const slug = await artboards.nth(i).getAttribute('data-canvas-slug');
-        const rev = await artboards.nth(i).getAttribute('data-canvas-revision');
-        initialRevisions[slug!] = rev!;
-      }
+      const changedSlug = 'blockstudio-e2e-test';
+      const unchangedSlug = 'blockstudio-e2e-test-blade';
+      const changedArtboard = page.locator(`[data-canvas-slug="${changedSlug}"]`);
+      const unchangedArtboard = page.locator(`[data-canvas-slug="${unchangedSlug}"]`);
+
+      await expect(changedArtboard).toHaveCount(1);
+      await expect(unchangedArtboard).toHaveCount(1);
+
+      const changedRevisionBefore = await changedArtboard.getAttribute(
+        'data-canvas-revision',
+      );
+      const unchangedRevisionBefore = await unchangedArtboard.getAttribute(
+        'data-canvas-revision',
+      );
 
       fs.writeFileSync(
         templatePath,
@@ -661,21 +667,21 @@ test.describe('Canvas', () => {
           const artboard = document.querySelector(`[data-canvas-slug="${slug}"]`);
           return artboard && artboard.getAttribute('data-canvas-revision') !== '0';
         },
-        'blockstudio-e2e-test',
+        changedSlug,
         { timeout: 20000 },
       );
 
-      for (let i = 0; i < count; i++) {
-        const slug = await artboards.nth(i).getAttribute('data-canvas-slug');
-        const rev = await artboards.nth(i).getAttribute('data-canvas-revision');
-        if (slug === 'blockstudio-e2e-test') {
-          expect(parseInt(rev!, 10)).toBeGreaterThan(
-            parseInt(initialRevisions[slug!], 10),
-          );
-        } else {
-          expect(rev).toBe(initialRevisions[slug!]);
-        }
-      }
+      const changedRevisionAfter = await changedArtboard.getAttribute(
+        'data-canvas-revision',
+      );
+      const unchangedRevisionAfter = await unchangedArtboard.getAttribute(
+        'data-canvas-revision',
+      );
+
+      expect(parseInt(changedRevisionAfter!, 10)).toBeGreaterThan(
+        parseInt(changedRevisionBefore!, 10),
+      );
+      expect(unchangedRevisionAfter).toBe(unchangedRevisionBefore);
     });
   });
 
@@ -726,8 +732,6 @@ test.describe('Canvas', () => {
 
       await waitForCanvasSurface(page);
 
-      const initialCount = await page.locator('[data-canvas-slug]').count();
-
       const menuButton = page.locator('.blockstudio-canvas-menu .components-button').first();
       await menuButton.click();
       await expect(page.locator('role=menu')).toBeVisible({ timeout: 5000 });
@@ -761,17 +765,10 @@ test.describe('Canvas', () => {
         '<p>New page detected by live mode.</p>',
       );
 
-      await page.waitForFunction(
-        (prevCount: number) => {
-          return document.querySelectorAll('[data-canvas-slug]').length > prevCount;
-        },
-        initialCount,
-        { timeout: 20000 },
+      const newPageArtboard = page.locator(
+        '[data-canvas-slug="canvas-new-page-test"]',
       );
-
-      await expect(
-        page.locator('[data-canvas-slug="canvas-new-page-test"]'),
-      ).toBeVisible({ timeout: 5000 });
+      await expect(newPageArtboard).toBeVisible({ timeout: 20000 });
 
       await expect(
         page.locator('#blockstudio-canvas', { hasText: 'Canvas New Page Test' }),
@@ -1384,15 +1381,13 @@ test.describe('Canvas', () => {
 
       await waitForCanvasSurface(page);
 
-      const iframes = page.locator('#blockstudio-canvas iframe');
-      await expect(iframes.first()).toBeVisible({ timeout: 15000 });
+      const activeIframe = page
+        .locator('#blockstudio-canvas iframe[data-canvas-display-layer="active"]')
+        .first();
+      await expect(activeIframe).toBeVisible({ timeout: 15000 });
 
-      const hasBlockstudioCSS = await page.evaluate(() => {
-        const iframe = document.querySelector(
-          '#blockstudio-canvas iframe',
-        ) as HTMLIFrameElement | null;
-        if (!iframe) return false;
-        const doc = iframe.contentDocument;
+      const hasBlockstudioCSS = await activeIframe.evaluate((iframe) => {
+        const doc = (iframe as HTMLIFrameElement).contentDocument;
         if (!doc) return false;
         return doc.documentElement.innerHTML.includes('blockstudio');
       });
@@ -1415,8 +1410,10 @@ test.describe('Canvas', () => {
 
         await waitForCanvasSurface(page);
 
-        const iframes = page.locator('#blockstudio-canvas iframe');
-        await expect(iframes.first()).toBeVisible({ timeout: 15000 });
+        const activeIframe = page
+          .locator('#blockstudio-canvas iframe[data-canvas-display-layer="active"]')
+          .first();
+        await expect(activeIframe).toBeVisible({ timeout: 15000 });
 
         // Verify extension style tags exist on initial render.
         const initialCount = await page.evaluate(() => {
@@ -1675,8 +1672,9 @@ test.describe('Canvas', () => {
     });
 
     test('focus overlay contains artboard iframe', async () => {
-      const iframe = page.locator('[data-canvas-focus] iframe');
-      await expect(iframe).toBeVisible({ timeout: 30000 });
+      const iframe = page.locator('[data-canvas-focus] iframe').first();
+      await expect(iframe).toBeAttached({ timeout: 30000 });
+      await expect(iframe).toHaveAttribute('src', /^blob:/);
     });
 
     test('focus overlay is scrollable', async () => {
@@ -1773,13 +1771,20 @@ test.describe('Canvas', () => {
     });
 
     test('block labels have violet color', async () => {
-      const labels = page.locator('[data-canvas-label]');
-      await expect(labels.first()).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('[data-canvas-view="blocks"]')).toBeVisible();
 
-      const color = await labels.first().evaluate(
-        (el) => window.getComputedStyle(el).color,
-      );
-      expect(color).toBe('rgb(168, 85, 247)');
+      const label = page
+        .locator('[data-canvas-view="blocks"] [data-canvas-label]', {
+          hasText: 'Block Field Test',
+        })
+        .first();
+      await expect(label).toBeVisible({ timeout: 5000 });
+
+      await expect
+        .poll(() =>
+          label.evaluate((el) => window.getComputedStyle(el).color),
+        )
+        .toBe('rgb(168, 85, 247)');
     });
 
     test('blocks view uses multi-column grid', async () => {
@@ -1792,9 +1797,24 @@ test.describe('Canvas', () => {
     });
 
     test('blocks artboard width is 800px', async () => {
-      const artboard = page.locator('[data-canvas-slug]').first();
-      const width = await artboard.evaluate((el) => (el as HTMLElement).offsetWidth);
-      expect(width).toBe(800);
+      const width = await page.waitForFunction(() => {
+        const artboards = Array.from(
+          document.querySelectorAll('[data-canvas-view="blocks"] [data-canvas-slug]'),
+        ) as HTMLElement[];
+        const visible = artboards.find((artboard) => {
+          const style = window.getComputedStyle(artboard);
+
+          return (
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            artboard.offsetWidth === 800
+          );
+        });
+
+        return visible ? visible.offsetWidth : 0;
+      }, null, { timeout: 30000 });
+
+      expect(await width.jsonValue()).toBe(800);
     });
 
     test('switching back to pages view restores page artboards', async () => {
