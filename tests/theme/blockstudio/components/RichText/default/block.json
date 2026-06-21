@@ -19,6 +19,10 @@
       {
         "id": "richtext2",
         "type": "richtext"
+      },
+      {
+        "id": "richtext3",
+        "type": "richtext"
       }
     ]
   }

@@ -17,4 +17,12 @@
 		allowedFormats="<?php echo esc_attr( wp_json_encode( array( 'core/bold', 'core/link' ) ) ); ?>"
 		withoutInteractiveFormatting="true"
 	/>
+	<RichText
+		style="padding: 1rem; background: #f1f1f1;"
+		class="blockstudio-test__block test test2 test3"
+		tag="h3"
+		attribute="richtext3"
+		placeholder="Enter text here"
+		allowedFormats="<?php echo esc_attr( wp_json_encode( array( 'core/link' ) ) ); ?>"
+	/>
 </div>
