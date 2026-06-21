@@ -79,6 +79,7 @@ const AdvancedSelect = ({
     item?.populate?.type === 'fetch' ||
     hasDynamicArgs;
   const ref = useRef(null);
+  const fetchRequest = useRef(0);
   const [allOptions, setAllOptions] = useState(
     isFetch
       ? multiple
@@ -104,6 +105,7 @@ const AdvancedSelect = ({
   const allowReset = !!(!multiple && value?.value);
 
   const fetcher = async (searchValue: string) => {
+    const request = ++fetchRequest.current;
     setIsLoading(true);
     try {
       let res: { label: string; value: string }[] | Response;
@@ -157,18 +159,22 @@ const AdvancedSelect = ({
           },
         });
       }
-      setAllOptions(
-        addSingleFetched(
-          res as {
-            label: string;
-            value: string;
-          }[],
-          value,
-        ),
-      );
+      if (request === fetchRequest.current) {
+        setAllOptions(
+          addSingleFetched(
+            res as {
+              label: string;
+              value: string;
+            }[],
+            value,
+          ),
+        );
+      }
       return res;
     } finally {
-      setIsLoading(false);
+      if (request === fetchRequest.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -220,7 +226,9 @@ const AdvancedSelect = ({
   const dynamicDepValues = useMemo(() => {
     if (!hasDynamicArgs) return '';
     const args = JSON.stringify(item?.populate || {});
-    const refs = [...args.matchAll(/\{attributes\.([^}]+)\}/g)].map((m) => m[1]);
+    const refs = [...args.matchAll(/\{attributes\.([^}]+)\}/g)].map(
+      (m) => m[1],
+    );
     const attrs = (attributes as Any)?.blockstudio?.attributes || {};
     return refs.map((r) => JSON.stringify(get(attrs, r))).join('|');
   }, [(attributes as Any)?.blockstudio?.attributes]);
@@ -234,8 +242,8 @@ const AdvancedSelect = ({
     if (!isFetch) return;
 
     if (searchValue === '') {
-      setAllOptions(multiple ? options : addSingleFetched(allOptions, value));
-      setIsLoading(false);
+      debouncedApiFetch.cancel();
+      fetcher('');
     } else {
       debouncedApiFetch(searchValue);
     }

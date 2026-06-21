@@ -212,6 +212,10 @@ class Plugin {
 			Block_Editor_Policy::init();
 		}
 
+		if ( class_exists( 'Blockstudio\Build_Cache' ) ) {
+			Build_Cache::init();
+		}
+
 		add_action(
 			'init',
 			function () {

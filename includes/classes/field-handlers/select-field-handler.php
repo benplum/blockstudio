@@ -174,16 +174,22 @@ class Select_Field_Handler extends Abstract_Field_Handler {
 	 * @return void
 	 */
 	private function build_options( array $field, array &$attribute ): void {
-		$options = $field['options'] ?? array();
+		$is_fetch_populate = 'select' === ( $field['type'] ?? '' ) &&
+			( $field['populate']['fetch'] ?? false );
+		$options           = $is_fetch_populate ? array() : ( $field['options'] ?? array() );
 
 		// Handle populate.
 		if ( isset( $field['populate'] ) ) {
 			$populate_type = $field['populate']['type'] ?? false;
+			$should_defer  = $is_fetch_populate && ! ( $field['fromEditor'] ?? false );
 
 			if (
-				'query' === $populate_type ||
-				'custom' === $populate_type ||
-				'function' === $populate_type
+				! $should_defer &&
+				(
+					'query' === $populate_type ||
+					'custom' === $populate_type ||
+					'function' === $populate_type
+				)
 			) {
 				$options_addons        = Populate::init(
 					$field['populate'],
@@ -296,6 +302,21 @@ class Select_Field_Handler extends Abstract_Field_Handler {
 					: array( $field[ $item ] );
 
 				foreach ( $default_values as $value ) {
+					if ( 'select' === $type && ( $field['populate']['fetch'] ?? false ) ) {
+						$default_value = is_array( $value ) && array_key_exists( 'value', $value )
+							? $value['value']
+							: $value;
+						$default_label = is_array( $value ) && array_key_exists( 'label', $value )
+							? $value['label']
+							: ( is_scalar( $default_value ) ? (string) $default_value : '' );
+
+						$default_select[] = array(
+							'value' => $default_value,
+							'label' => $default_label,
+						);
+						continue;
+					}
+
 					$option_value = Option_Value_Resolver::get_option_value(
 						array( 'options' => $attribute['options'] ?? $field['options'] ),
 						'value',

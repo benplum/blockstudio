@@ -28,6 +28,64 @@ final class Build_Cache {
 	private const VERSION = 5;
 
 	/**
+	 * Option storing the database-backed populate cache version.
+	 *
+	 * @var string
+	 */
+	private const POPULATE_CACHE_VERSION_OPTION = 'blockstudio_populate_cache_version';
+
+	/**
+	 * Whether content-change invalidation hooks have been registered.
+	 *
+	 * @var bool
+	 */
+	private static bool $hooks_registered = false;
+
+	/**
+	 * Register cache invalidation hooks.
+	 *
+	 * @return void
+	 */
+	public static function init(): void {
+		if ( self::$hooks_registered ) {
+			return;
+		}
+
+		self::$hooks_registered = true;
+
+		add_action( 'save_post', array( __CLASS__, 'invalidate_populate_cache_for_post' ), 10, 1 );
+
+		foreach (
+			array(
+				'deleted_post',
+				'trashed_post',
+				'untrashed_post',
+				'created_term',
+				'edited_term',
+				'delete_term',
+				'set_object_terms',
+				'user_register',
+				'profile_update',
+				'deleted_user',
+				'set_user_role',
+				'add_user_role',
+				'remove_user_role',
+				'added_post_meta',
+				'updated_post_meta',
+				'deleted_post_meta',
+				'added_term_meta',
+				'updated_term_meta',
+				'deleted_term_meta',
+				'added_user_meta',
+				'updated_user_meta',
+				'deleted_user_meta',
+			) as $hook
+		) {
+			add_action( $hook, array( __CLASS__, 'invalidate_populate_cache' ) );
+		}
+	}
+
+	/**
 	 * Get the cache directory path.
 	 *
 	 * @param string $scope Cache scope.
@@ -73,6 +131,7 @@ final class Build_Cache {
 					'instance'     => $instance,
 					'settings'     => self::get_settings_fingerprint(),
 					'plugins'      => self::get_active_plugins_fingerprint(),
+					'populate'     => self::get_populate_cache_version(),
 					'stylesheet'   => function_exists( 'get_stylesheet' ) ? get_stylesheet() : '',
 					'template'     => function_exists( 'get_template' ) ? get_template() : '',
 					'wpVersion'    => get_bloginfo( 'version' ),
@@ -118,6 +177,48 @@ final class Build_Cache {
 		);
 
 		return self::write( 'runtime', self::get_runtime_key( $path, $instance ), $payload );
+	}
+
+	/**
+	 * Get the database-backed populate cache version.
+	 *
+	 * @return string Cache version.
+	 */
+	public static function get_populate_cache_version(): string {
+		return (string) get_option( self::POPULATE_CACHE_VERSION_OPTION, '0' );
+	}
+
+	/**
+	 * Invalidate database-backed populate data stored in runtime cache payloads.
+	 *
+	 * @return void
+	 */
+	public static function invalidate_populate_cache(): void {
+		$version = function_exists( 'wp_generate_uuid4' )
+			? wp_generate_uuid4()
+			: uniqid( '', true );
+
+		update_option( self::POPULATE_CACHE_VERSION_OPTION, $version, false );
+	}
+
+	/**
+	 * Invalidate populate cache for real post changes.
+	 *
+	 * Autosaves and revisions do not affect query-populate source data.
+	 *
+	 * @param int $post_id Post ID.
+	 *
+	 * @return void
+	 */
+	public static function invalidate_populate_cache_for_post( int $post_id ): void {
+		if (
+			( function_exists( 'wp_is_post_revision' ) && wp_is_post_revision( $post_id ) ) ||
+			( function_exists( 'wp_is_post_autosave' ) && wp_is_post_autosave( $post_id ) )
+		) {
+			return;
+		}
+
+		self::invalidate_populate_cache();
 	}
 
 	/**

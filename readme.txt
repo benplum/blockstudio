@@ -66,6 +66,8 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Fix: frontmatter metadata is restored during frontend page hydration
 * Fix: markdown-backed pages can serve raw markdown content where needed
 * Fix: `className` attributes on programmatic `core/query` and `core/comments` block tags are preserved in generated wrapper markup
+* Fix: query-populated options now invalidate the runtime build cache when posts, terms, users, or related meta change
+* Fix: `populate.fetch: true` query selects no longer bake stale options at build time and now fetch live options for empty editor searches
 * Fix: page discovery now satisfies WordPress coding standards after the expanded page collection work
 
 = 7.3.3 =
