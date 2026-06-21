@@ -436,10 +436,7 @@ class Page_Discovery {
 			return null;
 		}
 
-		$defaults = array_merge(
-			$this->default_page_values(),
-			is_array( $collection['defaults'] ?? null ) ? $collection['defaults'] : array()
-		);
+		$defaults = $this->collection_page_defaults( $collection );
 
 		$page_data = wp_parse_args( $page_json, $defaults );
 		$page_data = $this->normalize_page_data(
@@ -534,10 +531,7 @@ class Page_Discovery {
 			return null;
 		}
 
-		$defaults = array_merge(
-			$this->default_page_values(),
-			is_array( $collection['defaults'] ?? null ) ? $collection['defaults'] : array()
-		);
+		$defaults = $this->collection_page_defaults( $collection );
 
 		$page_data = wp_parse_args( $frontmatter, $defaults );
 
@@ -695,7 +689,7 @@ class Page_Discovery {
 			return null;
 		}
 
-		$defaults  = array_merge( $this->default_page_values(), $collection['defaults'] );
+		$defaults  = $this->collection_page_defaults( $collection );
 		$page_data = wp_parse_args( $loader_page, $defaults );
 		$meta      = array_merge(
 			$loader_meta,
@@ -1187,6 +1181,26 @@ class Page_Discovery {
 			'templateLock' => 'all',
 			'templateFor'  => null,
 			'sync'         => true,
+		);
+	}
+
+	/**
+	 * Default values for pages inside a collection.
+	 *
+	 * @param array|null $collection Collection data.
+	 *
+	 * @return array Defaults.
+	 */
+	private function collection_page_defaults( ?array $collection ): array {
+		$defaults = $this->default_page_values();
+
+		if ( ! empty( $collection['postType'] ) && is_scalar( $collection['postType'] ) ) {
+			$defaults['postType'] = (string) $collection['postType'];
+		}
+
+		return array_merge(
+			$defaults,
+			is_array( $collection['defaults'] ?? null ) ? $collection['defaults'] : array()
 		);
 	}
 

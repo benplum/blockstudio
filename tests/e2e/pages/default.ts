@@ -161,6 +161,59 @@ test.describe('File-based Pages', () => {
     });
   });
 
+  test.describe('Collection CPT URLs', () => {
+    test('collection CPT pages resolve at collection paths', async () => {
+      const cases = [
+        ['/docs/', 'Documentation Home'],
+        ['/docs/getting-started/', 'Getting Started'],
+        ['/docs/guide/install/', 'Installation'],
+        ['/flat-docs/', 'Flat Documentation Home'],
+        ['/flat-docs/guide/install/', 'Flat Install'],
+      ];
+
+      for (const [path, text] of cases) {
+        const response = await context.request.get(`${BASE}${path}`);
+        expect(response.status(), path).toBe(200);
+        expect(await response.text(), path).toContain(text);
+      }
+    });
+
+    test('doubled collection CPT URLs redirect to canonical URLs', async () => {
+      const cases = [
+        ['/docs/docs/', '/docs/'],
+        ['/docs/docs/getting-started/', '/docs/getting-started/'],
+        ['/docs/docs/guide/install/', '/docs/guide/install/'],
+        ['/flat-docs/flat-docs/', '/flat-docs/'],
+        ['/flat-docs/flat-docs/guide/install/', '/flat-docs/guide/install/'],
+      ];
+
+      for (const [path, target] of cases) {
+        const response = await context.request.get(`${BASE}${path}`, {
+          maxRedirects: 0,
+        });
+        expect(response.status(), path).toBe(301);
+        expect(response.headers().location, path).toBe(`${BASE}${target}`);
+      }
+    });
+
+    test('collection markdown endpoints return raw markdown', async () => {
+      const cases = [
+        ['/docs.md', 'Welcome to the generated documentation home.'],
+        ['/docs/getting-started.md', 'Start building with the docs collection.'],
+        ['/docs/guide/install.md', 'Install Blockstudio from this markdown page.'],
+        ['/flat-docs.md', 'Welcome to the non-hierarchical documentation home.'],
+        ['/flat-docs/guide/install.md', 'Nested logical paths work without WordPress parent pages.'],
+      ];
+
+      for (const [path, text] of cases) {
+        const response = await context.request.get(`${BASE}${path}`);
+        expect(response.status(), path).toBe(200);
+        expect(response.headers()['content-type'], path).toContain('text/markdown');
+        expect(await response.text(), path).toContain(text);
+      }
+    });
+  });
+
   test.describe('Sync Test Page', () => {
     test('sync test page exists with draft status', async () => {
       await page.goto(`${BASE}/wp-admin/edit.php?post_type=page&post_status=draft`);

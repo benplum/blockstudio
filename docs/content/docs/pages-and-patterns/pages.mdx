@@ -181,7 +181,7 @@ docs/
 
 | Property                       | Type      | Description                                                                                        |
 | ------------------------------ | --------- | -------------------------------------------------------------------------------------------------- |
-| `collection` / `slug` / `name` | `string`  | Collection slug. `collection` is the clearest form.                                                |
+| `collection` / `slug` / `name` | `string`  | Collection slug. `collection` is the clearest form and becomes the public URL base.                |
 | `title`                        | `string`  | Human-readable collection title.                                                                   |
 | `postType`                     | `string`  | Post type for generated pages. Defaults to `page`. If it does not exist, Blockstudio registers it. |
 | `postTypeArgs`                 | `object`  | Arguments passed to `register_post_type()` when Blockstudio registers the collection post type.    |
@@ -198,9 +198,41 @@ If a collection has a nested page but an intermediate parent source does not
 exist, Blockstudio generates an empty container page for that path. This keeps
 the WordPress hierarchy complete.
 
-Nested relationships require a hierarchical post type. If a collection uses a
-non-hierarchical post type, Blockstudio records a discovery error because
-WordPress cannot represent the `post_parent` relationship.
+### Collection Post Types and URLs
+
+Set `postType` on the collection manifest to sync every page in the collection
+to that post type. You do not need to repeat the same value inside
+`defaults`. Individual pages can still override `postType` in frontmatter or
+`page.json`.
+
+When the post type does not exist, Blockstudio registers it with
+`show_in_rest: true`, a page-like editor setup, and the collection slug as the
+public URL base. `postTypeArgs` can override the registration arguments.
+
+Collection URLs use the collection slug plus each page's logical `path`:
+
+| Source path               | Public URL               |
+| ------------------------- | ------------------------ |
+| `path: "."`               | `/docs/`                 |
+| `path: "getting-started"` | `/docs/getting-started/` |
+| `path: "guide/install"`   | `/docs/guide/install/`   |
+
+This URL model works for both hierarchical and non-hierarchical collection
+post types. Blockstudio also redirects the older doubled form, such as
+`/docs/docs/` or `/docs/docs/getting-started/`, to the canonical URL.
+
+Markdown-backed collection pages keep the same URL shape for raw Markdown:
+
+| Page URL                 | Raw Markdown URL           |
+| ------------------------ | -------------------------- |
+| `/docs/`                 | `/docs.md`                 |
+| `/docs/getting-started/` | `/docs/getting-started.md` |
+| `/docs/guide/install/`   | `/docs/guide/install.md`   |
+
+If you change a collection from `postType: "page"` to a custom post type,
+Blockstudio migrates already synced collection posts in place when their
+stored page identity matches. That preserves post IDs, metadata, and existing
+content while avoiding duplicate old-typed posts.
 
 ## Collection Loaders
 

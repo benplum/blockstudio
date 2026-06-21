@@ -288,14 +288,33 @@ class PagesTest extends TestCase {
 	public function test_collection_post_type_is_registered(): void {
 		$this->assertTrue( post_type_exists( 'bs_docs' ) );
 		$this->assertTrue( is_post_type_hierarchical( 'bs_docs' ) );
+		$this->assertTrue( post_type_exists( 'bs_flat_docs' ) );
+		$this->assertFalse( is_post_type_hierarchical( 'bs_flat_docs' ) );
 	}
 
 	public function test_collection_pages_are_namespaced(): void {
 		$pages = Pages::in_collection( 'docs' );
 
 		$this->assertArrayHasKey( 'docs:docs-home', $pages );
+		$this->assertArrayHasKey( 'docs:docs-getting-started', $pages );
 		$this->assertArrayHasKey( 'docs:docs-reference', $pages );
 		$this->assertArrayHasKey( 'docs:docs-loader-api', $pages );
+	}
+
+	public function test_collection_pages_inherit_collection_post_type(): void {
+		$this->assertSame( 'bs_docs', get_post_type( Pages::get_post_id( 'docs-home' ) ) );
+		$this->assertSame( 'bs_docs', get_post_type( Pages::get_post_id( 'docs-getting-started' ) ) );
+		$this->assertSame( 'bs_docs', get_post_type( Pages::get_post_id( 'docs-install' ) ) );
+		$this->assertSame( 'bs_flat_docs', get_post_type( Pages::get_post_id( 'flat-docs-home' ) ) );
+		$this->assertSame( 'bs_flat_docs', get_post_type( Pages::get_post_id( 'flat-docs-install' ) ) );
+	}
+
+	public function test_collection_cpt_permalinks_use_collection_paths(): void {
+		$this->assertSame( home_url( '/docs/' ), get_permalink( Pages::get_post_id( 'docs-home' ) ) );
+		$this->assertSame( home_url( '/docs/getting-started/' ), get_permalink( Pages::get_post_id( 'docs-getting-started' ) ) );
+		$this->assertSame( home_url( '/docs/guide/install/' ), get_permalink( Pages::get_post_id( 'docs-install' ) ) );
+		$this->assertSame( home_url( '/flat-docs/' ), get_permalink( Pages::get_post_id( 'flat-docs-home' ) ) );
+		$this->assertSame( home_url( '/flat-docs/guide/install/' ), get_permalink( Pages::get_post_id( 'flat-docs-install' ) ) );
 	}
 
 	public function test_collection_generates_missing_container_pages(): void {
@@ -315,6 +334,7 @@ class PagesTest extends TestCase {
 		$names    = array_column( $children, 'name' );
 
 		$this->assertContains( 'docs-guide', $names );
+		$this->assertContains( 'docs-getting-started', $names );
 		$this->assertContains( 'docs-reference', $names );
 		$this->assertContains( 'docs-api', $names );
 	}
@@ -518,7 +538,58 @@ class PagesTest extends TestCase {
 		$this->assertSame( 'docs:docs-install', get_post_meta( $post_id, '_blockstudio_page_key', true ) );
 		$this->assertSame( 'docs', get_post_meta( $post_id, '_blockstudio_page_collection', true ) );
 		$this->assertSame( 'guide/install', get_post_meta( $post_id, '_blockstudio_page_path', true ) );
+		$this->assertSame( 'bs_docs', get_post_type( $post_id ) );
 		$this->assertNotEmpty( get_post_meta( $post_id, '_blockstudio_page_fingerprint', true ) );
+	}
+
+	public function test_collection_post_type_change_migrates_existing_post(): void {
+		$page_data = Pages::get_page( 'docs-reference' );
+		$post_id   = Pages::get_post_id( 'docs-reference' );
+
+		wp_update_post(
+			array(
+				'ID'        => $post_id,
+				'post_type' => 'page',
+			)
+		);
+
+		$this->assertSame( 'page', get_post_type( $post_id ) );
+
+		$result = ( new Page_Sync() )->force_sync( $page_data );
+
+		$this->assertSame( $post_id, $result );
+		$this->assertSame( 'bs_docs', get_post_type( $post_id ) );
+	}
+
+	public function test_collection_post_type_change_prunes_duplicate_old_posts(): void {
+		$page_data    = Pages::get_page( 'docs-getting-started' );
+		$keep_post_id = Pages::get_post_id( 'docs-getting-started' );
+		$duplicate_id = wp_insert_post(
+			array(
+				'post_title'   => 'Duplicate Getting Started',
+				'post_name'    => 'getting-started',
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_content' => 'Duplicate content.',
+			)
+		);
+
+		$this->assertIsInt( $duplicate_id );
+
+		update_post_meta( $duplicate_id, '_blockstudio_page_key', $page_data['key'] );
+		update_post_meta( $duplicate_id, '_blockstudio_page_name', $page_data['name'] );
+		update_post_meta( $duplicate_id, '_blockstudio_page_source', $page_data['source_path'] );
+		update_post_meta( $duplicate_id, '_blockstudio_page_collection', $page_data['collection'] );
+		update_post_meta( $duplicate_id, '_blockstudio_page_path', $page_data['path'] );
+
+		try {
+			$result = ( new Page_Sync() )->force_sync( $page_data );
+
+			$this->assertSame( $keep_post_id, $result );
+			$this->assertSame( 'trash', get_post_status( $duplicate_id ) );
+		} finally {
+			wp_delete_post( $duplicate_id, true );
+		}
 	}
 
 	public function test_markdown_page_stores_content_path(): void {

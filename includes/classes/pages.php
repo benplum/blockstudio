@@ -39,6 +39,20 @@ class Pages {
 	private static bool $runtime_hooks_registered = false;
 
 	/**
+	 * Whether collection URL hooks have been registered.
+	 *
+	 * @var bool
+	 */
+	private static bool $collection_url_hooks_registered = false;
+
+	/**
+	 * Whether a collection rewrite flush has been scheduled.
+	 *
+	 * @var bool
+	 */
+	private static bool $collection_rewrite_flush_scheduled = false;
+
+	/**
 	 * Current page while rendering a layout.
 	 *
 	 * @var array|null
@@ -121,23 +135,6 @@ class Pages {
 		}
 
 		foreach ( $registry->get_pages() as $name => $page_data ) {
-			if ( ! empty( $page_data['parent_key'] ) && ! is_post_type_hierarchical( $page_data['postType'] ) ) {
-				$registry->add_errors(
-					array(
-						array(
-							'code'    => 'non_hierarchical_collection_path',
-							'message' => 'Nested collection paths cannot be represented with post_parent on a non-hierarchical post type.',
-							'context' => array(
-								'collection' => $page_data['collection'] ?? null,
-								'name'       => $page_data['name'] ?? null,
-								'path'       => $page_data['path'] ?? null,
-								'postType'   => $page_data['postType'] ?? null,
-							),
-						),
-					)
-				);
-			}
-
 			$post_id = $sync->sync( $page_data );
 
 			if ( is_int( $post_id ) && $post_id > 0 ) {
@@ -183,10 +180,14 @@ class Pages {
 	 * @return void
 	 */
 	public static function register_collection_post_types(): void {
+		self::register_collection_url_hooks();
+
 		$paths = self::get_paths();
 
 		/** This filter is documented in init(). */
 		$paths = apply_filters( 'blockstudio/pages/paths', $paths );
+
+		$collections = array();
 
 		foreach ( $paths as $path ) {
 			if ( ! is_dir( $path ) ) {
@@ -194,9 +195,13 @@ class Pages {
 			}
 
 			foreach ( Page_Discovery::discover_manifests( $path ) as $collection ) {
+				$collections[] = $collection;
 				self::register_collection_post_type( $collection );
+				self::add_collection_rewrite_rules( $collection );
 			}
 		}
+
+		self::maybe_flush_collection_rewrite_rules( $collections );
 	}
 
 	/**
@@ -213,7 +218,8 @@ class Pages {
 			return;
 		}
 
-		$args = wp_parse_args(
+		$rewrite_slug = $collection['slug'] ?? $post_type;
+		$args         = wp_parse_args(
 			$collection['postTypeArgs'] ?? array(),
 			array(
 				'label'        => $collection['title'] ?? Page_Discovery::title_from_value( $collection['slug'] ?? $post_type ),
@@ -222,10 +228,26 @@ class Pages {
 				'show_in_rest' => true,
 				'supports'     => array( 'title', 'editor', 'page-attributes', 'thumbnail', 'excerpt', 'revisions' ),
 				'rewrite'      => array(
-					'slug' => $collection['slug'] ?? $post_type,
+					'slug'       => $rewrite_slug,
+					'with_front' => false,
 				),
 			)
 		);
+
+		if ( true === ( $args['rewrite'] ?? true ) ) {
+			$args['rewrite'] = array(
+				'slug'       => $rewrite_slug,
+				'with_front' => false,
+			);
+		} elseif ( is_array( $args['rewrite'] ?? null ) ) {
+			$args['rewrite'] = wp_parse_args(
+				$args['rewrite'],
+				array(
+					'slug'       => $rewrite_slug,
+					'with_front' => false,
+				)
+			);
+		}
 
 		/**
 		 * Filter post type args for a page collection.
@@ -236,6 +258,426 @@ class Pages {
 		$args = apply_filters( 'blockstudio/pages/collection_post_type_args', $args, $collection );
 
 		register_post_type( $post_type, is_array( $args ) ? $args : array() );
+	}
+
+	/**
+	 * Register URL hooks for collection CPT routing.
+	 *
+	 * @return void
+	 */
+	private static function register_collection_url_hooks(): void {
+		if ( self::$collection_url_hooks_registered ) {
+			return;
+		}
+
+		self::$collection_url_hooks_registered = true;
+
+		add_filter( 'post_type_link', array( __CLASS__, 'filter_collection_post_type_link' ), 10, 2 );
+		add_filter( 'query_vars', array( __CLASS__, 'register_collection_query_vars' ) );
+		add_action( 'parse_request', array( __CLASS__, 'resolve_collection_request' ) );
+		add_action( 'template_redirect', array( __CLASS__, 'redirect_legacy_collection_urls' ), 0 );
+	}
+
+	/**
+	 * Add rewrite rules for a collection CPT.
+	 *
+	 * @param array $collection Collection data.
+	 *
+	 * @return void
+	 */
+	private static function add_collection_rewrite_rules( array $collection ): void {
+		$post_type = isset( $collection['postType'] ) ? (string) $collection['postType'] : 'page';
+		$slug      = isset( $collection['slug'] ) ? (string) $collection['slug'] : '';
+
+		if ( 'page' === $post_type || '' === $slug ) {
+			return;
+		}
+
+		$base = preg_quote( trim( $slug, '/' ), '#' );
+
+		add_rewrite_rule(
+			'^' . $base . '/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=.',
+			'top'
+		);
+
+		add_rewrite_rule(
+			'^' . $base . '/(.+?)/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=$matches[1]',
+			'top'
+		);
+	}
+
+	/**
+	 * Flush rewrite rules when collection CPT routing changes.
+	 *
+	 * @param array $collections Collection data.
+	 *
+	 * @return void
+	 */
+	private static function maybe_flush_collection_rewrite_rules( array $collections ): void {
+		$signature = self::collection_rewrite_signature( $collections );
+		$option    = 'blockstudio_collection_post_types_signature';
+
+		if ( get_option( $option ) === $signature ) {
+			return;
+		}
+
+		update_option( $option, $signature, false );
+		self::schedule_collection_rewrite_flush();
+	}
+
+	/**
+	 * Flush rewrite rules after post types have registered.
+	 *
+	 * @return void
+	 */
+	private static function schedule_collection_rewrite_flush(): void {
+		if ( did_action( 'wp_loaded' ) ) {
+			flush_rewrite_rules( false );
+			return;
+		}
+
+		if ( self::$collection_rewrite_flush_scheduled ) {
+			return;
+		}
+
+		self::$collection_rewrite_flush_scheduled = true;
+
+		add_action(
+			'wp_loaded',
+			static function (): void {
+				flush_rewrite_rules( false );
+				self::$collection_rewrite_flush_scheduled = false;
+			}
+		);
+	}
+
+	/**
+	 * Build a stable signature for collection CPT routing.
+	 *
+	 * @param array $collections Collection data.
+	 *
+	 * @return string Signature.
+	 */
+	private static function collection_rewrite_signature( array $collections ): string {
+		$items = array();
+
+		foreach ( $collections as $collection ) {
+			$post_type = isset( $collection['postType'] ) ? (string) $collection['postType'] : 'page';
+			if ( 'page' === $post_type ) {
+				continue;
+			}
+
+			$items[] = array(
+				'slug'         => (string) ( $collection['slug'] ?? '' ),
+				'postType'     => $post_type,
+				'postTypeArgs' => $collection['postTypeArgs'] ?? array(),
+			);
+		}
+
+		usort(
+			$items,
+			static function ( array $a, array $b ): int {
+				return ( $a['slug'] . ':' . $a['postType'] ) <=> ( $b['slug'] . ':' . $b['postType'] );
+			}
+		);
+
+		$encoded = wp_json_encode( $items );
+
+		return hash( 'sha256', false === $encoded ? '' : $encoded );
+	}
+
+	/**
+	 * Register collection routing query vars.
+	 *
+	 * @param array $query_vars Query vars.
+	 *
+	 * @return array Query vars.
+	 */
+	public static function register_collection_query_vars( array $query_vars ): array {
+		$query_vars[] = 'blockstudio_collection';
+		$query_vars[] = 'blockstudio_collection_path';
+
+		return $query_vars;
+	}
+
+	/**
+	 * Filter permalinks for Blockstudio collection CPT pages.
+	 *
+	 * @param string   $post_link Permalink.
+	 * @param \WP_Post $post      Post object.
+	 *
+	 * @return string Permalink.
+	 */
+	public static function filter_collection_post_type_link( string $post_link, \WP_Post $post ): string {
+		$collection_slug = (string) get_post_meta( $post->ID, '_blockstudio_page_collection', true );
+
+		if ( '' === $collection_slug ) {
+			return $post_link;
+		}
+
+		$collection = self::get_collection_manifest( $collection_slug );
+
+		if ( ! $collection || 'page' === ( $collection['postType'] ?? 'page' ) || ( $collection['postType'] ?? '' ) !== $post->post_type ) {
+			return $post_link;
+		}
+
+		$path = (string) get_post_meta( $post->ID, '_blockstudio_page_path', true );
+
+		return self::collection_page_url( $collection_slug, '' === $path ? '.' : $path );
+	}
+
+	/**
+	 * Resolve collection CPT requests by collection path.
+	 *
+	 * @param \WP $wp WordPress request object.
+	 *
+	 * @return void
+	 */
+	public static function resolve_collection_request( \WP $wp ): void {
+		$collection_slug = isset( $wp->query_vars['blockstudio_collection'] ) ? sanitize_key( (string) $wp->query_vars['blockstudio_collection'] ) : '';
+		$path            = isset( $wp->query_vars['blockstudio_collection_path'] ) ? (string) $wp->query_vars['blockstudio_collection_path'] : '';
+
+		if ( '' === $collection_slug || '' === $path ) {
+			return;
+		}
+
+		$path = self::normalize_collection_request_path( rawurldecode( $path ) );
+		$post = self::find_collection_post_by_path( $collection_slug, $path );
+
+		if ( ! $post ) {
+			return;
+		}
+
+		$wp->query_vars = array(
+			'p'         => $post->ID,
+			'post_type' => $post->post_type,
+		);
+	}
+
+	/**
+	 * Redirect legacy doubled collection CPT URLs to canonical URLs.
+	 *
+	 * @return void
+	 */
+	public static function redirect_legacy_collection_urls(): void {
+		$relative = self::current_request_relative_path();
+
+		if ( '' === $relative ) {
+			return;
+		}
+
+		$is_markdown = str_ends_with( $relative, '.md' );
+		$path        = $is_markdown ? substr( $relative, 0, -3 ) : trim( $relative, '/' );
+		$segments    = array_values( array_filter( explode( '/', $path ), static fn ( string $segment ): bool => '' !== $segment ) );
+
+		if ( count( $segments ) < 2 || $segments[0] !== $segments[1] ) {
+			return;
+		}
+
+		$collection_slug = sanitize_key( $segments[0] );
+		$collection      = self::get_collection_manifest( $collection_slug );
+
+		if ( ! $collection || 'page' === ( $collection['postType'] ?? 'page' ) ) {
+			return;
+		}
+
+		$target_path = count( $segments ) > 2 ? implode( '/', array_slice( $segments, 2 ) ) : '.';
+		$post        = self::find_collection_post_by_path( $collection_slug, $target_path, $is_markdown );
+
+		if ( ! $post ) {
+			return;
+		}
+
+		$target = self::collection_page_url( $collection_slug, $target_path, $is_markdown );
+
+		if ( home_url( '/' . $relative ) === $target ) {
+			return;
+		}
+
+		wp_safe_redirect( $target, 301 );
+		exit;
+	}
+
+	/**
+	 * Find a collection manifest by slug.
+	 *
+	 * @param string $slug Collection slug.
+	 *
+	 * @return array|null Collection data.
+	 */
+	private static function get_collection_manifest( string $slug ): ?array {
+		foreach ( self::get_collection_manifests() as $collection ) {
+			if ( (string) ( $collection['slug'] ?? '' ) === $slug ) {
+				return $collection;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Get discovered collection manifests.
+	 *
+	 * @return array<int, array> Collection manifests.
+	 */
+	private static function get_collection_manifests(): array {
+		$paths = self::get_paths();
+
+		/** This filter is documented in init(). */
+		$paths = apply_filters( 'blockstudio/pages/paths', $paths );
+
+		$collections = array();
+
+		foreach ( $paths as $path ) {
+			if ( ! is_dir( $path ) ) {
+				continue;
+			}
+
+			foreach ( Page_Discovery::discover_manifests( $path ) as $collection ) {
+				$collections[] = $collection;
+			}
+		}
+
+		return $collections;
+	}
+
+	/**
+	 * Find a synced collection post by logical collection path.
+	 *
+	 * @param string $collection_slug Collection slug.
+	 * @param string $path            Logical collection path.
+	 * @param bool   $markdown_only   Require a markdown source file.
+	 *
+	 * @return \WP_Post|null Post object.
+	 */
+	private static function find_collection_post_by_path( string $collection_slug, string $path, bool $markdown_only = false ): ?\WP_Post {
+		$collection = self::get_collection_manifest( $collection_slug );
+
+		if ( ! $collection ) {
+			return null;
+		}
+
+		$post_type = (string) ( $collection['postType'] ?? 'page' );
+		$path      = self::normalize_collection_request_path( $path );
+		$meta      = array(
+			'relation' => 'AND',
+			array(
+				'key'   => '_blockstudio_page_collection',
+				'value' => $collection_slug,
+			),
+			array(
+				'key'   => '_blockstudio_page_path',
+				'value' => $path,
+			),
+		);
+
+		if ( $markdown_only ) {
+			$meta[] = array(
+				'key'   => '_blockstudio_page_content_type',
+				'value' => 'markdown',
+			);
+		}
+
+		$posts = get_posts(
+			array(
+				'meta_query'     => $meta, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+				'post_type'      => $post_type,
+				'posts_per_page' => 1,
+				'post_status'    => 'any',
+			)
+		);
+
+		return ! empty( $posts ) && $posts[0] instanceof \WP_Post ? $posts[0] : null;
+	}
+
+	/**
+	 * Find a synced collection post by request-relative path.
+	 *
+	 * @param string $relative_path Request path without home path.
+	 * @param bool   $markdown_only Require a markdown source file.
+	 *
+	 * @return \WP_Post|null Post object.
+	 */
+	private static function find_collection_post_by_relative_path( string $relative_path, bool $markdown_only = false ): ?\WP_Post {
+		$relative_path = trim( $relative_path, '/' );
+
+		foreach ( self::get_collection_manifests() as $collection ) {
+			$slug = (string) ( $collection['slug'] ?? '' );
+
+			if ( '' === $slug ) {
+				continue;
+			}
+
+			if ( $relative_path === $slug ) {
+				return self::find_collection_post_by_path( $slug, '.', $markdown_only );
+			}
+
+			if ( str_starts_with( $relative_path, $slug . '/' ) ) {
+				return self::find_collection_post_by_path( $slug, substr( $relative_path, strlen( $slug ) + 1 ), $markdown_only );
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Build a canonical collection page URL.
+	 *
+	 * @param string $collection_slug Collection slug.
+	 * @param string $path            Logical collection path.
+	 * @param bool   $markdown        Whether to build the raw markdown URL.
+	 *
+	 * @return string URL.
+	 */
+	private static function collection_page_url( string $collection_slug, string $path, bool $markdown = false ): string {
+		$path     = self::normalize_collection_request_path( $path );
+		$relative = $collection_slug;
+
+		if ( '.' !== $path ) {
+			$relative .= '/' . $path;
+		}
+
+		if ( $markdown ) {
+			return home_url( '/' . $relative . '.md' );
+		}
+
+		return home_url( user_trailingslashit( '/' . $relative ) );
+	}
+
+	/**
+	 * Normalize a collection request path.
+	 *
+	 * @param string $path Raw path.
+	 *
+	 * @return string Logical path.
+	 */
+	private static function normalize_collection_request_path( string $path ): string {
+		$path = trim( wp_normalize_path( $path ), '/' );
+
+		return '' === $path ? '.' : $path;
+	}
+
+	/**
+	 * Get the current request path relative to home_url().
+	 *
+	 * @return string Relative path.
+	 */
+	private static function current_request_relative_path(): string {
+		$request_path = (string) wp_parse_url( esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ?? '' ) ), PHP_URL_PATH );
+		$home_path    = trim( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
+		$relative     = trim( rawurldecode( $request_path ), '/' );
+
+		if ( '' !== $home_path && 0 === strpos( $relative, $home_path . '/' ) ) {
+			return substr( $relative, strlen( $home_path ) + 1 );
+		}
+
+		if ( $relative === $home_path ) {
+			return '';
+		}
+
+		return $relative;
 	}
 
 	/**
@@ -552,14 +994,12 @@ class Pages {
 
 		$post = null;
 		if ( $is_md_ext ) {
-			$home_path = trim( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
-			$relative  = preg_replace( '/\.md$/', '', trim( $uri_path, '/' ) );
-			if ( '' !== $home_path && 0 === strpos( $relative, $home_path . '/' ) ) {
-				$relative = substr( $relative, strlen( $home_path ) + 1 );
-			} elseif ( $relative === $home_path ) {
-				$relative = '';
+			$relative = preg_replace( '/\.md$/', '', self::current_request_relative_path() );
+			$post     = self::find_collection_post_by_relative_path( (string) $relative, true );
+
+			if ( ! $post ) {
+				$post = get_page_by_path( (string) $relative, OBJECT, get_post_types() );
 			}
-			$post = get_page_by_path( $relative, OBJECT, get_post_types() );
 		} else {
 			$queried = (int) get_queried_object_id();
 			$post    = $queried > 0 ? get_post( $queried ) : null;
@@ -583,6 +1023,7 @@ class Pages {
 		$markdown = ltrim( (string) $markdown );
 
 		nocache_headers();
+		status_header( 200 );
 		header( 'Content-Type: text/markdown; charset=utf-8' );
 		echo $markdown; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		exit;

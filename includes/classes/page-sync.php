@@ -62,10 +62,12 @@ class Page_Sync {
 
 			if ( '' !== $stored_fingerprint && hash_equals( $stored_fingerprint, $fingerprint ) ) {
 				update_post_meta( $existing->ID, '_blockstudio_page_stale', false );
+				$this->prune_duplicate_posts( $page_data, $existing->ID );
 				return $existing->ID;
 			}
 
 			if ( '' === $stored_fingerprint && $stored_mtime >= $file_mtime ) {
+				$this->prune_duplicate_posts( $page_data, $existing->ID );
 				return $existing->ID;
 			}
 
@@ -80,7 +82,13 @@ class Page_Sync {
 				$content = serialize_blocks( $new_blocks );
 			}
 
-			return $this->update_post( $existing, $page_data, $content, $file_mtime, $fingerprint );
+			$result = $this->update_post( $existing, $page_data, $content, $file_mtime, $fingerprint );
+
+			if ( is_int( $result ) && $result > 0 ) {
+				$this->prune_duplicate_posts( $page_data, $result );
+			}
+
+			return $result;
 		}
 
 		if ( $this->has_slug_conflict( $page_data ) ) {
@@ -88,7 +96,13 @@ class Page_Sync {
 		}
 
 		$content = $this->get_parsed_content( $page_data );
-		return $this->create_post( $page_data, $content, $file_mtime, $fingerprint );
+		$result  = $this->create_post( $page_data, $content, $file_mtime, $fingerprint );
+
+		if ( is_int( $result ) && $result > 0 ) {
+			$this->prune_duplicate_posts( $page_data, $result );
+		}
+
+		return $result;
 	}
 
 	/**
@@ -276,25 +290,43 @@ class Page_Sync {
 		if ( ! empty( $page_data['postId'] ) ) {
 			$post = get_post( (int) $page_data['postId'] );
 
-			if ( $post instanceof WP_Post && $post->post_type === $page_data['postType'] ) {
+			if ( $post instanceof WP_Post ) {
 				$source = get_post_meta( $post->ID, '_blockstudio_page_source', true );
 				$name   = get_post_meta( $post->ID, '_blockstudio_page_name', true );
 				$key    = get_post_meta( $post->ID, '_blockstudio_page_key', true );
 
 				$expected_key = $page_data['key'] ?? null;
+				$matches      = $page_data['source_path'] === $source || $page_data['name'] === $name || $expected_key === $key;
 
-				if ( empty( $source ) || $page_data['source_path'] === $source || $page_data['name'] === $name || $expected_key === $key ) {
+				if ( $post->post_type === $page_data['postType'] && ( empty( $source ) || $matches ) ) {
+					return $post;
+				}
+
+				if ( $post->post_type !== $page_data['postType'] && $matches ) {
 					return $post;
 				}
 			}
 		}
 
+		return $this->find_existing_post_by_identity( $page_data, (string) $page_data['postType'] )
+			?? $this->find_existing_post_by_identity( $page_data, 'any' );
+	}
+
+	/**
+	 * Find an existing synced post by Blockstudio identity.
+	 *
+	 * @param array        $page_data Page data.
+	 * @param string|array $post_type Post type query.
+	 *
+	 * @return WP_Post|null Post object.
+	 */
+	private function find_existing_post_by_identity( array $page_data, string|array $post_type ): ?WP_Post {
 		if ( ! empty( $page_data['key'] ) ) {
 			$posts = get_posts(
 				array(
 					'meta_key'       => '_blockstudio_page_key', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
 					'meta_value'     => $page_data['key'], // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
-					'post_type'      => $page_data['postType'],
+					'post_type'      => $post_type,
 					'posts_per_page' => 1,
 					'post_status'    => 'any',
 				)
@@ -309,7 +341,7 @@ class Page_Sync {
 			array(
 				'meta_key'       => '_blockstudio_page_source', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
 				'meta_value'     => $page_data['source_path'], // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
-				'post_type'      => $page_data['postType'],
+				'post_type'      => $post_type,
 				'posts_per_page' => 1,
 				'post_status'    => 'any',
 			)
@@ -336,17 +368,13 @@ class Page_Sync {
 		$posts = get_posts(
 			array(
 				'meta_query'     => $meta_query, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
-				'post_type'      => $page_data['postType'],
+				'post_type'      => $post_type,
 				'posts_per_page' => 1,
 				'post_status'    => 'any',
 			)
 		);
 
-		if ( ! empty( $posts ) ) {
-			return $posts[0];
-		}
-
-		return null;
+		return ! empty( $posts ) ? $posts[0] : null;
 	}
 
 	/**
@@ -464,6 +492,7 @@ class Page_Sync {
 			'post_title'   => $page_data['title'],
 			'post_name'    => $page_data['slug'],
 			'post_content' => $content,
+			'post_type'    => $page_data['postType'],
 			'post_status'  => $page_data['postStatus'],
 		);
 
@@ -603,14 +632,26 @@ class Page_Sync {
 
 		if ( $existing ) {
 			delete_post_meta( $existing->ID, '_blockstudio_page_locked' );
-			return $this->update_post( $existing, $page_data, $content, $file_mtime, $fingerprint );
+			$result = $this->update_post( $existing, $page_data, $content, $file_mtime, $fingerprint );
+
+			if ( is_int( $result ) && $result > 0 ) {
+				$this->prune_duplicate_posts( $page_data, $result );
+			}
+
+			return $result;
 		}
 
 		if ( $this->has_slug_conflict( $page_data ) ) {
 			return 0;
 		}
 
-		return $this->create_post( $page_data, $content, $file_mtime, $fingerprint );
+		$result = $this->create_post( $page_data, $content, $file_mtime, $fingerprint );
+
+		if ( is_int( $result ) && $result > 0 ) {
+			$this->prune_duplicate_posts( $page_data, $result );
+		}
+
+		return $result;
 	}
 
 	/**
@@ -623,7 +664,7 @@ class Page_Sync {
 	 *
 	 * @param array       $active_sources Active source identifiers.
 	 * @param string|null $collection     Collection slug.
-	 * @param array       $post_types     Post types to scan.
+	 * @param array       $post_types     Active post types.
 	 *
 	 * @return void
 	 */
@@ -640,7 +681,7 @@ class Page_Sync {
 						'value' => $collection,
 					),
 				),
-				'post_type'      => $post_types,
+				'post_type'      => 'any',
 				'posts_per_page' => -1,
 				'post_status'    => array( 'publish', 'draft', 'pending', 'private', 'future' ),
 			)
@@ -681,6 +722,43 @@ class Page_Sync {
 			wp_delete_post( $post->ID, true );
 		} elseif ( 'trash' === $action ) {
 			wp_trash_post( $post->ID );
+		}
+	}
+
+	/**
+	 * Prune synced duplicate posts for the same page identity.
+	 *
+	 * @param array $page_data    Page data.
+	 * @param int   $keep_post_id Post ID to keep.
+	 *
+	 * @return void
+	 */
+	private function prune_duplicate_posts( array $page_data, int $keep_post_id ): void {
+		if ( empty( $page_data['key'] ) ) {
+			return;
+		}
+
+		$posts = get_posts(
+			array(
+				'meta_key'       => '_blockstudio_page_key', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value'     => $page_data['key'], // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'post_type'      => 'any',
+				'posts_per_page' => -1,
+				'post_status'    => array( 'publish', 'draft', 'pending', 'private', 'future' ),
+			)
+		);
+
+		foreach ( $posts as $post ) {
+			if ( (int) $post->ID === $keep_post_id ) {
+				continue;
+			}
+
+			if ( (string) get_post_meta( $post->ID, '_blockstudio_page_collection', true ) !== (string) ( $page_data['collection'] ?? '' ) ) {
+				continue;
+			}
+
+			update_post_meta( $post->ID, '_blockstudio_page_stale', true );
+			$this->prune_orphan( $post );
 		}
 	}
 

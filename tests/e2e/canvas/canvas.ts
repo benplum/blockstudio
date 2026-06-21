@@ -175,8 +175,27 @@ test.describe('Canvas', () => {
     });
 
     test('shows all published Blockstudio pages as artboards', async () => {
+      await page.goto(canvasUrl, { waitUntil: 'domcontentloaded' });
+      await waitForCanvasSurface(page);
+
       const iframes = page.locator('#blockstudio-canvas iframe');
-      await expect(iframes.first()).toBeVisible({ timeout: 15000 });
+      await page.waitForFunction(
+        () =>
+          Array.from(document.querySelectorAll('#blockstudio-canvas iframe')).some((iframe) => {
+            const rect = iframe.getBoundingClientRect();
+            const style = window.getComputedStyle(iframe);
+
+            return (
+              rect.width > 0 &&
+              rect.height > 0 &&
+              style.display !== 'none' &&
+              style.visibility !== 'hidden'
+            );
+          }),
+        null,
+        { timeout: 15000 },
+      );
+
       const count = await iframes.count();
       expect(count).toBeGreaterThanOrEqual(4);
     });

@@ -81,7 +81,15 @@ WordPress hierarchy still matches the filesystem structure.
 
 Collections can use the native `page` post type or their own post type. When a
 collection declares a post type that does not exist yet, Blockstudio registers
-it from `postTypeArgs`.
+it from `postTypeArgs`. The manifest `postType` also becomes the default for
+every page in that collection, so projects do not need to repeat it in
+`defaults`.
+
+Collection post types use the collection slug as their public URL base. A
+`docs` collection resolves its root page at `/docs/`, a page with
+`path: "getting-started"` at `/docs/getting-started/`, and nested paths under
+the same base. Older doubled URLs such as `/docs/docs/` redirect to the
+canonical location.
 
 This is the piece that makes external docs, product manuals, knowledge bases,
 and page libraries feel natural in WordPress: the source stays in files, but
@@ -175,7 +183,9 @@ folder, a Markdown export, or a build step that returns a list of pages.
 
 Markdown-backed pages can also serve their raw Markdown source. Request the
 page with a `.md` suffix, or send `Accept: text/markdown`. Frontmatter is
-removed from the response, so tools get the readable document body.
+removed from the response, so tools get the readable document body. This works
+for collection post types too, including URLs such as `/docs.md` and
+`/docs/getting-started.md`.
 
 ## More reliable syncing
 

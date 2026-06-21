@@ -1,0 +1,17 @@
+{
+  "collection": "flat-docs",
+  "title": "Flat Documentation",
+  "postType": "bs_flat_docs",
+  "postTypeArgs": {
+    "label": "Flat Docs",
+    "hierarchical": false,
+    "rewrite": {
+      "slug": "flat-docs"
+    },
+    "supports": ["title", "editor"]
+  },
+  "defaults": {
+    "postStatus": "publish",
+    "templateLock": "contentOnly"
+  }
+}
