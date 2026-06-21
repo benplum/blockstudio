@@ -349,8 +349,56 @@ el.initialize();`,
     icon: FileText,
     title: 'Full pages, defined in code',
     description:
-      'Create complete WordPress pages from template files. HTML maps to core blocks automatically. Blockstudio keeps the editor in sync with your codebase.',
+      'Create complete WordPress pages and nested page collections from template files, Markdown, or loader output. Blockstudio keeps WordPress in sync with your codebase.',
     features: [
+      {
+        headline: 'Collections from files',
+        description: (
+          <>
+            <p>
+              Define a {code('pages.json')} manifest and let Blockstudio
+              discover every page source below it. Nested paths become nested
+              WordPress pages, defaults apply across the collection, and missing
+              parent paths can be generated automatically.
+            </p>
+            <p>
+              Use it for docs, knowledge bases, landing page sets, or external
+              content collections that should still become native editable
+              WordPress pages.
+            </p>
+          </>
+        ),
+        code: [
+          {
+            label: 'pages/docs/pages.json',
+            lang: 'json',
+            code: `{
+  "collection": "docs",
+  "title": "Documentation",
+  "postType": "bs_docs",
+  "defaults": {
+    "postStatus": "publish",
+    "templateLock": "contentOnly"
+  }
+}`,
+          },
+          {
+            label: 'pages/docs/guide/install/index.md',
+            lang: 'markdown',
+            code: `---
+name: docs-install
+title: Installation
+path: guide/install
+---
+
+# Installation
+
+Install Blockstudio from this markdown page.`,
+          },
+        ],
+        ctaLabel: 'Page collections',
+        ctaHref: '/docs/pages-and-patterns/pages#page-collections',
+      },
       {
         headline: 'Write HTML, get blocks',
         description: (
@@ -512,7 +560,13 @@ el.initialize();`,
         icon: RefreshCw,
         title: 'Automatic sync',
         description:
-          'Pages sync to WordPress on every admin load. Change your template, the editor updates instantly.',
+          'Pages sync to WordPress on every admin load. Fingerprints include manifests, loaders, layouts, and source files.',
+      },
+      {
+        icon: FileText,
+        title: 'Markdown sources',
+        description:
+          'Use standalone index.md files with frontmatter or pair page.json with index.md content.',
       },
       {
         icon: Lock,
@@ -534,9 +588,9 @@ el.initialize();`,
       },
       {
         icon: FileText,
-        title: 'Any post type',
+        title: 'Collections and post types',
         description:
-          'Pages default to the page post type, but you can target any custom post type in page.json.',
+          'Pages default to page, while collections can register dedicated hierarchical post types.',
       },
       {
         icon: Split,
@@ -554,7 +608,7 @@ el.initialize();`,
         icon: Settings,
         title: 'PHP API',
         description:
-          'Programmatic access: force sync, lock/unlock pages, get post IDs, and query registered pages.',
+          'Programmatic access: page trees, children, collection metadata, force sync, locking, and post IDs.',
       },
     ],
     docsHref: '/docs/pages-and-patterns/pages',

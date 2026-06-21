@@ -1,0 +1,237 @@
+---
+title: Blockstudio 7.4
+description: Page collections, Markdown-backed pages, frontend layouts, safer populate caching, and a set of editor persistence fixes.
+date: 2026-06-21
+author: Dennis
+---
+
+Blockstudio 7.4 is about making file-based pages useful for real content
+systems, not just one-off landing pages.
+
+The headline feature is page collections: a way to point Blockstudio at a
+folder of page sources and generate a complete nested WordPress page structure
+from it. That source can be PHP, Twig, Blade, HTML, Markdown, or a trusted
+loader that returns pages from another local source.
+
+The short version:
+
+- **Page collections**: `pages.json` can define a complete set of nested pages,
+  defaults, post type behavior, and collection metadata.
+- **Markdown pages**: `index.md` works as page content, either with
+  `page.json` or by itself with frontmatter.
+- **Frontend page layouts**: `layout.php` can wrap synced page content and use
+  helpers such as `blockstudio_page_tree()` and `blockstudio_page_content()`.
+- **External docs sources**: collection loaders can generate pages from local
+  files or returned Markdown/HTML.
+- **Raw Markdown output**: Markdown-backed pages can be served as `.md` or via
+  `Accept: text/markdown`.
+- **Safer page syncing**: sync fingerprints now include more source inputs,
+  nested pages link to parents, stale collection pages are pruned, and block
+  attribute escaping survives insert/update.
+- **Runtime fixes**: query-populated options no longer get stuck behind stale
+  cache entries, `populate.fetch: true` stays live, query block `className`
+  attributes survive programmatic rendering, RichText props are parsed with the
+  right casing, PHPStan understands fields inside tabs, and repeater row
+  deletion with RichText now persists after saving.
+
+## Page collections
+
+Before 7.4, file-based pages were mostly a folder-level feature: create a
+`page.json`, add an `index.php` or `index.twig`, and Blockstudio syncs that
+single page into WordPress.
+
+That still works. 7.4 adds a second mode for larger structures.
+
+Add a `pages.json` manifest to a folder and that folder becomes a collection:
+
+```txt
+pages/
+  docs/
+    pages.json
+    layout.php
+    index.md
+    guide/
+      install/
+        index.md
+    reference/
+      page.json
+      index.md
+```
+
+```json title="pages/docs/pages.json"
+{
+  "collection": "docs",
+  "title": "Documentation",
+  "postType": "bs_docs",
+  "postTypeArgs": {
+    "label": "Docs",
+    "rewrite": {
+      "slug": "docs"
+    },
+    "supports": ["title", "editor", "page-attributes"]
+  },
+  "defaults": {
+    "postStatus": "publish",
+    "templateLock": "contentOnly"
+  }
+}
+```
+
+Every page source inside the collection is discovered, normalized, synced, and
+linked by path. A page at `guide/install` becomes a child of `guide`; if the
+`guide` page is missing, Blockstudio creates a generated container page so the
+WordPress hierarchy still matches the filesystem structure.
+
+Collections can use the native `page` post type or their own post type. When a
+collection declares a post type that does not exist yet, Blockstudio registers
+it from `postTypeArgs`.
+
+This is the piece that makes external docs, product manuals, knowledge bases,
+and page libraries feel natural in WordPress: the source stays in files, but
+the result is still real editable WordPress content.
+
+## Markdown as page content
+
+Markdown is now a first-class page source.
+
+Standalone Markdown pages use frontmatter:
+
+```md title="pages/about/index.md"
+---
+name: about
+title: About
+slug: about
+postStatus: publish
+---
+
+# About
+
+This Markdown content is synced as native WordPress blocks.
+```
+
+You can also pair `page.json` with `index.md` when you want configuration and
+content split across files. Frontmatter in `index.md` can override matching
+`page.json` fields and unknown frontmatter keys are preserved as metadata.
+
+Markdown is converted through the bundled CommonMark pipeline when available,
+with a small fallback converter for environments where the dependency is not
+loaded. The resulting HTML goes through the same page parser as PHP, Twig, and
+Blade templates, so the final content is native block markup.
+
+## Layouts and page helpers
+
+Collections can ship a `layout.php` file. On the frontend, Blockstudio wraps
+the synced page content with that layout.
+
+```php title="pages/docs/layout.php"
+<main class="docs-layout">
+  <aside>
+    <?php foreach (blockstudio_page_tree('docs') as $item) : ?>
+      <a href="<?php echo esc_url($item['permalink'] ?? '#'); ?>">
+        <?php echo esc_html($item['title']); ?>
+      </a>
+    <?php endforeach; ?>
+  </aside>
+
+  <article>
+    <?php echo blockstudio_page_content(); ?>
+  </article>
+</main>
+```
+
+The new helpers expose the collection as structured data:
+
+```php
+blockstudio_pages('docs');
+blockstudio_page_tree('docs');
+blockstudio_page_children('docs-guide', 'docs');
+blockstudio_page_collection('docs');
+blockstudio_page_content();
+blockstudio_current_page();
+```
+
+That gives you the pieces needed to build a full documentation shell:
+navigation from the page tree, page metadata from frontmatter, and the synced
+WordPress block content as the main outlet.
+
+## Loaders and raw Markdown
+
+Collections can include a trusted local `loader.php` file. It can return pages
+directly, or point Blockstudio at additional local directories to discover.
+
+```php title="pages/docs/loader.php"
+<?php
+
+return array(
+  'pages' => array(
+    array(
+      'name' => 'docs-api',
+      'title' => 'API',
+      'path' => 'api',
+      'content' => "# API\n\nGenerated markdown content.",
+      'contentType' => 'markdown',
+    ),
+  ),
+);
+```
+
+This is useful when the source is already generated elsewhere: a package docs
+folder, a Markdown export, or a build step that returns a list of pages.
+
+Markdown-backed pages can also serve their raw Markdown source. Request the
+page with a `.md` suffix, or send `Accept: text/markdown`. Frontmatter is
+removed from the response, so tools get the readable document body.
+
+## Better sync invalidation
+
+The page sync fingerprint now includes the relevant source inputs: the page
+source, collection manifest, loader file, layout file, metadata, and related
+paths. If any of those change, Blockstudio invalidates the synced page and
+updates WordPress.
+
+7.4 also fixes several edge cases in the page pipeline:
+
+- block attribute escaping survives insert/update, so serialized block
+  comments keep the right slashes
+- Markdown-backed pages can hydrate on the frontend with their source metadata
+- collection pages store stable identity metadata
+- nested non-collection pages link to their parent page
+- non-collection nested pages can inherit the nearest ancestor `layout.php`
+- removed collection sources are pruned instead of leaving orphaned generated
+  posts behind
+- page order is persisted through `menu_order`
+
+## Runtime and editor fixes
+
+7.4 also includes a set of fixes that came out of testing larger projects.
+
+Query-populated options now invalidate the runtime build cache when posts,
+terms, users, or related meta change. `populate.fetch: true` no longer bakes
+stale options into the build payload; it fetches live options for empty editor
+searches.
+
+Programmatic `core/query` and `core/comments` block tags now preserve
+`className` in the generated wrapper markup.
+
+Template pseudo-components now preserve camelCase props. That means props such
+as `allowedFormats` and `withoutInteractiveFormatting` reach the editor
+component instead of being lowercased away by HTML parsing.
+
+`blockstudio/phpstan` now recognizes fields declared inside id-less `tabs`
+containers, so template, Twig/Blade, and block tag validation understand the
+same field shape Blockstudio uses at runtime.
+
+And finally, deleting a repeater row with RichText now persists after saving.
+The editor removes the deleted row's RichText store entries and shifts later
+row paths down, so stale RichText values cannot recreate the removed row on
+save.
+
+## Documentation
+
+The Pages documentation has been expanded for collections, Markdown pages,
+layouts, loaders, raw Markdown, and the new helper functions:
+
+[Read the Pages docs](/docs/pages-and-patterns/pages)
+
+The related settings, performance, RichText, asset, populate, and PHPStan docs
+already reflect the 7.4 behavior.
