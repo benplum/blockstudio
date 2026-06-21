@@ -40,14 +40,26 @@ test.describe('component-richtext-default', () => {
 				`.block-editor-rich-text__inline-format-toolbar-group [aria-label="${label}"]`;
 
 			await canvas.locator('[aria-label="Enter text here"]').nth(0).click();
-			await page.waitForTimeout(500);
+			await page.keyboard.type('Plain format');
+			await page.keyboard.press('Control+a');
 			await count(page, formatButton('Bold'), 0);
 			await count(page, formatButton('Link'), 0);
+			await page.keyboard.press('Control+b');
+			await count(canvas, 'h1 strong:has-text("Plain format")', 0);
+			await page.keyboard.press('Control+a');
+			await page.keyboard.press('Backspace');
 
 			await canvas.locator('[aria-label="Enter text here"]').nth(1).click();
+			await page.keyboard.type('Bold format');
+			await page.keyboard.press('Control+a');
 			await count(page, formatButton('Bold'), 1);
 			await count(page, formatButton('Italic'), 0);
 			await count(page, formatButton('Link'), 0);
+			await page.keyboard.press('Control+b');
+			await count(canvas, 'h2 strong:has-text("Bold format")', 1);
+			await page.keyboard.press('Control+a');
+			await page.keyboard.press('Backspace');
+			await count(canvas, '[aria-label="Enter text here"]', 2);
 		});
 
 		test('content', async () => {
