@@ -35,6 +35,21 @@ test.describe('component-richtext-default', () => {
 			await count(canvas, '.blockstudio-test__block.test.test2.test3', 2);
 		});
 
+		test('format controls respect camelCase props', async () => {
+			const formatButton = (label: string) =>
+				`.block-editor-rich-text__inline-format-toolbar-group [aria-label="${label}"]`;
+
+			await canvas.locator('[aria-label="Enter text here"]').nth(0).click();
+			await page.waitForTimeout(500);
+			await count(page, formatButton('Bold'), 0);
+			await count(page, formatButton('Link'), 0);
+
+			await canvas.locator('[aria-label="Enter text here"]').nth(1).click();
+			await count(page, formatButton('Bold'), 1);
+			await count(page, formatButton('Italic'), 0);
+			await count(page, formatButton('Link'), 0);
+		});
+
 		test('content', async () => {
 			await canvas.locator('[aria-label="Enter text here"]').nth(0).click();
 			await page.keyboard.type('Test text');

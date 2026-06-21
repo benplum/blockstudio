@@ -1,6 +1,62 @@
 import { parse as nodeParser } from 'node-html-parser';
 import { getRegex } from '@/blocks/components/block/utils/get-regex';
 
+const jsonAttributes = [
+  'template',
+  'allowedBlocks',
+  'allowedFormats',
+  'autocompleters',
+  'allowedTypes',
+  'labels',
+];
+
+const booleanAttributes = [
+  'useBlockProps',
+  'directInsert',
+  'templateInsertUpdatesSelection',
+  'multiline',
+  'withoutInteractiveFormatting',
+  'preserveWhiteSpace',
+  'addToGallery',
+  'autoOpenMediaUpload',
+  'disableDropZone',
+  'dropZoneUIOnly',
+  'isAppender',
+  'disableMediaButtons',
+];
+
+const knownCamelCaseAttributes = [
+  ...jsonAttributes,
+  ...booleanAttributes,
+  'defaultBlock',
+  'prioritizedInserterBlocks',
+  'renderAppender',
+  'templateLock',
+];
+
+const normalizeAttributeNames = (attributes: Record<string, unknown>) => {
+  const normalized = { ...attributes };
+
+  knownCamelCaseAttributes.forEach((attributeName) => {
+    const lowerAttributeName = attributeName.toLowerCase();
+    const matchingAttributeName = Object.keys(normalized).find(
+      (key) => key.toLowerCase() === lowerAttributeName,
+    );
+
+    if (!matchingAttributeName || matchingAttributeName === attributeName) {
+      return;
+    }
+
+    if (!(attributeName in normalized)) {
+      normalized[attributeName] = normalized[matchingAttributeName];
+    }
+
+    delete normalized[matchingAttributeName];
+  });
+
+  return normalized;
+};
+
 export const getAttributes = (value: string, elementName: string) => {
   const regex = getRegex(elementName);
   const match = value.match(regex);
@@ -9,17 +65,11 @@ export const getAttributes = (value: string, elementName: string) => {
 
   const root = nodeParser(element);
   const div = root.querySelector('div');
-  const attributes: Record<string, unknown> =
-    (div?.attributes as unknown as Record<string, unknown>) || {};
+  const attributes = normalizeAttributeNames(
+    (div?.attributes as unknown as Record<string, unknown>) || {},
+  );
 
-  [
-    'template',
-    'allowedBlocks',
-    'allowedFormats',
-    'autocompleters',
-    'allowedTypes',
-    'labels',
-  ].forEach((key) => {
+  jsonAttributes.forEach((key) => {
     if (!attributes[key]) {
       return;
     }
@@ -31,17 +81,7 @@ export const getAttributes = (value: string, elementName: string) => {
     }
   });
 
-  [
-    'multiline',
-    'withoutInteractiveFormatting',
-    'preserveWhiteSpace',
-    'addToGallery',
-    'autoOpenMediaUpload',
-    'disableDropZone',
-    'dropZoneUIOnly',
-    'isAppender',
-    'disableMediaButtons',
-  ].forEach((key) => {
+  booleanAttributes.forEach((key) => {
     if (!attributes[key]) {
       return;
     }

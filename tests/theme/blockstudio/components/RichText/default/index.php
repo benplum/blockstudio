@@ -6,6 +6,7 @@
 	    tag="h1"
 	    attribute="richtext"
 	    placeholder="Enter text here"
+		allowedFormats="<?php echo esc_attr( wp_json_encode( array() ) ); ?>"
     />
 	<RichText
 		style="padding: 1rem; background: #f1f1f1;"
@@ -13,5 +14,7 @@
 		tag="h2"
 		attribute="richtext2"
 		placeholder="Enter text here"
+		allowedFormats="<?php echo esc_attr( wp_json_encode( array( 'core/bold', 'core/link' ) ) ); ?>"
+		withoutInteractiveFormatting="true"
 	/>
 </div>
