@@ -606,6 +606,34 @@ class BlockTagsParserTest extends TestCase {
 		$this->assertStringContainsString( 'wp-block-query', $block['innerHTML'] );
 	}
 
+	public function test_query_html_wrapper_preserves_class_name_with_post_template_child(): void {
+		$query_tag         = '<block name="core/query" query=\'{"inherit":true}\' '
+			. 'className="bmot-query bmot-query--search-results">';
+		$post_template_tag = '<block name="core/post-template" '
+			. 'layout=\'{"type":"grid","columnCount":4}\' '
+			. 'className="bmot-query__inner" />';
+
+		$blocks = Block_Tags::parse_inner_blocks(
+			$query_tag . $post_template_tag . '</block>'
+		);
+
+		$this->assertCount( 1, $blocks );
+		$this->assertSame( 'core/query', $blocks[0]['blockName'] );
+		$this->assertSame( 'bmot-query bmot-query--search-results', $blocks[0]['attrs']['className'] );
+		$this->assertStringContainsString(
+			'wp-block-query bmot-query bmot-query--search-results',
+			$blocks[0]['innerHTML']
+		);
+		$this->assertSame(
+			'<div class="wp-block-query bmot-query bmot-query--search-results">',
+			$blocks[0]['innerContent'][0]
+		);
+
+		$this->assertCount( 1, $blocks[0]['innerBlocks'] );
+		$this->assertSame( 'core/post-template', $blocks[0]['innerBlocks'][0]['blockName'] );
+		$this->assertSame( 'bmot-query__inner', $blocks[0]['innerBlocks'][0]['attrs']['className'] );
+	}
+
 	// -------------------------------------------------------------------------
 	// Leaf block HTML content
 	// -------------------------------------------------------------------------

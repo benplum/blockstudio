@@ -3,7 +3,7 @@ Contributors: dnnsjsk
 Requires at least: 6.7
 Tested up to: 7.0.0
 Requires PHP: 8.2
-Stable tag: 7.3.4
+Stable tag: 7.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,7 +53,22 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 
 == Changelog ==
 
-= 7.3.4 =
+= 7.4.0 =
+* New: file-based page collections can generate nested page hierarchies from `pages.json`, `page.json`, loader output, PHP/Twig/Blade templates, and markdown sources
+* New: markdown-backed pages support `index.md`, frontmatter metadata, raw markdown access, and frontend hydration through Blockstudio page helpers
+* New: page collection helpers now expose stable collection, tree, children, permalink, ordering, and source metadata for building documentation-style sites
+* New: markdown page rendering is powered by CommonMark and Symfony YAML, bundled for Composer and release zip installs
+* Enhancement: page sync fingerprints now include source metadata, collection manifests, loader paths, layouts, and related source files so synced pages invalidate when structure changes
+* Enhancement: nested file-based pages now resolve parent relationships and `layout.php` templates outside collection manifests
+* Enhancement: synced page cleanup now prunes orphaned posts when their source files are removed
+* Enhancement: `bsui/select` options are now data-driven, overflow-safe, and anchor correctly after async repositioning
+* Fix: markdown-sourced block attributes now preserve escaped serialized content when pages are inserted or updated through WordPress
+* Fix: frontmatter metadata is restored during frontend page hydration
+* Fix: markdown-backed pages can serve raw markdown content where needed
+* Fix: `className` attributes on programmatic `core/query` and `core/comments` block tags are preserved in generated wrapper markup
+* Fix: page discovery now satisfies WordPress coding standards after the expanded page collection work
+
+= 7.3.3 =
 * New: file-backed build cache for Blockstudio runtime discovery and editor asset payloads, configurable via `cache.enabled`
 * Enhancement: runtime cache entries now track block files, field files, asset dependencies, settings, active plugins, WordPress, PHP, and Blockstudio versions for automatic invalidation
 * Enhancement: editor asset cache keys now use cached asset fingerprints and SCSS dependency metadata instead of repeatedly globbing compiled files
