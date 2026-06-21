@@ -5,6 +5,7 @@ import {
 	count,
 	getEditorCanvas,
 	getSharedPage,
+	openSidebar,
 	resetPageState,
 	save,
 } from '../../utils/playwright-utils';
@@ -65,6 +66,30 @@ test.describe('repeater-richtext', () => {
 		await count(canvas, 'text=Body text here', 1);
 	});
 
+	test('delete repeater item with richtext before save', async () => {
+		await openSidebar(page);
+		await page.getByRole('button', { name: 'Add item' }).click();
+
+		canvas = await getEditorCanvas(page);
+		await count(canvas, '.repeater-item', 2);
+
+		const deletedContent = canvas.locator('.repeater-content').nth(1);
+		await deletedContent.click();
+		await page.keyboard.type('Cannot delete this');
+		await count(canvas, 'text=Cannot delete this', 1);
+
+		await page
+			.locator(
+				'[data-rfd-draggable-id="items[1]"] .blockstudio-repeater__remove',
+			)
+			.click();
+
+		await count(page, '[data-rfd-draggable-id^="items["]', 1);
+		canvas = await getEditorCanvas(page);
+		await count(canvas, '.repeater-item', 1);
+		await count(canvas, 'text=Cannot delete this', 0);
+	});
+
 	test('save and check frontend', async () => {
 		await save(page);
 		await page.goto('http://localhost:8888/native-single/');
@@ -74,13 +99,17 @@ test.describe('repeater-richtext', () => {
 		await count(page, 'p.repeater-content', 1);
 		await count(page, 'text=Hello Repeater', 1);
 		await count(page, 'text=Body text here', 1);
+		await count(page, 'text=Cannot delete this', 0);
 	});
 
 	test('richtext persists after reload', async () => {
-		await page.goto('http://localhost:8888/wp-admin/post.php?post=1483&action=edit');
+		await page.goto(
+			'http://localhost:8888/wp-admin/post.php?post=1483&action=edit',
+		);
 		canvas = await getEditorCanvas(page);
 		await canvas.waitForSelector('.repeater-heading', { timeout: 30000 });
 		await count(canvas, 'text=Hello Repeater', 1);
 		await count(canvas, 'text=Body text here', 1);
+		await count(canvas, 'text=Cannot delete this', 0);
 	});
 });
