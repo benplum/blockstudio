@@ -226,8 +226,17 @@ test.describe('Canvas', () => {
     });
 
     test('artboards have pointer events disabled', async () => {
-      const disabled = page.locator('#blockstudio-canvas .components-disabled').first();
-      await expect(disabled).toBeVisible();
+      await page.goto(canvasUrl, { waitUntil: 'domcontentloaded' });
+      await waitForCanvasSurface(page);
+
+      const pointerEvents = await page
+        .locator('#blockstudio-canvas .components-disabled')
+        .evaluateAll((elements) =>
+          elements.map((element) => window.getComputedStyle(element).pointerEvents),
+        );
+
+      expect(pointerEvents.length).toBeGreaterThan(0);
+      expect(pointerEvents.every((value) => value === 'none')).toBe(true);
     });
 
     test('all artboards are in a single row', async () => {
