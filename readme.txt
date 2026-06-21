@@ -15,7 +15,7 @@ Create custom WordPress blocks by dropping a `block.json` and a PHP template int
 
 = Features =
 
-* **26 field types** including text, repeater, tabs, classes, color, files, and more
+* **28 field types** including text, repeater, tabs, classes, color, files, and more
 * **PHP, Twig, and Blade templates** with the same `$a` variable across all languages
 * **File-based pages** that parse HTML templates into native block content with automatic syncing
 * **File-based patterns** registered from template files without any PHP registration code
@@ -24,7 +24,7 @@ Create custom WordPress blocks by dropping a `block.json` and a PHP template int
 * **Storage** to persist field values in post meta or site options, queryable via WP_Query and REST API
 * **Asset pipeline** with SCSS compilation, ES module imports from npm, and automatic minification
 * **Scoped styles** that only load when a block is on the page
-* **HTML-to-block parser** with a trait-based renderer architecture and custom element mapping
+* **HTML-to-block parser** with custom element mapping
 * **SEO integration** with Yoast SEO and Rank Math content analysis
 * **50+ PHP and JS hooks** for customizing every aspect of the framework
 
@@ -54,24 +54,23 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 == Changelog ==
 
 = 7.4.0 =
-* New: file-based page collections can generate nested page hierarchies from `pages.json`, `page.json`, loader output, PHP/Twig/Blade templates, and markdown sources
-* New: markdown-backed pages support `index.md`, frontmatter metadata, raw markdown access, and frontend hydration through Blockstudio page helpers
-* New: page collection helpers now expose stable collection, tree, children, permalink, ordering, and source metadata for building documentation-style sites
-* New: markdown page rendering is powered by CommonMark and Symfony YAML, bundled for Composer and release zip installs
-* Enhancement: page sync fingerprints now include source metadata, collection manifests, loader paths, layouts, and related source files so synced pages invalidate when structure changes
-* Enhancement: nested file-based pages now resolve parent relationships and `layout.php` templates outside collection manifests
-* Enhancement: synced page cleanup now prunes orphaned posts when their source files are removed
+* New: file-based page collections can generate nested page hierarchies from `pages.json`, `page.json`, PHP/Twig/Blade templates, markdown sources, and loader output
+* New: markdown-backed pages support standalone `index.md`, frontmatter, paired `page.json` configuration, and optional raw markdown output
+* New: page collection layouts and helpers make it easier to build documentation-style sites with navigation, children, ordering, permalinks, and collection data
+* New: collection loaders can import page definitions from trusted local sources
+* Enhancement: pages now resync reliably when manifests, loaders, layouts, metadata, or source files change
+* Enhancement: nested file-based pages now resolve parent relationships and can inherit `layout.php` templates
+* Enhancement: synced page cleanup now removes generated collection pages when their source files are removed
 * Enhancement: `bsui/select` options are now data-driven, overflow-safe, and anchor correctly after async repositioning
-* Fix: markdown-sourced block attributes now preserve escaped serialized content when pages are inserted or updated through WordPress
-* Fix: frontmatter metadata is restored during frontend page hydration
+* Fix: markdown-backed pages now preserve block attributes correctly when synced
+* Fix: frontmatter metadata is available to frontend page helpers and layouts
 * Fix: markdown-backed pages can serve raw markdown content where needed
 * Fix: `className` attributes on programmatic `core/query` and `core/comments` block tags are preserved in generated wrapper markup
-* Fix: query-populated options now invalidate the runtime build cache when posts, terms, users, or related meta change
-* Fix: `populate.fetch: true` query selects no longer bake stale options at build time and now fetch live options for empty editor searches
+* Fix: dynamic query-populated options stay fresh after posts, terms, users, or related meta change
+* Fix: `populate.fetch: true` query selects now fetch live options for empty editor searches
 * Fix: camelCase template component props such as `allowedFormats` and `withoutInteractiveFormatting` now reach editor components correctly
-* Fix: page discovery now satisfies WordPress coding standards after the expanded page collection work
-* Fix: PHPStan now recognizes fields declared inside id-less tabs containers for template, Twig/Blade, and block tag validation
-* Fix: deleting repeater rows with RichText fields now persists after saving instead of restoring stale row text
+* Fix: PHPStan now recognizes fields declared inside tabs containers for template, Twig/Blade, and block tag validation
+* Fix: deleting repeater rows with RichText fields now persists after saving
 
 = 7.3.3 =
 * New: file-backed build cache for Blockstudio runtime discovery and editor asset payloads, configurable via `cache.enabled`

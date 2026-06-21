@@ -560,7 +560,7 @@ Install Blockstudio from this markdown page.`,
         icon: RefreshCw,
         title: 'Automatic sync',
         description:
-          'Pages sync to WordPress on every admin load. Fingerprints include manifests, loaders, layouts, and source files.',
+          'Pages sync to WordPress on every admin load. Changes to manifests, loaders, layouts, and source files are detected automatically.',
       },
       {
         icon: FileText,

@@ -73,8 +73,8 @@ Blockstudio looks for these source files next to `page.json`, in order:
 
 Markdown pages are converted to block content during sync. Headings receive
 stable IDs, frontmatter can define the same page properties as `page.json`,
-and the original Markdown file path is stored so the page can also be served
-as raw Markdown.
+and the page can also expose the original Markdown when raw Markdown output is
+enabled.
 
 Standalone Markdown pages need frontmatter:
 
@@ -121,7 +121,7 @@ the PHP API.
 
 ### Raw Markdown
 
-Markdown-backed pages can expose their source Markdown for tools, agents, and
+Markdown-backed pages can expose their source Markdown for external tools and
 documentation consumers.
 
 Request the page with a `.md` suffix:
@@ -306,18 +306,17 @@ When a `templateLock` is set, Blockstudio disables the ability to unlock blocks 
 
 ## Sync Behavior
 
-Pages are synced when you visit the WordPress admin. Blockstudio stores a
-fingerprint for each synced page and only updates WordPress when the relevant
-source inputs change.
+Pages are synced when you visit the WordPress admin. Blockstudio only updates
+WordPress when the relevant page source files or settings change.
 
 To prevent a page from being overwritten after manual edits, set `"sync": false` in `page.json`.
 
-For collection pages, sync fingerprints include the manifest, loader, page
-source, layout file, metadata, and related source paths. When any of those
-inputs change, the page is invalidated and synced again.
+For collection pages, Blockstudio watches the manifest, loader, page source,
+layout file, metadata, and related source paths. When any of those inputs
+change, the generated WordPress pages are synced again.
 
-When a collection source is removed, Blockstudio marks the missing synced page
-as stale so orphaned generated pages are pruned instead of lingering forever.
+When a collection source is removed, Blockstudio removes the generated page so
+old collection pages do not linger after the source file is gone.
 
 ## Post ID Pinning
 

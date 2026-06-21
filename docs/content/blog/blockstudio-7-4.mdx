@@ -25,14 +25,11 @@ The short version:
   files or returned Markdown/HTML.
 - **Raw Markdown output**: Markdown-backed pages can be served as `.md` or via
   `Accept: text/markdown`.
-- **Safer page syncing**: sync fingerprints now include more source inputs,
-  nested pages link to parents, stale collection pages are pruned, and block
-  attribute escaping survives insert/update.
-- **Runtime fixes**: query-populated options no longer get stuck behind stale
-  cache entries, `populate.fetch: true` stays live, query block `className`
-  attributes survive programmatic rendering, RichText props are parsed with the
-  right casing, PHPStan understands fields inside tabs, and repeater row
-  deletion with RichText now persists after saving.
+- **More reliable syncing**: page changes are detected across manifests,
+  loaders, layouts, metadata, and source files.
+- **Editor and rendering fixes**: dynamic options stay fresh, query block
+  classes survive programmatic rendering, RichText props reach the editor, and
+  repeater row deletion with RichText now persists after saving.
 
 ## Page collections
 
@@ -113,10 +110,8 @@ You can also pair `page.json` with `index.md` when you want configuration and
 content split across files. Frontmatter in `index.md` can override matching
 `page.json` fields and unknown frontmatter keys are preserved as metadata.
 
-Markdown is converted through the bundled CommonMark pipeline when available,
-with a small fallback converter for environments where the dependency is not
-loaded. The resulting HTML goes through the same page parser as PHP, Twig, and
-Blade templates, so the final content is native block markup.
+Markdown is converted to HTML and then passed through the same page parser as
+PHP, Twig, and Blade templates, so the final content is native block markup.
 
 ## Layouts and page helpers
 
@@ -182,49 +177,43 @@ Markdown-backed pages can also serve their raw Markdown source. Request the
 page with a `.md` suffix, or send `Accept: text/markdown`. Frontmatter is
 removed from the response, so tools get the readable document body.
 
-## Better sync invalidation
+## More reliable syncing
 
-The page sync fingerprint now includes the relevant source inputs: the page
-source, collection manifest, loader file, layout file, metadata, and related
-paths. If any of those change, Blockstudio invalidates the synced page and
-updates WordPress.
+Blockstudio now detects changes across page sources, collection manifests,
+loader files, layout files, metadata, and related paths. If any of those
+change, the synced WordPress page is updated.
 
 7.4 also fixes several edge cases in the page pipeline:
 
-- block attribute escaping survives insert/update, so serialized block
-  comments keep the right slashes
-- Markdown-backed pages can hydrate on the frontend with their source metadata
-- collection pages store stable identity metadata
+- Markdown-backed pages preserve block attributes correctly during sync
+- frontmatter metadata is available to frontend helpers and layouts
+- collection pages keep stable identity across syncs
 - nested non-collection pages link to their parent page
 - non-collection nested pages can inherit the nearest ancestor `layout.php`
-- removed collection sources are pruned instead of leaving orphaned generated
-  posts behind
+- removed collection sources clean up their generated WordPress pages
 - page order is persisted through `menu_order`
 
 ## Runtime and editor fixes
 
-7.4 also includes a set of fixes that came out of testing larger projects.
+7.4 also includes a set of fixes that came out of real project usage.
 
-Query-populated options now invalidate the runtime build cache when posts,
-terms, users, or related meta change. `populate.fetch: true` no longer bakes
-stale options into the build payload; it fetches live options for empty editor
-searches.
+Dynamic query-populated options now stay fresh when posts, terms, users, or
+related meta change. `populate.fetch: true` query selects also fetch live
+options for empty editor searches.
 
 Programmatic `core/query` and `core/comments` block tags now preserve
 `className` in the generated wrapper markup.
 
 Template pseudo-components now preserve camelCase props. That means props such
 as `allowedFormats` and `withoutInteractiveFormatting` reach the editor
-component instead of being lowercased away by HTML parsing.
+component instead of being lost before reaching the editor.
 
-`blockstudio/phpstan` now recognizes fields declared inside id-less `tabs`
-containers, so template, Twig/Blade, and block tag validation understand the
-same field shape Blockstudio uses at runtime.
+`blockstudio/phpstan` now recognizes fields declared inside `tabs` containers,
+so template, Twig/Blade, and block tag validation understand the same field
+shape Blockstudio uses in projects.
 
 And finally, deleting a repeater row with RichText now persists after saving.
-The editor removes the deleted row's RichText store entries and shifts later
-row paths down, so stale RichText values cannot recreate the removed row on
-save.
+Stale RichText values can no longer bring the deleted row back on save.
 
 ## Documentation
 
