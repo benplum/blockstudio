@@ -70,6 +70,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * Fix: `populate.fetch: true` query selects no longer bake stale options at build time and now fetch live options for empty editor searches
 * Fix: camelCase template component props such as `allowedFormats` and `withoutInteractiveFormatting` now reach editor components correctly
 * Fix: page discovery now satisfies WordPress coding standards after the expanded page collection work
+* Fix: PHPStan now recognizes fields declared inside id-less tabs containers for template, Twig/Blade, and block tag validation
 
 = 7.3.3 =
 * New: file-backed build cache for Blockstudio runtime discovery and editor asset payloads, configurable via `cache.enabled`
