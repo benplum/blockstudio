@@ -1,4 +1,11 @@
-import { expect, test, Page, Frame, Browser, BrowserContext } from '@playwright/test';
+import {
+  expect,
+  test,
+  Page,
+  Frame,
+  Browser,
+  BrowserContext,
+} from '@playwright/test';
 import { count, getEditorCanvas } from '../utils/playwright-utils';
 
 const BASE = 'http://localhost:8888';
@@ -32,7 +39,9 @@ async function navigateToPage(title: string, status = 'all') {
     `${BASE}/wp-admin/edit.php?post_type=page&post_status=${status}`,
   );
   await page.waitForSelector('.wp-list-table');
-  await page.locator('a.row-title', { hasText: new RegExp(`^${title}$`) }).click();
+  await page
+    .locator('a.row-title', { hasText: new RegExp(`^${title}$`) })
+    .click();
   canvas = await getEditorCanvas(page);
 }
 
@@ -70,11 +79,15 @@ test.describe('File-based Pages', () => {
       await page.goto(`${BASE}/wp-admin/edit.php?post_type=page`);
       await page.waitForSelector('.wp-list-table');
 
-      await expect(page.locator('a.row-title', { hasText: /^Blockstudio E2E Test Page$/ })).toBeVisible();
+      await expect(
+        page.locator('a.row-title', { hasText: /^Blockstudio E2E Test Page$/ }),
+      ).toBeVisible();
     });
 
     test('test page has correct slug', async () => {
-      await page.locator('a.row-title', { hasText: /^Blockstudio E2E Test Page$/ }).click();
+      await page
+        .locator('a.row-title', { hasText: /^Blockstudio E2E Test Page$/ })
+        .click();
       canvas = await getEditorCanvas(page);
 
       const url = page.url();
@@ -86,13 +99,23 @@ test.describe('File-based Pages', () => {
   test.describe('Block Content Parsing', () => {
     test('page loads with parsed blocks', async () => {
       await page.goto(`${BASE}/wp-admin/edit.php?post_type=page`);
-      await page.locator('a.row-title', { hasText: /^Blockstudio E2E Test Page$/ }).click();
+      await page
+        .locator('a.row-title', { hasText: /^Blockstudio E2E Test Page$/ })
+        .click();
       canvas = await getEditorCanvas(page);
-      await canvas.waitForSelector('[data-type="core/group"]', { timeout: 15000 });
+      await canvas.waitForSelector('[data-type="core/group"]', {
+        timeout: 15000,
+      });
 
-      await expect(canvas.locator('[data-type="core/group"]').first()).toBeVisible();
-      await expect(canvas.locator('[data-type="core/heading"]').first()).toBeVisible();
-      await expect(canvas.locator('[data-type="core/paragraph"]').first()).toBeVisible();
+      await expect(
+        canvas.locator('[data-type="core/group"]').first(),
+      ).toBeVisible();
+      await expect(
+        canvas.locator('[data-type="core/heading"]').first(),
+      ).toBeVisible();
+      await expect(
+        canvas.locator('[data-type="core/paragraph"]').first(),
+      ).toBeVisible();
     });
 
     test('page contains list blocks', async () => {
@@ -101,13 +124,21 @@ test.describe('File-based Pages', () => {
     });
 
     test('heading has correct content', async () => {
-      const h1Content = await canvas.locator('[data-type="core/heading"]').first().textContent();
+      const h1Content = await canvas
+        .locator('[data-type="core/heading"]')
+        .first()
+        .textContent();
       expect(h1Content).toContain('Core Blocks Test Page');
     });
 
     test('paragraph has correct content', async () => {
-      const pContent = await canvas.locator('[data-type="core/paragraph"]').first().textContent();
-      expect(pContent).toContain('This page tests all supported HTML to block conversions');
+      const pContent = await canvas
+        .locator('[data-type="core/paragraph"]')
+        .first()
+        .textContent();
+      expect(pContent).toContain(
+        'This page tests all supported HTML to block conversions',
+      );
     });
   });
 
@@ -130,7 +161,9 @@ test.describe('File-based Pages', () => {
       await page.evaluate(async () => {
         const { select } = (window as any).wp.data;
         const postId = select('core/editor').getCurrentPostId();
-        const response = await fetch(`/wp-json/wp/v2/pages/${postId}?context=edit`);
+        const response = await fetch(
+          `/wp-json/wp/v2/pages/${postId}?context=edit`,
+        );
         const data = await response.json();
         return data.meta && data.meta._blockstudio_page_source !== undefined;
       });
@@ -148,14 +181,19 @@ test.describe('File-based Pages', () => {
     });
 
     test('frontend has correct heading text', async () => {
-      const h1Text = await page.locator('.wp-block-heading').first().textContent();
+      const h1Text = await page
+        .locator('.wp-block-heading')
+        .first()
+        .textContent();
       expect(h1Text).toContain('Core Blocks Test Page');
     });
 
     test('frontend has correct list items', async () => {
       await count(page, '.wp-block-list li', 6);
 
-      const listItems = await page.locator('.wp-block-list li').allTextContents();
+      const listItems = await page
+        .locator('.wp-block-list li')
+        .allTextContents();
       expect(listItems).toContain('Unordered item one');
       expect(listItems).toContain('Ordered item one');
     });
@@ -168,7 +206,10 @@ test.describe('File-based Pages', () => {
         ['/docs/getting-started/', 'Getting Started'],
         ['/docs/guide/install/', 'Installation'],
         ['/flat-docs/', 'Flat Documentation Home'],
+        ['/flat-docs/getting-started/', 'Flat Getting Started'],
         ['/flat-docs/guide/install/', 'Flat Install'],
+        ['/flat-docs/setup/install/', 'Flat Setup Install'],
+        ['/no-index-docs/topic/', 'No Index Topic'],
       ];
 
       for (const [path, text] of cases) {
@@ -176,6 +217,33 @@ test.describe('File-based Pages', () => {
         expect(response.status(), path).toBe(200);
         expect(await response.text(), path).toContain(text);
       }
+    });
+
+    test('indexless collection root resolves as a real 404', async () => {
+      const response = await context.request.get(`${BASE}/no-index-docs/`);
+      expect(response.status()).toBe(404);
+    });
+
+    test('collection root reserved routes are not captured as child pages', async () => {
+      const feed = await context.request.get(`${BASE}/docs/feed/`);
+      expect(feed.status()).toBe(200);
+      expect(feed.headers()['content-type']).toContain('xml');
+
+      const paged = await context.request.get(`${BASE}/docs/page/2/`);
+      expect(paged.status()).toBe(200);
+      expect(await paged.text()).toContain('Documentation Home');
+
+      const embed = await context.request.get(`${BASE}/docs/embed/`);
+      expect(embed.status()).toBe(200);
+      expect(await embed.text()).toContain('wp-embed');
+    });
+
+    test('collection layout wraps docs pages only when layout.php exists', async () => {
+      const docs = await context.request.get(`${BASE}/docs/`);
+      expect(await docs.text()).toContain('data-docs-layout');
+
+      const flatDocs = await context.request.get(`${BASE}/flat-docs/`);
+      expect(await flatDocs.text()).not.toContain('data-docs-layout');
     });
 
     test('doubled collection CPT URLs redirect to canonical URLs', async () => {
@@ -199,31 +267,105 @@ test.describe('File-based Pages', () => {
     test('collection markdown endpoints return raw markdown', async () => {
       const cases = [
         ['/docs.md', 'Welcome to the generated documentation home.'],
-        ['/docs/getting-started.md', 'Start building with the docs collection.'],
-        ['/docs/guide/install.md', 'Install Blockstudio from this markdown page.'],
-        ['/flat-docs.md', 'Welcome to the non-hierarchical documentation home.'],
-        ['/flat-docs/guide/install.md', 'Nested logical paths work without WordPress parent pages.'],
+        [
+          '/docs/getting-started.md',
+          'Start building with the docs collection.',
+        ],
+        [
+          '/docs/guide/install.md',
+          'Install Blockstudio from this markdown page.',
+        ],
+        [
+          '/flat-docs.md',
+          'Welcome to the non-hierarchical documentation home.',
+        ],
+        [
+          '/flat-docs/guide/install.md',
+          'Nested logical paths work without WordPress parent pages.',
+        ],
+        [
+          '/flat-docs/setup/install.md',
+          'shares a basename with another nested flat-docs page.',
+        ],
       ];
 
       for (const [path, text] of cases) {
         const response = await context.request.get(`${BASE}${path}`);
         expect(response.status(), path).toBe(200);
-        expect(response.headers()['content-type'], path).toContain('text/markdown');
+        expect(response.headers()['content-type'], path).toContain(
+          'text/markdown',
+        );
+        expect(response.headers()['x-robots-tag'], path).toContain('noindex');
+        expect(response.headers().link, path).toContain('rel="canonical"');
         expect(await response.text(), path).toContain(text);
       }
+    });
+
+    test('collection markdown can be negotiated with Accept header', async () => {
+      const response = await context.request.get(`${BASE}/docs/`, {
+        headers: { Accept: 'text/markdown' },
+      });
+
+      expect(response.status()).toBe(200);
+      expect(response.headers()['content-type']).toContain('text/markdown');
+      expect(response.headers()['x-robots-tag']).toContain('noindex');
+      expect(response.headers().link).toContain('/docs/');
+      expect(await response.text()).toContain(
+        'Welcome to the generated documentation home.',
+      );
+    });
+
+    test('collection markdown serving can be disabled by filter', async () => {
+      await apiPost('blockstudio-test/v1/pages/markdown-serving', {
+        disabled: true,
+      });
+
+      try {
+        const response = await context.request.get(`${BASE}/docs.md`);
+
+        expect(response.status()).toBe(404);
+        expect(response.headers()['content-type']).not.toContain(
+          'text/markdown',
+        );
+      } finally {
+        await apiPost('blockstudio-test/v1/pages/markdown-serving', {
+          disabled: false,
+        });
+      }
+    });
+
+    test('collection rewrite signature flushes routes without manual permalink save', async () => {
+      const reset = await apiPost(
+        'blockstudio-test/v1/pages/rewrite-signature-reset',
+      );
+
+      expect(reset.before).toBeTruthy();
+      expect(reset.after).toBeTruthy();
+
+      const response = await context.request.get(
+        `${BASE}/docs/getting-started/`,
+      );
+      expect(response.status()).toBe(200);
+      expect(await response.text()).toContain('Getting Started');
     });
   });
 
   test.describe('Sync Test Page', () => {
     test('sync test page exists with draft status', async () => {
-      await page.goto(`${BASE}/wp-admin/edit.php?post_type=page&post_status=draft`);
+      await page.goto(
+        `${BASE}/wp-admin/edit.php?post_type=page&post_status=draft`,
+      );
       await page.waitForSelector('.wp-list-table');
 
-      await expect(page.locator('a.row-title:has-text("Blockstudio Sync Test Page")')).toBeVisible();
+      await expect(
+        page.locator('a.row-title:has-text("Blockstudio Sync Test Page")'),
+      ).toBeVisible();
     });
 
     test('sync test page has insert template lock', async () => {
-      await page.locator('a.row-title:has-text("Blockstudio Sync Test Page")').click();
+      await page
+        .locator('a.row-title:has-text("Blockstudio Sync Test Page")')
+        .click();
       canvas = await getEditorCanvas(page);
 
       const templateLock = await page.evaluate(() => {
@@ -240,7 +382,9 @@ test.describe('File-based Pages', () => {
   test.describe('Content Only Lock', () => {
     test('contentOnly lock is applied', async () => {
       await navigateToPage('Content Only Lock Test', 'draft');
-      await canvas.waitForSelector('[data-type="core/heading"]', { timeout: 15000 });
+      await canvas.waitForSelector('[data-type="core/heading"]', {
+        timeout: 15000,
+      });
 
       const settings = await getEditorSettings();
 
@@ -258,7 +402,9 @@ test.describe('File-based Pages', () => {
   test.describe('Unlocked Page', () => {
     test('unlocked page has no template lock', async () => {
       await navigateToPage('Unlocked Test', 'draft');
-      await canvas.waitForSelector('[data-type="core/heading"]', { timeout: 15000 });
+      await canvas.waitForSelector('[data-type="core/heading"]', {
+        timeout: 15000,
+      });
 
       const settings = await getEditorSettings();
 
@@ -279,7 +425,9 @@ test.describe('File-based Pages', () => {
   test.describe('Block Editing Mode', () => {
     test('page has blockEditingMode setting', async () => {
       await navigateToPage('Editing Mode Test', 'draft');
-      await canvas.waitForSelector('[data-type="core/heading"]', { timeout: 15000 });
+      await canvas.waitForSelector('[data-type="core/heading"]', {
+        timeout: 15000,
+      });
 
       const mode = await page.evaluate(() => {
         const { select } = (window as any).wp.data;
@@ -300,7 +448,9 @@ test.describe('File-based Pages', () => {
         // The plain <p> is the second block (index 1) with no blockEditingMode override.
         const paragraph = blocks[1];
         if (!paragraph) return null;
-        return select('core/block-editor').getBlockEditingMode(paragraph.clientId);
+        return select('core/block-editor').getBlockEditingMode(
+          paragraph.clientId,
+        );
       });
 
       expect(paragraphMode).toBe('disabled');
@@ -313,7 +463,9 @@ test.describe('File-based Pages', () => {
         // The <h1 blockEditingMode="contentOnly"> is the first block
         const heading = blocks[0];
         if (!heading) return null;
-        return select('core/block-editor').getBlockEditingMode(heading.clientId);
+        return select('core/block-editor').getBlockEditingMode(
+          heading.clientId,
+        );
       });
 
       expect(headingMode).toBe('contentOnly');
@@ -338,25 +490,31 @@ test.describe('File-based Pages', () => {
     test('sync:false page is not auto-created by normal sync', async () => {
       // Delete any existing page from previous runs via WP-CLI style deletion
       await page.evaluate(async (base: string) => {
-        const res = await fetch(`${base}/wp-json/wp/v2/pages?search=Sync+Disabled+Test&status=draft,publish&per_page=100`, {
-          headers: { 'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '' },
-        });
+        const res = await fetch(
+          `${base}/wp-json/wp/v2/pages?search=Sync+Disabled+Test&status=draft,publish&per_page=100`,
+          {
+            headers: {
+              'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
+            },
+          },
+        );
         const pages = await res.json();
         if (Array.isArray(pages)) {
           for (const p of pages) {
             await fetch(`${base}/wp-json/wp/v2/pages/${p.id}?force=true`, {
               method: 'DELETE',
-              headers: { 'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '' },
+              headers: {
+                'X-WP-Nonce': (window as any).wpApiSettings?.nonce || '',
+              },
             });
           }
         }
       }, BASE);
 
       // Trigger normal sync. It should not create the page because sync is false.
-      const result = await apiPost(
-        'blockstudio-test/v1/pages/trigger-sync',
-        { page_name: 'blockstudio-sync-disabled-test' },
-      );
+      const result = await apiPost('blockstudio-test/v1/pages/trigger-sync', {
+        page_name: 'blockstudio-sync-disabled-test',
+      });
 
       // sync() returns 0 for sync:false pages when no existing post found
       expect(result.post_id).toBe(0);
@@ -398,19 +556,33 @@ test.describe('File-based Pages', () => {
   // Template For
   test.describe('Template For', () => {
     test('CPT template is applied to new posts', async () => {
-      await page.goto(`${BASE}/wp-admin/post-new.php?post_type=blockstudio_test_cpt`);
+      await page.goto(
+        `${BASE}/wp-admin/post-new.php?post_type=blockstudio_test_cpt`,
+      );
       canvas = await getEditorCanvas(page);
-      await canvas.waitForSelector('[data-type="core/heading"]', { timeout: 15000 });
+      await canvas.waitForSelector('[data-type="core/heading"]', {
+        timeout: 15000,
+      });
 
-      await expect(canvas.locator('[data-type="core/heading"]').first()).toBeVisible();
-      await expect(canvas.locator('[data-type="core/paragraph"]').first()).toBeVisible();
+      await expect(
+        canvas.locator('[data-type="core/heading"]').first(),
+      ).toBeVisible();
+      await expect(
+        canvas.locator('[data-type="core/paragraph"]').first(),
+      ).toBeVisible();
     });
 
     test('CPT template has correct content', async () => {
-      const headingText = await canvas.locator('[data-type="core/heading"]').first().textContent();
+      const headingText = await canvas
+        .locator('[data-type="core/heading"]')
+        .first()
+        .textContent();
       expect(headingText).toContain('CPT Template Title');
 
-      const paragraphText = await canvas.locator('[data-type="core/paragraph"]').first().textContent();
+      const paragraphText = await canvas
+        .locator('[data-type="core/paragraph"]')
+        .first()
+        .textContent();
       expect(paragraphText).toContain('Default CPT content');
     });
 
@@ -428,10 +600,9 @@ test.describe('File-based Pages', () => {
   // Post ID Pinning
   test.describe('Post ID Pinning', () => {
     test('page with postId created at specified ID', async () => {
-      const result = await apiPost(
-        'blockstudio-test/v1/pages/force-sync',
-        { page_name: 'blockstudio-post-id-test' },
-      );
+      const result = await apiPost('blockstudio-test/v1/pages/force-sync', {
+        page_name: 'blockstudio-post-id-test',
+      });
 
       expect(result.post_id).toBe(99999);
 
@@ -452,18 +623,15 @@ test.describe('File-based Pages', () => {
       }, BASE);
 
       // Force re-sync. It should reclaim the same ID.
-      const result = await apiPost(
-        'blockstudio-test/v1/pages/force-sync',
-        { page_name: 'blockstudio-post-id-test' },
-      );
+      const result = await apiPost('blockstudio-test/v1/pages/force-sync', {
+        page_name: 'blockstudio-post-id-test',
+      });
 
       expect(result.post_id).toBe(99999);
     });
 
     test('page with postId has correct content', async () => {
-      const content = await apiGet(
-        'blockstudio-test/v1/pages/content/99999',
-      );
+      const content = await apiGet('blockstudio-test/v1/pages/content/99999');
 
       expect(content.post_content).toContain('Post ID Test');
       expect(content.post_content).toContain('post ID pinning');

@@ -53,6 +53,20 @@ class Pages {
 	private static bool $collection_rewrite_flush_scheduled = false;
 
 	/**
+	 * Per-request collection manifest cache.
+	 *
+	 * @var array<int, array>|null
+	 */
+	private static ?array $collection_manifests_cache = null;
+
+	/**
+	 * Per-request collection manifest cache indexed by slug.
+	 *
+	 * @var array<string, array>|null
+	 */
+	private static ?array $collection_manifests_by_slug_cache = null;
+
+	/**
 	 * Current page while rendering a layout.
 	 *
 	 * @var array|null
@@ -182,26 +196,15 @@ class Pages {
 	public static function register_collection_post_types(): void {
 		self::register_collection_url_hooks();
 
-		$paths = self::get_paths();
+		$collections = self::get_collection_manifests( self::should_refresh_collection_manifest_cache() );
 
-		/** This filter is documented in init(). */
-		$paths = apply_filters( 'blockstudio/pages/paths', $paths );
-
-		$collections = array();
-
-		foreach ( $paths as $path ) {
-			if ( ! is_dir( $path ) ) {
-				continue;
-			}
-
-			foreach ( Page_Discovery::discover_manifests( $path ) as $collection ) {
-				$collections[] = $collection;
-				self::register_collection_post_type( $collection );
-				self::add_collection_rewrite_rules( $collection );
-			}
+		foreach ( $collections as $collection ) {
+			self::register_collection_post_type( $collection );
+			self::add_collection_rewrite_rules( $collection );
 		}
 
 		self::maybe_flush_collection_rewrite_rules( $collections );
+		self::set_collection_manifests_cache( $collections );
 	}
 
 	/**
@@ -296,14 +299,62 @@ class Pages {
 		$base = preg_quote( trim( $slug, '/' ), '#' );
 
 		add_rewrite_rule(
+			'^' . $base . '/(?!(?:feed|rdf|rss|rss2|atom|page|embed)(?:/|$))(.+?)/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=$matches[1]',
+			'top'
+		);
+
+		add_rewrite_rule(
+			'^' . $base . '/(.+?)/embed/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=$matches[1]&embed=true',
+			'top'
+		);
+
+		add_rewrite_rule(
+			'^' . $base . '/(.+?)/page/?([0-9]{1,})/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=$matches[1]&paged=$matches[2]',
+			'top'
+		);
+
+		add_rewrite_rule(
+			'^' . $base . '/(.+?)/feed/(feed|rdf|rss|rss2|atom)/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=$matches[1]&feed=$matches[2]',
+			'top'
+		);
+
+		add_rewrite_rule(
+			'^' . $base . '/(.+?)/(feed|rdf|rss|rss2|atom)/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=$matches[1]&feed=$matches[2]',
+			'top'
+		);
+
+		add_rewrite_rule(
 			'^' . $base . '/?$',
 			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=.',
 			'top'
 		);
 
 		add_rewrite_rule(
-			'^' . $base . '/(.+?)/?$',
-			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=$matches[1]',
+			'^' . $base . '/embed/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=.&embed=true',
+			'top'
+		);
+
+		add_rewrite_rule(
+			'^' . $base . '/page/?([0-9]{1,})/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=.&paged=$matches[1]',
+			'top'
+		);
+
+		add_rewrite_rule(
+			'^' . $base . '/feed/(feed|rdf|rss|rss2|atom)/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=.&feed=$matches[1]',
+			'top'
+		);
+
+		add_rewrite_rule(
+			'^' . $base . '/(feed|rdf|rss|rss2|atom)/?$',
+			'index.php?blockstudio_collection=' . $slug . '&blockstudio_collection_path=.&feed=$matches[1]',
 			'top'
 		);
 	}
@@ -447,13 +498,25 @@ class Pages {
 		$post = self::find_collection_post_by_path( $collection_slug, $path );
 
 		if ( ! $post ) {
+			self::set_collection_request_404( $wp );
 			return;
 		}
 
-		$wp->query_vars = array(
-			'p'         => $post->ID,
-			'post_type' => $post->post_type,
-		);
+		unset( $wp->query_vars['blockstudio_collection'], $wp->query_vars['blockstudio_collection_path'] );
+
+		$wp->query_vars['p']         = $post->ID;
+		$wp->query_vars['post_type'] = $post->post_type;
+	}
+
+	/**
+	 * Mark an unresolved collection route as a deterministic 404.
+	 *
+	 * @param \WP $wp WordPress request object.
+	 *
+	 * @return void
+	 */
+	private static function set_collection_request_404( \WP $wp ): void {
+		$wp->query_vars = array( 'error' => '404' );
 	}
 
 	/**
@@ -508,25 +571,41 @@ class Pages {
 	 * @return array|null Collection data.
 	 */
 	private static function get_collection_manifest( string $slug ): ?array {
-		foreach ( self::get_collection_manifests() as $collection ) {
-			if ( (string) ( $collection['slug'] ?? '' ) === $slug ) {
-				return $collection;
-			}
-		}
-
-		return null;
+		return self::get_collection_manifests_by_slug()[ $slug ] ?? null;
 	}
 
 	/**
 	 * Get discovered collection manifests.
 	 *
+	 * @param bool $refresh Whether to refresh the cached manifests.
+	 *
 	 * @return array<int, array> Collection manifests.
 	 */
-	private static function get_collection_manifests(): array {
+	private static function get_collection_manifests( bool $refresh = false ): array {
+		if ( ! $refresh && null !== self::$collection_manifests_cache ) {
+			return self::$collection_manifests_cache;
+		}
+
 		$paths = self::get_paths();
 
 		/** This filter is documented in init(). */
 		$paths = apply_filters( 'blockstudio/pages/paths', $paths );
+
+		$cache_key = self::collection_manifests_cache_key( $paths );
+		$cached    = wp_cache_get( $cache_key, 'blockstudio' );
+
+		if ( ! $refresh && is_array( $cached ) ) {
+			self::set_collection_manifests_cache( $cached, false );
+			return self::$collection_manifests_cache ?? array();
+		}
+
+		$transient = get_transient( $cache_key );
+
+		if ( ! $refresh && is_array( $transient ) ) {
+			self::set_collection_manifests_cache( $transient, false );
+			wp_cache_set( $cache_key, $transient, 'blockstudio', HOUR_IN_SECONDS );
+			return self::$collection_manifests_cache ?? array();
+		}
 
 		$collections = array();
 
@@ -540,7 +619,94 @@ class Pages {
 			}
 		}
 
-		return $collections;
+		self::set_collection_manifests_cache( $collections );
+
+		return self::$collection_manifests_cache ?? array();
+	}
+
+	/**
+	 * Determine whether manifest caches should be refreshed from disk.
+	 *
+	 * @return bool Whether to bypass persistent manifest caches.
+	 */
+	private static function should_refresh_collection_manifest_cache(): bool {
+		return is_admin() || ( defined( 'WP_CLI' ) && WP_CLI );
+	}
+
+	/**
+	 * Get collection manifests indexed by slug.
+	 *
+	 * @return array<string, array> Collection manifests.
+	 */
+	private static function get_collection_manifests_by_slug(): array {
+		if ( null !== self::$collection_manifests_by_slug_cache ) {
+			return self::$collection_manifests_by_slug_cache;
+		}
+
+		self::set_collection_manifests_cache( self::get_collection_manifests(), false );
+
+		return self::$collection_manifests_by_slug_cache ?? array();
+	}
+
+	/**
+	 * Store collection manifests in request and persistent caches.
+	 *
+	 * @param array $collections Collection manifests.
+	 * @param bool  $persistent  Whether to update persistent caches.
+	 *
+	 * @return void
+	 */
+	private static function set_collection_manifests_cache( array $collections, bool $persistent = true ): void {
+		$indexed = array();
+
+		foreach ( $collections as $collection ) {
+			$slug = (string) ( $collection['slug'] ?? '' );
+
+			if ( '' !== $slug ) {
+				$indexed[ $slug ] = $collection;
+			}
+		}
+
+		self::$collection_manifests_cache         = array_values( $collections );
+		self::$collection_manifests_by_slug_cache = $indexed;
+
+		if ( ! $persistent ) {
+			return;
+		}
+
+		$paths = self::get_paths();
+
+		/** This filter is documented in init(). */
+		$paths = apply_filters( 'blockstudio/pages/paths', $paths );
+
+		$cache_key = self::collection_manifests_cache_key( $paths );
+		wp_cache_set( $cache_key, self::$collection_manifests_cache, 'blockstudio', HOUR_IN_SECONDS );
+		set_transient( $cache_key, self::$collection_manifests_cache, HOUR_IN_SECONDS );
+	}
+
+	/**
+	 * Build a persistent collection manifest cache key.
+	 *
+	 * @param array $paths Discovery paths.
+	 *
+	 * @return string Cache key.
+	 */
+	private static function collection_manifests_cache_key( array $paths ): string {
+		$paths = array_values(
+			array_map(
+				static fn ( mixed $path ): string => is_scalar( $path ) ? wp_normalize_path( (string) $path ) : '',
+				$paths
+			)
+		);
+
+		$encoded = wp_json_encode(
+			array(
+				'paths'     => $paths,
+				'signature' => (string) get_option( 'blockstudio_collection_post_types_signature', '' ),
+			)
+		);
+
+		return 'blockstudio_collection_manifests_' . md5( false === $encoded ? '' : $encoded );
 	}
 
 	/**
@@ -578,6 +744,20 @@ class Pages {
 				'key'   => '_blockstudio_page_content_type',
 				'value' => 'markdown',
 			);
+		}
+
+		$posts = get_posts(
+			array(
+				'meta_key'       => '_blockstudio_page_route', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value'     => $collection_slug . ':' . $path, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'post_type'      => $post_type,
+				'posts_per_page' => 1,
+				'post_status'    => 'any',
+			)
+		);
+
+		if ( ! empty( $posts ) && $posts[0] instanceof \WP_Post ) {
+			return $posts[0];
 		}
 
 		$posts = get_posts(
@@ -1008,7 +1188,7 @@ class Pages {
 		$file = $post ? (string) get_post_meta( $post->ID, '_blockstudio_page_content_path', true ) : '';
 		if ( '' === $file || ! is_file( $file ) ) {
 			if ( $is_md_ext ) {
-				status_header( 404 );
+				self::serve_markdown_not_found();
 			}
 			return;
 		}
@@ -1025,8 +1205,63 @@ class Pages {
 		nocache_headers();
 		status_header( 200 );
 		header( 'Content-Type: text/markdown; charset=utf-8' );
+		header( 'X-Robots-Tag: noindex', true );
+
+		$canonical = self::canonical_url_for_markdown_post( $post );
+		if ( '' !== $canonical ) {
+			header( 'Link: <' . esc_url_raw( $canonical ) . '>; rel="canonical"', false );
+		}
+
 		echo $markdown; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		exit;
+	}
+
+	/**
+	 * Send a real 404 response for an unresolved raw markdown route.
+	 *
+	 * @return void
+	 */
+	private static function serve_markdown_not_found(): void {
+		global $wp_query;
+
+		if ( $wp_query instanceof \WP_Query ) {
+			$wp_query->set_404();
+		}
+
+		status_header( 404 );
+		nocache_headers();
+
+		$template = get_404_template();
+
+		if ( $template ) {
+			include $template;
+		}
+
+		exit;
+	}
+
+	/**
+	 * Build the canonical HTML URL for a markdown source response.
+	 *
+	 * @param \WP_Post|null $post Post object.
+	 *
+	 * @return string Canonical URL.
+	 */
+	private static function canonical_url_for_markdown_post( ?\WP_Post $post ): string {
+		if ( ! $post ) {
+			return '';
+		}
+
+		$collection_slug = (string) get_post_meta( $post->ID, '_blockstudio_page_collection', true );
+		$path            = (string) get_post_meta( $post->ID, '_blockstudio_page_path', true );
+
+		if ( '' !== $collection_slug ) {
+			return self::collection_page_url( $collection_slug, '' === $path ? '.' : $path );
+		}
+
+		$permalink = get_permalink( $post );
+
+		return is_string( $permalink ) ? $permalink : '';
 	}
 
 	/**
@@ -1296,9 +1531,11 @@ class Pages {
 	 */
 	public static function reset(): void {
 		Page_Registry::instance()->reset();
-		self::$initialized          = false;
-		self::$current_page         = null;
-		self::$current_page_content = '';
-		self::$rendering_layout     = false;
+		self::$initialized                        = false;
+		self::$collection_manifests_cache         = null;
+		self::$collection_manifests_by_slug_cache = null;
+		self::$current_page                       = null;
+		self::$current_page_content               = '';
+		self::$rendering_layout                   = false;
 	}
 }

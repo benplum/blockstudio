@@ -275,6 +275,13 @@ add_filter(
 	1
 );
 
+add_filter(
+	'blockstudio/pages/serve_markdown',
+	function ( $enabled ) {
+		return get_option( 'blockstudio_test_disable_markdown' ) ? false : $enabled;
+	}
+);
+
 /**
  * Provide editor assets for classes autocomplete.
  */
@@ -698,6 +705,7 @@ add_action(
 					}
 
 					delete_option( 'blockstudio_e2e_legacy_api_block_enabled' );
+					delete_option( 'blockstudio_test_disable_markdown' );
 
 					switch_theme( 'theme' );
 
@@ -1546,6 +1554,62 @@ add_action(
 					return array(
 						'post_id'      => $post_id,
 						'post_content' => get_post( $post_id )->post_content,
+					);
+				},
+				'permission_callback' => '__return_true',
+			)
+		);
+
+		register_rest_route(
+			'blockstudio-test/v1',
+			'/pages/markdown-serving',
+			array(
+				'methods'             => 'POST',
+				'callback'            => function ( $request ) {
+					$disabled = rest_sanitize_boolean( $request->get_param( 'disabled' ) );
+
+					if ( $disabled ) {
+						update_option( 'blockstudio_test_disable_markdown', 1, false );
+					} else {
+						delete_option( 'blockstudio_test_disable_markdown' );
+					}
+
+					return array(
+						'disabled' => (bool) get_option( 'blockstudio_test_disable_markdown' ),
+					);
+				},
+				'permission_callback' => '__return_true',
+			)
+		);
+
+		register_rest_route(
+			'blockstudio-test/v1',
+			'/pages/rewrite-signature-reset',
+			array(
+				'methods'             => 'POST',
+				'callback'            => function () {
+					global $wpdb;
+
+					$before = (string) get_option( 'blockstudio_collection_post_types_signature', '' );
+
+					delete_option( 'blockstudio_collection_post_types_signature' );
+					$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+						$wpdb->prepare(
+							"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+							$wpdb->esc_like( '_transient_blockstudio_collection_manifests_' ) . '%',
+							$wpdb->esc_like( '_transient_timeout_blockstudio_collection_manifests_' ) . '%'
+						)
+					);
+					wp_cache_flush();
+
+					if ( class_exists( 'Blockstudio\\Pages' ) ) {
+						\Blockstudio\Pages::reset();
+						\Blockstudio\Pages::register_collection_post_types();
+					}
+
+					return array(
+						'before' => $before,
+						'after'  => (string) get_option( 'blockstudio_collection_post_types_signature', '' ),
 					);
 				},
 				'permission_callback' => '__return_true',

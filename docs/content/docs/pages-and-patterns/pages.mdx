@@ -36,6 +36,8 @@ For a JSON-defined page, add a `page.json` configuration file:
 | `name`             | `string`        | _required_     | Unique identifier for the page                                    |
 | `title`            | `string`        | Auto from name | The page title                                                    |
 | `slug`             | `string`        | Same as name   | URL slug for the page                                             |
+| `path`             | `string`        | `"."`          | Logical path inside a collection                                  |
+| `order`            | `integer`       | `0`            | Menu order for the synced post                                    |
 | `postType`         | `string`        | `"page"`       | WordPress post type                                               |
 | `postStatus`       | `string`        | `"draft"`      | Status for new posts (`publish`, `draft`, `pending`, `private`)   |
 | `postId`           | `integer`       | -              | Pin the page to a specific WordPress post ID                      |
@@ -43,6 +45,14 @@ For a JSON-defined page, add a `page.json` configuration file:
 | `templateLock`     | `string\|false` | `"all"`        | Lock mode: `"all"`, `"insert"`, `"contentOnly"`, or `false`       |
 | `templateFor`      | `string\|null`  | `null`         | Set as default template for a post type                           |
 | `sync`             | `boolean`       | `true`         | Whether to sync content when template changes                     |
+
+Recognized `page.json`, frontmatter, and loader page keys are
+`blockEditingMode`, `collection`, `content`, `contentSource`,
+`contentType`, `defaults`, `file`, `generated`, `html`, `markdown`, `meta`,
+`name`, `order`, `path`, `postId`, `postStatus`, `postType`,
+`postTypeArgs`, `slug`, `source`, `source_fingerprint`, `sync`, `template`,
+`templateFor`, `templateLock`, `title`, and `trusted`. Unknown keys are
+stored under the page `meta` array.
 
 Blockstudio looks for these source files next to `page.json`, in order:
 
@@ -76,7 +86,10 @@ stable IDs, frontmatter can define the same page properties as `page.json`,
 and the page can also expose the original Markdown when raw Markdown output is
 enabled.
 
-Standalone Markdown pages need frontmatter:
+Standalone Markdown pages need frontmatter. A standalone `index.md` without
+frontmatter is skipped because Blockstudio has no page name to sync. Markdown
+inside a collection does not need frontmatter because the collection can infer
+the page name and logical path from the file location.
 
 ```md title="pages/about/index.md"
 ---
@@ -116,8 +129,13 @@ This page uses `page.json` with Markdown content.
 ```
 
 Unknown frontmatter keys are preserved in the page's `meta` array. This lets
-you attach data such as `section`, `order`, or `description` and read it from
-the PHP API.
+you attach data such as `section` or `description` and read it from the PHP
+API.
+
+Markdown is rendered with the bundled League CommonMark GitHub Flavored
+Markdown converter when available. If Symfony YAML is unavailable,
+frontmatter falls back to a simple scalar parser, so nested YAML structures
+require the bundled parser.
 
 ### Raw Markdown
 
@@ -131,7 +149,8 @@ https://example.com/docs/reference.md
 ```
 
 Or send an `Accept: text/markdown` header to the page URL. Frontmatter is
-removed from the response.
+removed from the response. Successful raw Markdown responses send
+`X-Robots-Tag: noindex` and a canonical `Link` header back to the HTML page.
 
 Disable this behavior with the `blockstudio/pages/serve_markdown` filter:
 
@@ -194,9 +213,12 @@ Collection page paths are logical paths. A page with `path: "guide/install"`
 is synced as a child of `guide`, and `guide` is synced as a child of the
 collection root when those parent pages exist.
 
-If a collection has a nested page but an intermediate parent source does not
-exist, Blockstudio generates an empty container page for that path. This keeps
-the WordPress hierarchy complete.
+If a hierarchical collection has a nested page but an intermediate parent
+source does not exist, Blockstudio generates an empty container page for that
+path. This keeps the WordPress hierarchy complete. Non-hierarchical
+collection post types do not generate empty containers; their routing is based
+on the stored collection path, so nested paths such as `guide/install` and
+`setup/install` can coexist even though both end in `install`.
 
 ### Collection Post Types and URLs
 
@@ -208,6 +230,9 @@ to that post type. You do not need to repeat the same value inside
 When the post type does not exist, Blockstudio registers it with
 `show_in_rest: true`, a page-like editor setup, and the collection slug as the
 public URL base. `postTypeArgs` can override the registration arguments.
+Collection post type rewrite rules are flushed automatically when the
+registered collection post types or rewrite args change, so you do not need to
+resave WordPress permalinks.
 
 Collection URLs use the collection slug plus each page's logical `path`:
 
@@ -232,7 +257,9 @@ Markdown-backed collection pages keep the same URL shape for raw Markdown:
 If you change a collection from `postType: "page"` to a custom post type,
 Blockstudio migrates already synced collection posts in place when their
 stored page identity matches. That preserves post IDs, metadata, and existing
-content while avoiding duplicate old-typed posts.
+content while avoiding duplicate old-typed posts. Stale collection posts are
+cleaned up across all post statuses according to the
+`blockstudio/pages/orphan_action` filter.
 
 ## Collection Loaders
 
@@ -266,9 +293,17 @@ Loader pages support:
 - `file` or `template` references to local files
 - `meta` for per-page metadata
 
-Loaders can also return extra local paths to discover. Paths outside the
-collection root are allowed only when the
-`blockstudio/pages/allow_external_loader_path` filter permits them.
+A loader can return an array with `pages`, `meta`, and `paths` keys:
+
+- `pages` is a list of page arrays.
+- `meta` is merged into every loader-generated page's `meta`.
+- `paths` is a list of extra local directories to discover.
+
+As a shorthand, the loader may return a bare list of page arrays. Loader pages
+default to `generated: true`, which means disappearing loader output is treated
+as an orphaned generated page on the next sync. Paths outside the collection
+root are allowed only when the `blockstudio/pages/allow_external_loader_path`
+filter permits them.
 
 ## Layouts
 
@@ -349,6 +384,12 @@ change, the generated WordPress pages are synced again.
 
 When a collection source is removed, Blockstudio removes the generated page so
 old collection pages do not linger after the source file is gone.
+By default, orphaned collection pages are moved to trash. Use
+`blockstudio/pages/orphan_action` to return `trash`, `delete`, or `keep`.
+
+On frontend requests, Blockstudio hydrates the page registry from already
+synced published posts. Draft and private pages are available in admin and
+sync contexts, but frontend helpers only hydrate published pages.
 
 ## Post ID Pinning
 
@@ -611,6 +652,25 @@ add_filter( 'blockstudio/pages/paths', function( $paths ) {
 } );
 ```
 
+## Filters and Actions
+
+Page discovery, sync, and collection routing expose these extension points:
+
+| Hook | Type | Description |
+| ---- | ---- | ----------- |
+| `blockstudio/pages/paths` | Filter | Add directories that Blockstudio scans for page sources. |
+| `blockstudio/pages/collection_post_type_args` | Filter | Adjust `register_post_type()` args for a collection CPT. |
+| `blockstudio/pages/template_candidates` | Filter | Adjust template filenames considered for a page source. |
+| `blockstudio/pages/serve_markdown` | Filter | Enable or disable raw Markdown responses. |
+| `blockstudio/pages/orphan_action` | Filter | Return `trash`, `delete`, or `keep` for orphan cleanup. |
+| `blockstudio/pages/docs_allowed_html` | Filter | Adjust allowed HTML for generated Markdown docs content. |
+| `blockstudio/pages/allow_external_loader_path` | Filter | Allow loader `paths` outside the collection root. |
+| `blockstudio/pages/create_post_data` | Filter | Modify post data before a synced page is created. |
+| `blockstudio/pages/update_post_data` | Filter | Modify post data before a synced page is updated. |
+| `blockstudio/pages/post_created` | Action | Runs after a synced page post is created. |
+| `blockstudio/pages/post_updated` | Action | Runs after a synced page post is updated. |
+| `blockstudio/pages/synced` | Action | Runs after the page registry has finished syncing. |
+
 ## PHP API
 
 ```php
@@ -658,6 +718,11 @@ blockstudio_page_collection('docs');
 blockstudio_page_content();
 blockstudio_current_page();
 ```
+
+Page arrays returned by `Blockstudio\Pages::pages()`,
+`Blockstudio\Pages::tree()`, `Blockstudio\Pages::children()`, and the global
+helpers include a `permalink` key after sync. There is no separate
+`Pages::permalink()` method.
 
 <GuideBanner
   href="/guides/file-based-pages"

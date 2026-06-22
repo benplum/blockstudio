@@ -290,6 +290,7 @@ class PagesTest extends TestCase {
 		$this->assertTrue( is_post_type_hierarchical( 'bs_docs' ) );
 		$this->assertTrue( post_type_exists( 'bs_flat_docs' ) );
 		$this->assertFalse( is_post_type_hierarchical( 'bs_flat_docs' ) );
+		$this->assertTrue( post_type_exists( 'bs_no_index_docs' ) );
 	}
 
 	public function test_collection_pages_are_namespaced(): void {
@@ -301,12 +302,21 @@ class PagesTest extends TestCase {
 		$this->assertArrayHasKey( 'docs:docs-loader-api', $pages );
 	}
 
+	public function test_indexless_collection_registers_only_source_pages(): void {
+		$pages = Pages::in_collection( 'no-index-docs' );
+
+		$this->assertNull( Pages::get_page( 'no-index-docs' ) );
+		$this->assertArrayHasKey( 'no-index-docs:no-index-docs-topic', $pages );
+	}
+
 	public function test_collection_pages_inherit_collection_post_type(): void {
 		$this->assertSame( 'bs_docs', get_post_type( Pages::get_post_id( 'docs-home' ) ) );
 		$this->assertSame( 'bs_docs', get_post_type( Pages::get_post_id( 'docs-getting-started' ) ) );
 		$this->assertSame( 'bs_docs', get_post_type( Pages::get_post_id( 'docs-install' ) ) );
 		$this->assertSame( 'bs_flat_docs', get_post_type( Pages::get_post_id( 'flat-docs-home' ) ) );
+		$this->assertSame( 'bs_flat_docs', get_post_type( Pages::get_post_id( 'flat-docs-getting-started' ) ) );
 		$this->assertSame( 'bs_flat_docs', get_post_type( Pages::get_post_id( 'flat-docs-install' ) ) );
+		$this->assertSame( 'bs_no_index_docs', get_post_type( Pages::get_post_id( 'no-index-docs-topic' ) ) );
 	}
 
 	public function test_collection_cpt_permalinks_use_collection_paths(): void {
@@ -314,7 +324,10 @@ class PagesTest extends TestCase {
 		$this->assertSame( home_url( '/docs/getting-started/' ), get_permalink( Pages::get_post_id( 'docs-getting-started' ) ) );
 		$this->assertSame( home_url( '/docs/guide/install/' ), get_permalink( Pages::get_post_id( 'docs-install' ) ) );
 		$this->assertSame( home_url( '/flat-docs/' ), get_permalink( Pages::get_post_id( 'flat-docs-home' ) ) );
+		$this->assertSame( home_url( '/flat-docs/getting-started/' ), get_permalink( Pages::get_post_id( 'flat-docs-getting-started' ) ) );
 		$this->assertSame( home_url( '/flat-docs/guide/install/' ), get_permalink( Pages::get_post_id( 'flat-docs-install' ) ) );
+		$this->assertSame( home_url( '/flat-docs/setup/install/' ), get_permalink( Pages::get_post_id( 'flat-docs-setup-install' ) ) );
+		$this->assertSame( home_url( '/no-index-docs/topic/' ), get_permalink( Pages::get_post_id( 'no-index-docs-topic' ) ) );
 	}
 
 	public function test_collection_generates_missing_container_pages(): void {
@@ -327,6 +340,27 @@ class PagesTest extends TestCase {
 		$this->assertIsArray( $api );
 		$this->assertTrue( $api['generated'] );
 		$this->assertSame( 'api', $api['path'] );
+	}
+
+	public function test_non_hierarchical_collections_do_not_generate_empty_containers(): void {
+		$this->assertNull( Pages::get_page( 'flat-docs-guide' ) );
+		$this->assertNull( Pages::get_page( 'flat-docs-setup' ) );
+	}
+
+	public function test_non_hierarchical_nested_pages_use_route_slugs_without_parents(): void {
+		$install_id = Pages::get_post_id( 'flat-docs-install' );
+		$setup_id   = Pages::get_post_id( 'flat-docs-setup-install' );
+		$install    = get_post( $install_id );
+		$setup      = get_post( $setup_id );
+
+		$this->assertInstanceOf( WP_Post::class, $install );
+		$this->assertInstanceOf( WP_Post::class, $setup );
+		$this->assertSame( 0, (int) $install->post_parent );
+		$this->assertSame( 0, (int) $setup->post_parent );
+		$this->assertSame( 'guide-install', $install->post_name );
+		$this->assertSame( 'setup-install', $setup->post_name );
+		$this->assertStringContainsString( 'Flat Install', $install->post_content );
+		$this->assertStringContainsString( 'Flat Setup Install', $setup->post_content );
 	}
 
 	public function test_collection_children_use_logical_paths(): void {
@@ -538,8 +572,73 @@ class PagesTest extends TestCase {
 		$this->assertSame( 'docs:docs-install', get_post_meta( $post_id, '_blockstudio_page_key', true ) );
 		$this->assertSame( 'docs', get_post_meta( $post_id, '_blockstudio_page_collection', true ) );
 		$this->assertSame( 'guide/install', get_post_meta( $post_id, '_blockstudio_page_path', true ) );
+		$this->assertSame( 'docs:guide/install', get_post_meta( $post_id, '_blockstudio_page_route', true ) );
 		$this->assertSame( 'bs_docs', get_post_type( $post_id ) );
 		$this->assertNotEmpty( get_post_meta( $post_id, '_blockstudio_page_fingerprint', true ) );
+	}
+
+	public function test_collection_rewrite_signature_is_stable_and_tracks_route_changes(): void {
+		$this->clear_collection_manifest_cache();
+		Pages::reset();
+		Pages::register_collection_post_types();
+
+		$signature = (string) get_option( 'blockstudio_collection_post_types_signature', '' );
+
+		$this->assertNotEmpty( $signature );
+
+		Pages::register_collection_post_types();
+		$this->assertSame( $signature, (string) get_option( 'blockstudio_collection_post_types_signature', '' ) );
+
+		$manifest_method = new ReflectionMethod( Pages::class, 'get_collection_manifests' );
+		$manifest_method->setAccessible( true );
+		$collections = $manifest_method->invoke( null, true );
+
+		$signature_method = new ReflectionMethod( Pages::class, 'collection_rewrite_signature' );
+		$signature_method->setAccessible( true );
+
+		$this->assertSame( $signature, $signature_method->invoke( null, $collections ) );
+
+		$post_type_changed                 = $collections;
+		$post_type_changed[0]['postType'] = $post_type_changed[0]['postType'] . '_next';
+
+		$this->assertNotSame( $signature, $signature_method->invoke( null, $post_type_changed ) );
+
+		$rewrite_changed                                      = $collections;
+		$rewrite_changed[0]['postTypeArgs']['rewrite']['slug'] = ( $rewrite_changed[0]['postTypeArgs']['rewrite']['slug'] ?? $rewrite_changed[0]['slug'] ) . '-next';
+
+		$this->assertNotSame( $signature, $signature_method->invoke( null, $rewrite_changed ) );
+	}
+
+	public function test_explicit_post_id_migrates_empty_target_post_in_place(): void {
+		$target_id = wp_insert_post(
+			array(
+				'post_title'   => 'Explicit Target',
+				'post_name'    => 'explicit-target',
+				'post_type'    => 'page',
+				'post_status'  => 'draft',
+				'post_content' => '',
+			)
+		);
+
+		$this->assertIsInt( $target_id );
+
+		$page_data                = Pages::get_page( 'docs-getting-started' );
+		$page_data['name']        = 'docs-explicit-postid';
+		$page_data['title']       = 'Docs Explicit Post ID';
+		$page_data['slug']        = 'explicit-postid';
+		$page_data['path']        = 'explicit-postid';
+		$page_data['source_path'] = 'docs/explicit-postid.md';
+		$page_data['postId']      = $target_id;
+
+		try {
+			$result = ( new Page_Sync() )->force_sync( $page_data );
+
+			$this->assertSame( $target_id, $result );
+			$this->assertSame( 'bs_docs', get_post_type( $target_id ) );
+			$this->assertSame( 'docs:docs-explicit-postid', get_post_meta( $target_id, '_blockstudio_page_key', true ) );
+		} finally {
+			wp_delete_post( $target_id, true );
+		}
 	}
 
 	public function test_collection_post_type_change_migrates_existing_post(): void {
@@ -588,6 +687,41 @@ class PagesTest extends TestCase {
 			$this->assertSame( $keep_post_id, $result );
 			$this->assertSame( 'trash', get_post_status( $duplicate_id ) );
 		} finally {
+			wp_delete_post( $duplicate_id, true );
+		}
+	}
+
+	public function test_collection_duplicate_auto_draft_posts_are_pruned(): void {
+		$page_data    = Pages::get_page( 'docs-getting-started' );
+		$keep_post_id = Pages::get_post_id( 'docs-getting-started' );
+		$duplicate_id = wp_insert_post(
+			array(
+				'post_title'   => 'Duplicate Auto Draft',
+				'post_name'    => 'getting-started-auto-draft',
+				'post_type'    => 'page',
+				'post_status'  => 'auto-draft',
+				'post_content' => 'Duplicate content.',
+			)
+		);
+
+		$this->assertIsInt( $duplicate_id );
+
+		update_post_meta( $duplicate_id, '_blockstudio_page_key', $page_data['key'] );
+		update_post_meta( $duplicate_id, '_blockstudio_page_name', $page_data['name'] );
+		update_post_meta( $duplicate_id, '_blockstudio_page_source', $page_data['source_path'] );
+		update_post_meta( $duplicate_id, '_blockstudio_page_collection', $page_data['collection'] );
+		update_post_meta( $duplicate_id, '_blockstudio_page_path', $page_data['path'] );
+
+		$delete = static fn (): string => 'delete';
+		add_filter( 'blockstudio/pages/orphan_action', $delete );
+
+		try {
+			$result = ( new Page_Sync() )->force_sync( $page_data );
+
+			$this->assertSame( $keep_post_id, $result );
+			$this->assertNull( get_post( $duplicate_id ) );
+		} finally {
+			remove_filter( 'blockstudio/pages/orphan_action', $delete );
 			wp_delete_post( $duplicate_id, true );
 		}
 	}
@@ -818,6 +952,174 @@ class PagesTest extends TestCase {
 		} finally {
 			remove_filter( 'blockstudio/pages/orphan_action', $keep );
 		}
+	}
+
+	public function test_orphan_action_delete_hard_deletes_loader_generated_page(): void {
+		$post_id = Pages::get_post_id( 'docs-loader-api' );
+
+		$this->assertGreaterThan( 0, $post_id );
+
+		$active = array();
+
+		foreach ( Pages::in_collection( 'docs' ) as $page ) {
+			if ( 'docs-loader-api' !== ( $page['name'] ?? '' ) ) {
+				$active[] = (string) ( $page['source_path'] ?? '' );
+			}
+		}
+
+		$delete = static fn (): string => 'delete';
+		add_filter( 'blockstudio/pages/orphan_action', $delete );
+
+		try {
+			( new Page_Sync() )->mark_stale_missing( $active, 'docs', array( 'bs_docs' ) );
+
+			$this->assertNull( get_post( $post_id ) );
+		} finally {
+			remove_filter( 'blockstudio/pages/orphan_action', $delete );
+			wp_delete_post( $post_id, true );
+		}
+	}
+
+	public function test_mark_stale_missing_prunes_any_post_status(): void {
+		register_post_status(
+			'blockstudio_tmp',
+			array(
+				'internal' => false,
+				'public'   => false,
+			)
+		);
+
+		$post_id = wp_insert_post(
+			array(
+				'post_title'   => 'Stale Custom Status',
+				'post_name'    => 'stale-custom-status',
+				'post_type'    => 'bs_docs',
+				'post_status'  => 'blockstudio_tmp',
+				'post_content' => 'Stale content.',
+			)
+		);
+
+		$this->assertIsInt( $post_id );
+
+		update_post_meta( $post_id, '_blockstudio_page_key', 'docs:stale-custom-status' );
+		update_post_meta( $post_id, '_blockstudio_page_name', 'stale-custom-status' );
+		update_post_meta( $post_id, '_blockstudio_page_source', 'docs/stale-custom-status.md' );
+		update_post_meta( $post_id, '_blockstudio_page_collection', 'docs' );
+		update_post_meta( $post_id, '_blockstudio_page_path', 'stale-custom-status' );
+
+		$delete = static fn (): string => 'delete';
+		add_filter( 'blockstudio/pages/orphan_action', $delete );
+
+		try {
+			$active = array();
+
+			foreach ( Pages::in_collection( 'docs' ) as $page ) {
+				$active[] = (string) ( $page['source_path'] ?? '' );
+			}
+
+			( new Page_Sync() )->mark_stale_missing( $active, 'docs', array( 'bs_docs' ) );
+
+			$this->assertNull( get_post( $post_id ) );
+		} finally {
+			remove_filter( 'blockstudio/pages/orphan_action', $delete );
+			wp_delete_post( $post_id, true );
+		}
+	}
+
+	public function test_resync_is_noop_until_source_or_layout_changes(): void {
+		$temp_dir        = sys_get_temp_dir() . '/blockstudio-resync-' . uniqid();
+		$collection_root = $temp_dir . '/cache-docs';
+
+		mkdir( $collection_root, 0755, true );
+
+		file_put_contents(
+			$collection_root . '/pages.json',
+			wp_json_encode(
+				array(
+					'collection' => 'cache-docs',
+					'title'      => 'Cache Docs',
+					'postType'   => 'page',
+					'defaults'   => array(
+						'postStatus' => 'publish',
+					),
+				)
+			)
+		);
+		file_put_contents( $collection_root . '/layout.php', '<main data-cache-layout><?php echo blockstudio_page_content(); ?></main>' );
+		file_put_contents(
+			$collection_root . '/index.md',
+			"---\nname: cache-docs-home\ntitle: Cache Docs Home\npath: .\n---\n\n# Cache Docs Home\n\nInitial content."
+		);
+
+		$sync_page = function () use ( $temp_dir ): int {
+			$discovery = new Page_Discovery();
+			$pages     = $discovery->discover( $temp_dir );
+			$page      = $pages['cache-docs:cache-docs-home'];
+			$result    = ( new Page_Sync() )->sync( $page );
+
+			$this->assertIsInt( $result );
+
+			return $result;
+		};
+
+		$post_id = null;
+
+		try {
+			$post_id = $sync_page();
+			$first   = (string) get_post_meta( $post_id, '_blockstudio_page_fingerprint', true );
+
+			$same = $sync_page();
+			$this->assertSame( $post_id, $same );
+			$this->assertSame( $first, (string) get_post_meta( $post_id, '_blockstudio_page_fingerprint', true ) );
+
+			file_put_contents(
+				$collection_root . '/index.md',
+				"---\nname: cache-docs-home\ntitle: Cache Docs Home\npath: .\n---\n\n# Cache Docs Home\n\nUpdated content."
+			);
+
+			$source_changed = $sync_page();
+			$second         = (string) get_post_meta( $post_id, '_blockstudio_page_fingerprint', true );
+			$post           = get_post( $source_changed );
+
+			$this->assertSame( $post_id, $source_changed );
+			$this->assertNotSame( $first, $second );
+			$this->assertInstanceOf( WP_Post::class, $post );
+			$this->assertStringContainsString( 'Updated content.', $post->post_content );
+
+			sleep( 1 );
+			$modified_before_layout = $post->post_modified_gmt;
+
+			file_put_contents( $collection_root . '/layout.php', '<main data-cache-layout="changed"><?php echo blockstudio_page_content(); ?></main>' );
+
+			$layout_changed = $sync_page();
+			$third          = (string) get_post_meta( $post_id, '_blockstudio_page_fingerprint', true );
+			$updated_post   = get_post( $layout_changed );
+
+			$this->assertSame( $post_id, $layout_changed );
+			$this->assertNotSame( $second, $third );
+			$this->assertInstanceOf( WP_Post::class, $updated_post );
+			$this->assertGreaterThan( $modified_before_layout, $updated_post->post_modified_gmt );
+		} finally {
+			if ( is_int( $post_id ) && $post_id > 0 ) {
+				wp_delete_post( $post_id, true );
+			}
+
+			$this->remove_dir( $temp_dir );
+		}
+	}
+
+	private function clear_collection_manifest_cache(): void {
+		global $wpdb;
+
+		delete_option( 'blockstudio_collection_post_types_signature' );
+		$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+			$wpdb->prepare(
+				"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+				$wpdb->esc_like( '_transient_blockstudio_collection_manifests_' ) . '%',
+				$wpdb->esc_like( '_transient_timeout_blockstudio_collection_manifests_' ) . '%'
+			)
+		);
+		wp_cache_flush();
 	}
 
 	private function remove_dir( string $dir ): void {

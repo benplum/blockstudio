@@ -61,12 +61,13 @@ class Page_Sync {
 			$stored_mtime       = (int) get_post_meta( $existing->ID, '_blockstudio_page_mtime', true );
 
 			if ( '' !== $stored_fingerprint && hash_equals( $stored_fingerprint, $fingerprint ) ) {
-				update_post_meta( $existing->ID, '_blockstudio_page_stale', false );
+				$this->update_post_meta( $existing->ID, $page_data, $file_mtime, $fingerprint );
 				$this->prune_duplicate_posts( $page_data, $existing->ID );
 				return $existing->ID;
 			}
 
 			if ( '' === $stored_fingerprint && $stored_mtime >= $file_mtime ) {
+				$this->update_post_meta( $existing->ID, $page_data, $file_mtime, $fingerprint );
 				$this->prune_duplicate_posts( $page_data, $existing->ID );
 				return $existing->ID;
 			}
@@ -116,6 +117,16 @@ class Page_Sync {
 		if ( ! empty( $page_data['name'] ) ) {
 			$collection       = ! empty( $page_data['collection'] ) ? (string) $page_data['collection'] : null;
 			$page_data['key'] = Page_Discovery::page_key( $collection, (string) $page_data['name'] );
+		}
+
+		if (
+			! empty( $page_data['collection'] ) &&
+			! empty( $page_data['path'] ) &&
+			'.' !== $page_data['path'] &&
+			false !== strpos( (string) $page_data['path'], '/' ) &&
+			! is_post_type_hierarchical( (string) $page_data['postType'] )
+		) {
+			$page_data['slug'] = sanitize_title( str_replace( '/', '-', (string) $page_data['path'] ) );
 		}
 
 		return $page_data;
@@ -296,15 +307,10 @@ class Page_Sync {
 				$key    = get_post_meta( $post->ID, '_blockstudio_page_key', true );
 
 				$expected_key = $page_data['key'] ?? null;
-				$matches      = $page_data['source_path'] === $source || $page_data['name'] === $name || $expected_key === $key;
+				$has_identity = '' !== (string) $source || '' !== (string) $name || '' !== (string) $key;
+				$matches      = $page_data['source_path'] === $source || $page_data['name'] === $name || ( ! empty( $expected_key ) && $expected_key === $key );
 
-				if ( $post->post_type === $page_data['postType'] && ( empty( $source ) || $matches ) ) {
-					return $post;
-				}
-
-				if ( $post->post_type !== $page_data['postType'] && $matches ) {
-					return $post;
-				}
+				return ! $has_identity || $matches ? $post : null;
 			}
 		}
 
@@ -385,6 +391,10 @@ class Page_Sync {
 	 * @return bool True when the slug is occupied by a different page.
 	 */
 	private function has_slug_conflict( array $page_data ): bool {
+		if ( ! empty( $page_data['collection'] ) && ! is_post_type_hierarchical( (string) $page_data['postType'] ) ) {
+			return false;
+		}
+
 		$posts = get_posts(
 			array(
 				'name'           => $page_data['slug'],
@@ -552,6 +562,7 @@ class Page_Sync {
 		update_post_meta( $post_id, '_blockstudio_page_fingerprint', $fingerprint );
 		update_post_meta( $post_id, '_blockstudio_page_collection', $page_data['collection'] ?? '' );
 		update_post_meta( $post_id, '_blockstudio_page_path', $page_data['path'] ?? '' );
+		update_post_meta( $post_id, '_blockstudio_page_route', ( $page_data['collection'] ?? '' ) . ':' . ( $page_data['path'] ?? '' ) );
 		update_post_meta( $post_id, '_blockstudio_page_generated', ! empty( $page_data['generated'] ) );
 		update_post_meta( $post_id, '_blockstudio_page_content_type', $page_data['contentType'] ?? 'php' );
 		update_post_meta( $post_id, '_blockstudio_page_stale', false );
@@ -683,7 +694,7 @@ class Page_Sync {
 				),
 				'post_type'      => 'any',
 				'posts_per_page' => -1,
-				'post_status'    => array( 'publish', 'draft', 'pending', 'private', 'future' ),
+				'post_status'    => $this->synced_post_statuses(),
 			)
 		);
 
@@ -744,7 +755,7 @@ class Page_Sync {
 				'meta_value'     => $page_data['key'], // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
 				'post_type'      => 'any',
 				'posts_per_page' => -1,
-				'post_status'    => array( 'publish', 'draft', 'pending', 'private', 'future' ),
+				'post_status'    => $this->synced_post_statuses(),
 			)
 		);
 
@@ -777,6 +788,15 @@ class Page_Sync {
 		$parent = Page_Registry::instance()->get_page( (string) $page_data['parent_key'] );
 
 		return (int) ( $parent['post_id'] ?? 0 );
+	}
+
+	/**
+	 * Get all post statuses that may hold synced page duplicates or orphans.
+	 *
+	 * @return array<int, string> Post statuses.
+	 */
+	private function synced_post_statuses(): array {
+		return array_values( get_post_stati( array(), 'names' ) );
 	}
 
 	/**

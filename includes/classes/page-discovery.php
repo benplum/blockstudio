@@ -837,7 +837,11 @@ class Page_Discovery {
 		$path            = (string) $page_data['path'];
 
 		if ( empty( $page_data['slug'] ) ) {
-			$page_data['slug'] = '.' === $path ? ( $collection_slug ?? $name ) : basename( $path );
+			if ( null !== $collection && ! $this->collection_uses_hierarchical_post_type( $collection ) && false !== strpos( $path, '/' ) ) {
+				$page_data['slug'] = str_replace( '/', '-', $path );
+			} else {
+				$page_data['slug'] = '.' === $path ? ( $collection_slug ?? $name ) : basename( $path );
+			}
 		}
 
 		$page_data['slug'] = sanitize_title( (string) $page_data['slug'] );
@@ -936,6 +940,12 @@ class Page_Discovery {
 				continue;
 			}
 
+			$collection_data = $this->collections[ $collection ] ?? array();
+
+			if ( ! $this->collection_uses_hierarchical_post_type( $collection_data ) ) {
+				continue;
+			}
+
 			$segments   = explode( '/', $path );
 			$current    = array();
 			$last_index = count( $segments ) - 1;
@@ -948,9 +958,8 @@ class Page_Discovery {
 					continue;
 				}
 
-				$collection_data = $this->collections[ $collection ] ?? array();
-				$name            = $this->unique_generated_name( $collection, $container_path );
-				$page_data       = wp_parse_args(
+				$name      = $this->unique_generated_name( $collection, $container_path );
+				$page_data = wp_parse_args(
 					array(
 						'name'               => $name,
 						'title'              => self::title_from_value( $container_path ),
@@ -1202,6 +1211,27 @@ class Page_Discovery {
 			$defaults,
 			is_array( $collection['defaults'] ?? null ) ? $collection['defaults'] : array()
 		);
+	}
+
+	/**
+	 * Determine whether a collection syncs into a hierarchical post type.
+	 *
+	 * @param array $collection Collection data.
+	 *
+	 * @return bool Whether the collection post type is hierarchical.
+	 */
+	private function collection_uses_hierarchical_post_type( array $collection ): bool {
+		if ( array_key_exists( 'hierarchical', $collection['postTypeArgs'] ?? array() ) ) {
+			return (bool) $collection['postTypeArgs']['hierarchical'];
+		}
+
+		$post_type = (string) ( $collection['postType'] ?? 'page' );
+
+		if ( post_type_exists( $post_type ) ) {
+			return is_post_type_hierarchical( $post_type );
+		}
+
+		return true;
 	}
 
 	/**

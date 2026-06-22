@@ -27,7 +27,10 @@ function stripFrontmatter(content: string): string {
 }
 
 function stripGeneratedBlocks(content: string): string {
-  return content.replace(/\{\/\* GENERATED_\w+_START \*\/\}[\s\S]*?\{\/\* GENERATED_\w+_END \*\/\}/g, '');
+  return content.replace(
+    /\{\/\* GENERATED_\w+_START \*\/\}[\s\S]*?\{\/\* GENERATED_\w+_END \*\/\}/g,
+    '',
+  );
 }
 
 function compactCodeBlocks(content: string): string {
@@ -36,7 +39,10 @@ function compactCodeBlocks(content: string): string {
 }
 
 function compactMarkdown(content: string): string {
-  content = content.replace(/^\s*<\/?(Tabs|Tab|Steps|Step|Callout|Card|Cards|Accordions|Accordion)\b[^>]*>\s*$/gm, '');
+  content = content.replace(
+    /^\s*<\/?(Tabs|Tab|Steps|Step|Callout|Card|Cards|Accordions|Accordion)\b[^>]*>\s*$/gm,
+    '',
+  );
   content = content.replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
   content = content.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
   content = content.replace(/\*\*([^*]+)\*\*/g, '$1');
@@ -56,7 +62,9 @@ function cleanMdx(content: string): string {
 }
 
 function extractTitle(content: string): string {
-  const frontmatterMatch = content.match(/^---[\s\S]*?title:\s*(.+?)[\s]*\n[\s\S]*?---/);
+  const frontmatterMatch = content.match(
+    /^---[\s\S]*?title:\s*(.+?)[\s]*\n[\s\S]*?---/,
+  );
   if (frontmatterMatch) return frontmatterMatch[1].replace(/^["']|["']$/g, '');
 
   const headingMatch = content.match(/^#\s+(.+)$/m);
@@ -117,7 +125,8 @@ function buildHeading(title: string, depth: number): string {
 }
 
 const pageSchema = {
-  title: 'JSON schema for Blockstudio page definitions',
+  title:
+    'JSON schema for Blockstudio page definitions and collection page entries',
   $schema: 'http://json-schema.org/draft-04/schema#',
   type: 'object',
   required: ['name'],
@@ -136,14 +145,34 @@ const pageSchema = {
     },
     slug: {
       type: 'string',
-      description: 'The URL slug for the page. Defaults to the name if not specified.',
+      description:
+        'The URL slug for the page. Defaults to the name if not specified.',
       example: 'about-us',
+    },
+    path: {
+      type: 'string',
+      default: '.',
+      description:
+        'Logical path inside a collection. "." is the collection root, "guide/install" maps under the collection URL base.',
+      example: 'guide/install',
+    },
+    order: {
+      type: 'integer',
+      default: 0,
+      description: 'Menu order stored on the synced WordPress post.',
+      example: 20,
     },
     postType: {
       type: 'string',
       default: 'page',
-      description: 'The WordPress post type to create. Can be any registered post type.',
-      example: 'page',
+      description:
+        'The WordPress post type to create. Collection pages inherit the top-level pages.json postType by default.',
+      example: 'bs_docs',
+    },
+    postTypeArgs: {
+      type: 'object',
+      description:
+        'register_post_type() arguments used when a collection pages.json registers a custom post type.',
     },
     postStatus: {
       type: 'string',
@@ -188,6 +217,97 @@ const pageSchema = {
         'Whether to automatically sync the page content when the template file changes. Set to false to create the page once and prevent future automatic updates.',
       example: true,
     },
+    contentType: {
+      type: 'string',
+      enum: ['php', 'blade', 'twig', 'markdown', 'html', 'generated'],
+      description:
+        'Detected or explicit source type. Markdown is converted to block content during sync.',
+      example: 'markdown',
+    },
+    markdown: {
+      type: 'string',
+      description: 'Inline Markdown content for a page or loader entry.',
+    },
+    html: {
+      type: 'string',
+      description: 'Inline HTML content for a page or loader entry.',
+    },
+    content: {
+      type: 'string',
+      description:
+        'Inline content. Use contentType to force markdown or html when needed.',
+    },
+    file: {
+      type: 'string',
+      description: 'Local file path for a loader-generated page source.',
+    },
+    template: {
+      type: 'string',
+      description: 'Alias for file in loader-generated page sources.',
+    },
+    generated: {
+      type: 'boolean',
+      default: true,
+      description:
+        'Marks loader and container pages as generated so missing output can be pruned.',
+    },
+    meta: {
+      type: 'object',
+      description:
+        'Custom page metadata. Unknown page.json or frontmatter keys are also stored here.',
+    },
+    trusted: {
+      type: 'boolean',
+      description: 'Marks a local generated source as trusted.',
+    },
+  },
+  additionalProperties: true,
+};
+
+const collectionSchema = {
+  title: 'JSON schema for Blockstudio page collection manifests',
+  $schema: 'http://json-schema.org/draft-04/schema#',
+  type: 'object',
+  properties: {
+    collection: {
+      type: 'string',
+      description: 'Collection slug. This becomes the public URL base.',
+      example: 'docs',
+    },
+    title: {
+      type: 'string',
+      description: 'Human-readable collection title.',
+      example: 'Documentation',
+    },
+    postType: {
+      type: 'string',
+      default: 'page',
+      description:
+        'Post type inherited by collection pages. If missing, pages sync as normal WordPress pages.',
+      example: 'bs_docs',
+    },
+    postTypeArgs: {
+      type: 'object',
+      description:
+        'register_post_type() args for custom collection post types. show_in_rest defaults to true.',
+    },
+    defaults: {
+      type: 'object',
+      description: 'Default page properties applied to every collection page.',
+    },
+    source: {
+      type: 'object',
+      description: 'Source metadata for the collection.',
+    },
+    order: {
+      type: 'integer',
+      description: 'Optional collection ordering metadata.',
+    },
+    meta: {
+      type: 'object',
+      description:
+        'Custom collection metadata. Unknown manifest keys are also stored here.',
+    },
   },
   additionalProperties: true,
 };
@@ -196,54 +316,94 @@ const docs = collectDocs(docsDir, rootMeta, 0);
 
 (async () => {
   const schemasDir = resolve(root, 'docs/src/schemas');
-  const { blockstudio: blockstudioSchema } = await import(resolve(schemasDir, 'blockstudio.ts'));
-  const { schema: blockSchemaFn } = await import(resolve(schemasDir, 'schema.ts'));
-  const { extend: extendSchemaFn } = await import(resolve(schemasDir, 'extend.ts'));
+  const { blockstudio: blockstudioSchema } = await import(
+    resolve(schemasDir, 'blockstudio.ts')
+  );
+  const { schema: blockSchemaFn } = await import(
+    resolve(schemasDir, 'schema.ts')
+  );
+  const { extend: extendSchemaFn } = await import(
+    resolve(schemasDir, 'extend.ts')
+  );
 
   const schemas: { name: string; filename: string; content: string }[] = [];
-  const full = await blockSchemaFn() as Record<string, any>;
+  const full = (await blockSchemaFn()) as Record<string, any>;
   const bs = full.properties.blockstudio;
 
   const bsFieldTypes = bs.properties?.attributes?.items?.anyOf;
   const defFieldTypes = full.definitions?.Attribute?.anyOf;
   if (bsFieldTypes && defFieldTypes) {
-    const defTypeNames = new Set(defFieldTypes.map((v: Record<string, unknown>) => (v.properties as Record<string, Record<string, string>>)?.type?.const));
+    const defTypeNames = new Set(
+      defFieldTypes.map(
+        (v: Record<string, unknown>) =>
+          (v.properties as Record<string, Record<string, string>>)?.type?.const,
+      ),
+    );
     const extras = bsFieldTypes.filter((v: Record<string, unknown>) => {
-      const t = (v.properties as Record<string, Record<string, string>>)?.type?.const;
+      const t = (v.properties as Record<string, Record<string, string>>)?.type
+        ?.const;
       return !defTypeNames.has(t);
     });
     for (const variant of extras) {
       const props = variant.properties as Record<string, unknown>;
-      if (props?.attributes && typeof props.attributes === 'object' && (props.attributes as Record<string, unknown>).items) {
-        props.attributes = { type: 'array', description: 'Same field types as the top-level attributes.' };
+      if (
+        props?.attributes &&
+        typeof props.attributes === 'object' &&
+        (props.attributes as Record<string, unknown>).items
+      ) {
+        props.attributes = {
+          type: 'array',
+          description: 'Same field types as the top-level attributes.',
+        };
       }
     }
     bs.properties.attributes.items = {
-      _note: 'All field types from definitions.Attribute apply here, plus these additional types:',
+      _note:
+        'All field types from definitions.Attribute apply here, plus these additional types:',
       additionalTypes: extras,
     };
   }
 
   const trimmed = { definitions: full.definitions, blockstudio: bs };
-  schemas.push({ name: 'Block Schema (blockstudio key from block.json)', filename: 'block.json', content: JSON.stringify(trimmed) });
-  schemas.push({ name: 'Settings Schema (blockstudio.json)', filename: 'blockstudio.json', content: JSON.stringify(blockstudioSchema) });
-  const ext = await extendSchemaFn() as Record<string, any>;
+  schemas.push({
+    name: 'Block Schema (blockstudio key from block.json)',
+    filename: 'block.json',
+    content: JSON.stringify(trimmed),
+  });
+  schemas.push({
+    name: 'Settings Schema (blockstudio.json)',
+    filename: 'blockstudio.json',
+    content: JSON.stringify(blockstudioSchema),
+  });
+  const ext = (await extendSchemaFn()) as Record<string, any>;
   const extendProp = ext.properties?.blockstudio?.properties?.extend;
   const trimmedExt = {
-    _note: 'Extension schema is identical to the block schema above, plus this additional "extend" property on blockstudio.',
+    _note:
+      'Extension schema is identical to the block schema above, plus this additional "extend" property on blockstudio.',
     extend: extendProp,
   };
-  schemas.push({ name: 'Extension Schema (extensions.json)', filename: 'extensions.json', content: JSON.stringify(trimmedExt) });
+  schemas.push({
+    name: 'Extension Schema (extensions.json)',
+    filename: 'extensions.json',
+    content: JSON.stringify(trimmedExt),
+  });
 
   schemas.splice(2, 0, {
     name: 'Page Schema (page.json)',
     filename: 'page.json',
     content: JSON.stringify(pageSchema),
   });
+  schemas.splice(3, 0, {
+    name: 'Page Collection Schema (pages.json)',
+    filename: 'pages.json',
+    content: JSON.stringify(collectionSchema),
+  });
   const parts: string[] = [];
 
   parts.push('# Blockstudio');
-  parts.push('Context about the Blockstudio WordPress block framework for LLM coding assistants.');
+  parts.push(
+    'Context about the Blockstudio WordPress block framework for LLM coding assistants.',
+  );
   parts.push('');
   parts.push('## Documentation');
   parts.push('');
