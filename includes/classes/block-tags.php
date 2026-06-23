@@ -106,12 +106,14 @@ class Block_Tags {
 			return $content ?? '';
 		}
 
-		$aliases   = self::get_tag_aliases();
-		$has_bs    = false !== strpos( $content, '<bs:' );
-		$has_block = false !== strpos( $content, '<block ' );
-		$has_alias = self::has_alias_tags( $content, $aliases );
+		$aliases    = self::get_tag_aliases();
+		$prefixes   = self::get_tag_prefixes();
+		$has_bs     = false !== strpos( $content, '<bs:' );
+		$has_block  = false !== strpos( $content, '<block ' );
+		$has_alias  = self::has_alias_tags( $content, $aliases );
+		$has_prefix = self::has_prefix_tags( $content, $prefixes );
 
-		if ( ! $has_bs && ! $has_block && ! $has_alias ) {
+		if ( ! $has_bs && ! $has_block && ! $has_alias && ! $has_prefix ) {
 			return $content;
 		}
 
@@ -127,6 +129,11 @@ class Block_Tags {
 				$content = self::replace_self_closing_alias_tags( $content, $aliases );
 			}
 
+			if ( $has_prefix ) {
+				$content = self::replace_paired_prefix_tags( $content, $prefixes, $aliases, $blocks );
+				$content = self::replace_self_closing_prefix_tags( $content, $prefixes, $aliases, $blocks );
+			}
+
 			if ( $has_bs ) {
 				$content = self::replace_paired_bs_tags( $content, $blocks );
 				$content = self::replace_self_closing_bs_tags( $content, $blocks );
@@ -137,10 +144,11 @@ class Block_Tags {
 				$content = self::replace_self_closing_block_elements( $content );
 			}
 
-			$has_bs    = false !== strpos( $content, '<bs:' );
-			$has_block = false !== strpos( $content, '<block ' );
-			$has_alias = self::has_alias_tags( $content, $aliases );
-		} while ( $content !== $previous && ( $has_bs || $has_block || $has_alias ) );
+			$has_bs     = false !== strpos( $content, '<bs:' );
+			$has_block  = false !== strpos( $content, '<block ' );
+			$has_alias  = self::has_alias_tags( $content, $aliases );
+			$has_prefix = self::has_prefix_tags( $content, $prefixes );
+		} while ( $content !== $previous && ( $has_bs || $has_block || $has_alias || $has_prefix ) );
 
 		Perf::stop( 'block-tags', 'Block Tags' );
 
@@ -242,6 +250,106 @@ class Block_Tags {
 				if ( ! $block_name ) {
 					return $matches[0];
 				}
+
+				return self::render_block( $block_name, $attributes );
+			},
+			$content
+		) ?? $content;
+	}
+
+	// -------------------------------------------------------------------------
+	// <prefix-slug> namespace shorthand syntax
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Replace paired prefix tags.
+	 *
+	 * @param string                      $content  The content to process.
+	 * @param array<string,array<string>> $prefixes Prefix => namespaces map.
+	 * @param array<string,string>        $aliases  Custom tag => block name map.
+	 * @param array                       $blocks   Registered Blockstudio blocks.
+	 *
+	 * @return string Processed content.
+	 */
+	private static function replace_paired_prefix_tags( string $content, array $prefixes, array $aliases, array $blocks ): string {
+		$offset = 0;
+
+		// phpcs:ignore Generic.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition
+		while ( false !== ( $open_pos = self::find_next_prefix_tag( $content, $offset, $prefixes, $aliases, $blocks ) ) ) {
+			$parsed_open = self::parse_prefix_open_tag( $content, $open_pos, $prefixes, $aliases, $blocks );
+			if ( null === $parsed_open ) {
+				$offset = $open_pos + 1;
+				continue;
+			}
+
+			$tag_name   = $parsed_open['tag_name'];
+			$block_name = $parsed_open['block_name'];
+			$tag_end    = $parsed_open['name_end'];
+			$gt_pos     = self::find_closing_angle( $content, $tag_end );
+
+			if ( false === $gt_pos ) {
+				break;
+			}
+
+			if ( '/' === $content[ $gt_pos - 1 ] ) {
+				$offset = $gt_pos + 1;
+				continue;
+			}
+
+			$close_tag = '</' . $tag_name . '>';
+			$close_pos = self::find_matching_close( $content, $gt_pos, '<' . $tag_name, $close_tag );
+
+			if ( false === $close_pos ) {
+				$offset = $gt_pos + 1;
+				continue;
+			}
+
+			$attr_string   = trim( substr( $content, $tag_end, $gt_pos - $tag_end ) );
+			$inner_content = substr( $content, $gt_pos + 1, $close_pos - $gt_pos - 1 );
+			$attributes    = self::parse_attributes( $attr_string );
+			$rendered      = self::render_block( $block_name, $attributes, $inner_content );
+			$full_length   = $close_pos + strlen( $close_tag ) - $open_pos;
+			$content       = substr_replace( $content, $rendered, $open_pos, $full_length );
+			$offset        = $open_pos + strlen( $rendered );
+		}
+
+		return $content;
+	}
+
+	/**
+	 * Replace self-closing prefix tags.
+	 *
+	 * @param string                      $content  The content to process.
+	 * @param array<string,array<string>> $prefixes Prefix => namespaces map.
+	 * @param array<string,string>        $aliases  Custom tag => block name map.
+	 * @param array                       $blocks   Registered Blockstudio blocks.
+	 *
+	 * @return string Processed content.
+	 */
+	private static function replace_self_closing_prefix_tags( string $content, array $prefixes, array $aliases, array $blocks ): string {
+		if ( empty( $prefixes ) ) {
+			return $content;
+		}
+
+		$pattern = '/<([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(\s[^>]*)?\s*\/>/si';
+
+		return preg_replace_callback(
+			$pattern,
+			function ( $matches ) use ( $prefixes, $aliases, $blocks ) {
+				$tag_name = strtolower( $matches[1] );
+
+				if ( isset( $aliases[ $tag_name ] ) ) {
+					return $matches[0];
+				}
+
+				$block_name = self::resolve_prefix_tag_name( $tag_name, $prefixes, $blocks );
+
+				if ( ! $block_name ) {
+					return $matches[0];
+				}
+
+				$attr_string = trim( $matches[2] ?? '' );
+				$attributes  = self::parse_attributes( $attr_string );
 
 				return self::render_block( $block_name, $attributes );
 			},
@@ -556,6 +664,157 @@ class Block_Tags {
 	}
 
 	/**
+	 * Return prefix namespace shorthands for block tag parsing.
+	 *
+	 * Prefix keys are lowercase names such as "dv". Values are one or more
+	 * block namespaces that are tried in order for tags like <dv-card />.
+	 *
+	 * @return array<string,array<string>>
+	 */
+	private static function get_tag_prefixes(): array {
+		$prefixes = Settings::get( 'blockTags/prefixes' );
+		$prefixes = apply_filters( 'blockstudio/block_tags/prefixes', $prefixes );
+
+		if ( ! is_array( $prefixes ) ) {
+			return array();
+		}
+
+		$normalized = array();
+
+		foreach ( $prefixes as $prefix => $namespaces ) {
+			if ( ! is_string( $prefix ) ) {
+				continue;
+			}
+
+			$prefix = strtolower( trim( $prefix ) );
+
+			if ( ! preg_match( '/^[a-z][a-z0-9]*$/', $prefix ) ) {
+				continue;
+			}
+
+			if ( is_string( $namespaces ) ) {
+				$namespaces = array( $namespaces );
+			}
+
+			if ( ! is_array( $namespaces ) ) {
+				continue;
+			}
+
+			$valid_namespaces = array();
+
+			foreach ( $namespaces as $namespace ) {
+				if ( ! is_string( $namespace ) ) {
+					continue;
+				}
+
+				$namespace = strtolower( trim( $namespace ) );
+
+				if ( ! preg_match( '/^[a-z][a-z0-9-]*$/', $namespace ) ) {
+					continue;
+				}
+
+				if ( ! in_array( $namespace, $valid_namespaces, true ) ) {
+					$valid_namespaces[] = $namespace;
+				}
+			}
+
+			if ( ! empty( $valid_namespaces ) ) {
+				$normalized[ $prefix ] = $valid_namespaces;
+			}
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Whether content contains any configured prefix tags.
+	 *
+	 * @param string                      $content  Content to inspect.
+	 * @param array<string,array<string>> $prefixes Prefix => namespaces map.
+	 *
+	 * @return bool True when any prefix opening tag appears.
+	 */
+	private static function has_prefix_tags( string $content, array $prefixes ): bool {
+		foreach ( $prefixes as $prefix => $_namespaces ) {
+			if ( false !== strpos( $content, '<' . $prefix . '-' ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Find the next configured prefix tag opening.
+	 *
+	 * @param string                      $content  Content to scan.
+	 * @param int                         $offset   Start offset.
+	 * @param array<string,array<string>> $prefixes Prefix => namespaces map.
+	 * @param array<string,string>        $aliases  Custom tag => block name map.
+	 * @param array                       $blocks   Registered Blockstudio blocks.
+	 *
+	 * @return int|false Tag position, or false when none exists.
+	 */
+	private static function find_next_prefix_tag( string $content, int $offset, array $prefixes, array $aliases, array $blocks ) {
+		if ( empty( $prefixes ) ) {
+			return false;
+		}
+
+		$len = strlen( $content );
+
+		// phpcs:ignore Generic.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition
+		while ( $offset < $len && false !== ( $pos = strpos( $content, '<', $offset ) ) ) {
+			if ( null !== self::parse_prefix_open_tag( $content, $pos, $prefixes, $aliases, $blocks ) ) {
+				return $pos;
+			}
+
+			$offset = $pos + 1;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Parse a prefix opening tag at a given position.
+	 *
+	 * @param string                      $content  Content to parse.
+	 * @param int                         $pos      Position of the opening <.
+	 * @param array<string,array<string>> $prefixes Prefix => namespaces map.
+	 * @param array<string,string>        $aliases  Custom tag => block name map.
+	 * @param array                       $blocks   Registered Blockstudio blocks.
+	 *
+	 * @return array{tag_name:string,block_name:string,name_end:int}|null
+	 */
+	private static function parse_prefix_open_tag( string $content, int $pos, array $prefixes, array $aliases, array $blocks ): ?array {
+		if ( '<' !== ( $content[ $pos ] ?? '' ) || '/' === ( $content[ $pos + 1 ] ?? '' ) ) {
+			return null;
+		}
+
+		$remaining = substr( $content, $pos, 120 );
+		if ( ! preg_match( '/^<([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(?=[\s>\/])/i', $remaining, $matches ) ) {
+			return null;
+		}
+
+		$tag_name = strtolower( $matches[1] );
+
+		if ( isset( $aliases[ $tag_name ] ) ) {
+			return null;
+		}
+
+		$block_name = self::resolve_prefix_tag_name( $tag_name, $prefixes, $blocks );
+
+		if ( ! $block_name ) {
+			return null;
+		}
+
+		return array(
+			'tag_name'   => $tag_name,
+			'block_name' => $block_name,
+			'name_end'   => $pos + 1 + strlen( $matches[1] ),
+		);
+	}
+
+	/**
 	 * Resolve a bs: tag name to a block name.
 	 *
 	 * First hyphen maps to namespace separator. Checks both Blockstudio
@@ -585,6 +844,46 @@ class Block_Tags {
 			}
 
 			++$pos;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Resolve a prefix tag name to a block name.
+	 *
+	 * The prefix fixes the namespace, so the remaining dashed portion maps
+	 * directly to the block slug and each namespace is tried in order.
+	 *
+	 * @param string                      $tag_name The full custom tag name.
+	 * @param array<string,array<string>> $prefixes Prefix => namespaces map.
+	 * @param array                       $blocks   Registered Blockstudio blocks.
+	 *
+	 * @return string|false The full block name or false if not found.
+	 */
+	private static function resolve_prefix_tag_name( string $tag_name, array $prefixes, array $blocks ) {
+		$hyphen_pos = strpos( $tag_name, '-' );
+
+		if ( false === $hyphen_pos ) {
+			return false;
+		}
+
+		$prefix = substr( $tag_name, 0, $hyphen_pos );
+		$slug   = substr( $tag_name, $hyphen_pos + 1 );
+
+		if ( '' === $slug || empty( $prefixes[ $prefix ] ) ) {
+			return false;
+		}
+
+		foreach ( $prefixes[ $prefix ] as $namespace ) {
+			$full_name = $namespace . '/' . $slug;
+
+			$is_registered = isset( $blocks[ $full_name ] )
+				|| \WP_Block_Type_Registry::get_instance()->is_registered( $full_name );
+
+			if ( $is_registered ) {
+				return self::check_allow_deny( $full_name );
+			}
 		}
 
 		return false;
@@ -730,33 +1029,47 @@ class Block_Tags {
 			return array();
 		}
 
-		$blocks  = array();
-		$offset  = 0;
-		$len     = strlen( $content );
-		$aliases = self::get_tag_aliases();
+		$blocks            = array();
+		$offset            = 0;
+		$len               = strlen( $content );
+		$aliases           = self::get_tag_aliases();
+		$prefixes          = self::get_tag_prefixes();
+		$registered_blocks = Build::blocks();
+		$has_prefix_tags   = self::has_prefix_tags( $content, $prefixes );
 
 		while ( $offset < $len ) {
 			$bs_pos     = strpos( $content, '<bs:', $offset );
 			$block_pos  = strpos( $content, '<block ', $offset );
 			$alias_pos  = self::find_next_alias_tag( $content, $offset, $aliases );
+			$prefix_pos = $has_prefix_tags ? self::find_next_prefix_tag( $content, $offset, $prefixes, $aliases, $registered_blocks ) : false;
 			$candidates = array();
 
 			if ( false !== $bs_pos ) {
 				$candidates[] = array(
-					'pos'  => $bs_pos,
-					'type' => 'bs',
+					'pos'      => $bs_pos,
+					'priority' => 2,
+					'type'     => 'bs',
 				);
 			}
 			if ( false !== $block_pos ) {
 				$candidates[] = array(
-					'pos'  => $block_pos,
-					'type' => 'block',
+					'pos'      => $block_pos,
+					'priority' => 3,
+					'type'     => 'block',
 				);
 			}
 			if ( false !== $alias_pos ) {
 				$candidates[] = array(
-					'pos'  => $alias_pos,
-					'type' => 'alias',
+					'pos'      => $alias_pos,
+					'priority' => 0,
+					'type'     => 'alias',
+				);
+			}
+			if ( false !== $prefix_pos ) {
+				$candidates[] = array(
+					'pos'      => $prefix_pos,
+					'priority' => 1,
+					'type'     => 'prefix',
 				);
 			}
 
@@ -766,7 +1079,15 @@ class Block_Tags {
 
 			usort(
 				$candidates,
-				static fn( array $a, array $b ): int => $a['pos'] <=> $b['pos']
+				static function ( array $a, array $b ): int {
+					$position_comparison = $a['pos'] <=> $b['pos'];
+
+					if ( 0 !== $position_comparison ) {
+						return $position_comparison;
+					}
+
+					return $a['priority'] <=> $b['priority'];
+				}
 			);
 
 			$pos   = $candidates[0]['pos'];
@@ -796,6 +1117,15 @@ class Block_Tags {
 				$tag_name   = $parsed_alias['tag_name'];
 				$block_name = $parsed_alias['block_name'];
 				$attr_start = $parsed_alias['name_end'];
+			} elseif ( 'prefix' === $type ) {
+				$parsed_prefix = self::parse_prefix_open_tag( $content, $pos, $prefixes, $aliases, $registered_blocks );
+				if ( null === $parsed_prefix ) {
+					$offset = $pos + 1;
+					continue;
+				}
+				$tag_name   = $parsed_prefix['tag_name'];
+				$block_name = $parsed_prefix['block_name'];
+				$attr_start = $parsed_prefix['name_end'];
 			} else {
 				$attr_start = $pos + 6;
 				$block_name = null;
@@ -826,7 +1156,7 @@ class Block_Tags {
 				if ( $is_bs ) {
 					$close_tag = '</bs:' . $tag_name . '>';
 					$open_tag  = '<bs:' . $tag_name;
-				} elseif ( 'alias' === $type ) {
+				} elseif ( 'alias' === $type || 'prefix' === $type ) {
 					$close_tag = '</' . $tag_name . '>';
 					$open_tag  = '<' . $tag_name;
 				} else {
@@ -955,11 +1285,14 @@ class Block_Tags {
 			return array();
 		}
 
-		$blocks  = array();
-		$offset  = 0;
-		$len     = strlen( $content );
-		$map     = self::get_html_tag_map();
-		$aliases = self::get_tag_aliases();
+		$blocks            = array();
+		$offset            = 0;
+		$len               = strlen( $content );
+		$map               = self::get_html_tag_map();
+		$aliases           = self::get_tag_aliases();
+		$prefixes          = self::get_tag_prefixes();
+		$registered_blocks = Build::blocks();
+		$has_prefix_tags   = self::has_prefix_tags( $content, $prefixes );
 
 		while ( $offset < $len ) {
 			// Find next tag of any kind.
@@ -986,6 +1319,38 @@ class Block_Tags {
 			$parsed_alias = self::parse_alias_open_tag( $content, $tag_pos, $aliases );
 			if ( null !== $parsed_alias ) {
 				$result = self::parse_single_alias_tag( $content, $tag_pos, $parsed_alias );
+
+				if ( null !== $result ) {
+					$block_arr = $result['block'];
+
+					if ( ! empty( $result['inner'] ) ) {
+						$is_container = ! str_starts_with( $block_arr['blockName'], 'core/' );
+
+						if ( $is_container ) {
+							$inner_blocks = self::parse_all_elements( $result['inner'] );
+							$original_ic  = $block_arr['innerContent'];
+							$has_wrapper  = ! empty( $original_ic ) && is_string( $original_ic[0] );
+							$new_ic       = $has_wrapper ? array( $original_ic[0] ) : array();
+							foreach ( $inner_blocks as $ib ) {
+								$new_ic[] = null;
+							}
+							if ( $has_wrapper ) {
+								$new_ic[] = end( $original_ic );
+							}
+							$block_arr['innerBlocks']  = $inner_blocks;
+							$block_arr['innerContent'] = $new_ic;
+						}
+					}
+
+					$blocks[] = $block_arr;
+					$offset   = $result['offset'];
+					continue;
+				}
+			}
+
+			$parsed_prefix = $has_prefix_tags ? self::parse_prefix_open_tag( $content, $tag_pos, $prefixes, $aliases, $registered_blocks ) : null;
+			if ( null !== $parsed_prefix ) {
+				$result = self::parse_single_alias_tag( $content, $tag_pos, $parsed_prefix );
 
 				if ( null !== $result ) {
 					$block_arr = $result['block'];
@@ -1952,9 +2317,11 @@ class Block_Tags {
 			// Pre-process all nested tags for Blockstudio blocks.
 			if ( '' !== $inner_content ) {
 				$aliases    = self::get_tag_aliases();
+				$prefixes   = self::get_tag_prefixes();
 				$has_nested = false !== strpos( $inner_content, '<bs:' )
 					|| false !== strpos( $inner_content, '<block ' )
-					|| self::has_alias_tags( $inner_content, $aliases );
+					|| self::has_alias_tags( $inner_content, $aliases )
+					|| self::has_prefix_tags( $inner_content, $prefixes );
 				if ( $has_nested ) {
 					$inner_content = self::render( $inner_content );
 				}

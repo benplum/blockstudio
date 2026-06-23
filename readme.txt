@@ -58,6 +58,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * New: markdown-backed pages support standalone `index.md`, frontmatter, paired `page.json` configuration, and optional raw markdown output
 * New: page collection layouts and helpers make it easier to build documentation-style sites with navigation, children, ordering, permalinks, and collection data
 * New: collection loaders can import page definitions from trusted local sources
+* New: block tag prefixes can map concise custom tags to one or more block namespaces without per-block aliases
 * Enhancement: collection post types now inherit the manifest `postType`, use clean slug-based URLs, and support raw markdown endpoints without theme workarounds
 * Enhancement: collection post type rewrites flush automatically when collection routing changes
 * Enhancement: changing a collection from pages to a custom post type now migrates synced posts in place and removes duplicate old-typed posts

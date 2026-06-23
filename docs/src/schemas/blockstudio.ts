@@ -594,6 +594,17 @@ export const blockstudio = {
             'Denylist of block name patterns. Supports wildcards via fnmatch(). Matching blocks are excluded from tag rendering. Takes precedence over allow.',
           example: ['mytheme/internal-*'],
         },
+        prefixes: {
+          type: 'object',
+          default: {},
+          description:
+            'Prefix to namespace shorthands for block tags. Each key is a lowercase prefix without dashes, and each value is a namespace string or ordered namespace array.',
+          descriptionFilter:
+            'This filter allows you to register prefix to namespace shorthands for block tags.',
+          example: {
+            dv: ['divine-homepage', 'bsui'],
+          },
+        },
       },
       additionalProperties: true,
     },

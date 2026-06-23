@@ -1,0 +1,17 @@
+{
+  "$schema": "https://blockstudio.dev/schema/block",
+  "name": "divine-homepage/card",
+  "title": "Divine Homepage Card",
+  "category": "blockstudio-test-native",
+  "icon": "index-card",
+  "blockstudio": {
+    "attributes": [
+      {
+        "id": "title",
+        "type": "text",
+        "label": "Title",
+        "default": ""
+      }
+    ]
+  }
+}

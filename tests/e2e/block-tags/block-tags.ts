@@ -105,4 +105,18 @@ test.describe('Block Tags', () => {
     await expect(p).toHaveAttribute('data-testid', 'page-pt');
     await expect(p).toHaveText('Passthrough test');
   });
+
+  test('prefix tags render Blockstudio blocks from ordered namespaces', async () => {
+    const card = page.locator('.dv-card', { hasText: 'Prefix Card' });
+    await expect(card).toBeVisible();
+    await expect(card.locator('.dv-button')).toHaveText('Prefix Button');
+
+    const matrix = page.locator('.dv-feature-matrix');
+    await expect(matrix).toBeVisible();
+    await expect(matrix.locator('.dv-title')).toHaveText('Prefix Matrix');
+  });
+
+  test('unknown prefix tags are left untouched', async () => {
+    await expect(page.locator('text=Unknown prefix tag:')).toBeVisible();
+  });
 });

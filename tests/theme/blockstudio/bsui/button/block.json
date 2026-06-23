@@ -1,0 +1,17 @@
+{
+  "$schema": "https://blockstudio.dev/schema/block",
+  "name": "bsui/button",
+  "title": "BSUI Button",
+  "category": "blockstudio-test-native",
+  "icon": "button",
+  "blockstudio": {
+    "attributes": [
+      {
+        "id": "label",
+        "type": "text",
+        "label": "Label",
+        "default": ""
+      }
+    ]
+  }
+}

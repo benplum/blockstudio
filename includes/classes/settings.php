@@ -153,9 +153,10 @@ class Settings {
 			'enableContextGeneration' => false,
 		),
 		'blockTags'   => array(
-			'enabled' => false,
-			'allow'   => array(),
-			'deny'    => array(),
+			'enabled'  => false,
+			'allow'    => array(),
+			'deny'     => array(),
+			'prefixes' => array(),
 		),
 		'dev'         => array(
 			'grab'   => array(

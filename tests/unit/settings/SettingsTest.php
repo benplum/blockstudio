@@ -170,6 +170,10 @@ class SettingsTest extends TestCase {
 		$this->assertSame( array(), Settings::get( 'blockTags/deny' ) );
 	}
 
+	public function test_block_tags_prefixes_keeps_default(): void {
+		$this->assertSame( array(), Settings::get( 'blockTags/prefixes' ) );
+	}
+
 	public function test_dev_grab_enabled_from_json(): void {
 		$this->assertTrue( Settings::get( 'dev/grab/enabled' ) );
 	}

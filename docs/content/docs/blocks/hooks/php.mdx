@@ -219,6 +219,31 @@ add_filter('blockstudio/block_tags/tag_aliases', function($aliases) {
 </theme-card>
 ```
 
+### blockstudio/block_tags/prefixes
+
+This filter lets you register prefix to namespace shorthands for block tags.
+Each key is a lowercase prefix without dashes. Each value can be a namespace
+string or an ordered list of namespaces.
+
+```php title="functions.php"
+add_filter('blockstudio/block_tags/prefixes', function($prefixes) {
+  $prefixes['dv'] = ['divine-homepage', 'bsui'];
+
+  return $prefixes;
+});
+```
+
+```html title="pages/home/index.php"
+<dv-card title="Homepage" />
+<dv-button label="Get started" />
+<dv-onumia-feature-matrix />
+```
+
+`<dv-card>` resolves to `divine-homepage/card`. `<dv-button>` tries
+`divine-homepage/button` first, then falls back to `bsui/button`. Explicit
+`blockstudio/block_tags/tag_aliases` entries take precedence for the same tag,
+and unresolved prefixed tags are left unchanged.
+
 ## Settings
 
 ### path
@@ -659,6 +684,19 @@ This filter allows you to enable/disable page-level block tag rendering.
 ```php title="functions.php"
 add_filter('blockstudio/settings/block_tags/enabled', function() {
   return true;
+});
+```
+
+### block_tags/prefixes
+
+This filter allows you to configure block tag prefix shorthands through the
+settings system.
+
+```php title="functions.php"
+add_filter('blockstudio/settings/block_tags/prefixes', function() {
+  return [
+    'dv' => ['divine-homepage', 'bsui'],
+  ];
 });
 ```
 

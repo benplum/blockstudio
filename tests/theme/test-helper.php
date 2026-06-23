@@ -47,6 +47,16 @@ add_shortcode(
 	}
 );
 
+add_filter(
+	'blockstudio/block_tags/prefixes',
+	function ( $prefixes ) {
+		$prefixes       = is_array( $prefixes ) ? $prefixes : array();
+		$prefixes['dv'] = array( 'divine-homepage', 'bsui' );
+
+		return $prefixes;
+	}
+);
+
 // Blade template rendering.
 add_filter(
 	'blockstudio/blocks/render',
@@ -888,7 +898,10 @@ add_action(
 						. '<bs:core-heading level="3">Core heading via bs</bs:core-heading>'
 						. '<block name="core/separator" />'
 						. '<block name="core/group"><block name="core/paragraph">Inside group</block></block>'
-						. '<bs:core-paragraph html-class="page-passthrough" data-testid="page-pt">Passthrough test</bs:core-paragraph>';
+						. '<bs:core-paragraph html-class="page-passthrough" data-testid="page-pt">Passthrough test</bs:core-paragraph>'
+						. '<dv-card title="Prefix Card"><dv-button label="Prefix Button" /></dv-card>'
+						. '<dv-onumia-feature-matrix title="Prefix Matrix" />'
+						. '<p>Unknown prefix tag: <dv-nope title="Nope" /></p>';
 					if ( ! get_post( 3100 ) ) {
 						$wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
 							$wpdb->posts,
