@@ -14,6 +14,7 @@ use Blockstudio\Field_Handlers\Boolean_Field_Handler;
 use Blockstudio\Field_Handlers\Select_Field_Handler;
 use Blockstudio\Field_Handlers\Media_Field_Handler;
 use Blockstudio\Field_Handlers\Container_Field_Handler;
+use Blockstudio\Field_Handlers\Object_Field_Handler;
 
 /**
  * Builds WordPress block attributes from Blockstudio field configurations.
@@ -107,12 +108,36 @@ class Attribute_Builder {
 		$this->register_handler( new Number_Field_Handler() );
 		$this->register_handler( new Boolean_Field_Handler() );
 		$this->register_handler( new Select_Field_Handler() );
+		$this->register_handler( new Object_Field_Handler() );
 		$this->register_handler( new Media_Field_Handler() );
 
 		// Container handler needs special setup for recursive building.
 		$this->container_handler = new Container_Field_Handler();
 		$this->container_handler->set_build_callback( array( $this, 'build_attributes_recursive' ) );
 		$this->register_handler( $this->container_handler );
+
+		/**
+		 * Filter custom attribute builder handlers.
+		 *
+		 * @param array             $handlers Additional field handlers.
+		 * @param Attribute_Builder $builder  Current attribute builder.
+		 */
+		$custom_handlers = apply_filters( 'blockstudio/attribute_builder/handlers', array(), $this );
+
+		if ( is_array( $custom_handlers ) ) {
+			foreach ( $custom_handlers as $handler ) {
+				if ( $handler instanceof Field_Handler_Interface ) {
+					$this->register_handler( $handler );
+				}
+			}
+		}
+
+		/**
+		 * Action fired after default handlers are registered.
+		 *
+		 * @param Attribute_Builder $builder Current attribute builder.
+		 */
+		\do_action( 'blockstudio/attribute_builder/init', $this );
 	}
 
 	/**
@@ -223,9 +248,61 @@ class Attribute_Builder {
 				$handler = $this->get_handler_for_type( $type );
 				if ( $handler ) {
 					$handler->build( $v, $attributes, $prefix );
+				} else {
+					$this->build_fallback_attribute( $v, $attributes, $prefix );
 				}
 			}
 		}
+	}
+
+	/**
+	 * Build fallback attribute for registry-defined field types.
+	 *
+	 * @param array  $field      Field configuration.
+	 * @param array  $attributes Attributes array.
+	 * @param string $prefix     ID prefix.
+	 *
+	 * @return void
+	 */
+	private function build_fallback_attribute( array $field, array &$attributes, string $prefix ): void {
+		$type = $field['type'] ?? '';
+
+		if ( '' === $type || ! Field_Type_Config::produces_attribute( $type ) ) {
+			return;
+		}
+
+		$field_id = $this->get_field_id( $field, $prefix );
+		if ( '' === $field_id ) {
+			return;
+		}
+
+		$attribute_type = Field_Type_Config::get_attribute_type( $type );
+		if ( null === $attribute_type ) {
+			return;
+		}
+
+		$attribute = array(
+			'blockstudio' => true,
+			'type'        => $attribute_type,
+			'field'       => $type,
+			'id'          => $field_id,
+		);
+
+		foreach ( array( 'default', 'fallback' ) as $item ) {
+			if ( isset( $field[ $item ] ) ) {
+				$attribute[ $item ] = $field[ $item ];
+			}
+		}
+
+		if ( isset( $field['storage'] ) ) {
+			$attribute['storage'] = $field['storage'];
+		}
+
+		if ( $field['set'] ?? false ) {
+			$attribute['set'] = $field['set'];
+		}
+
+		$attributes[ $field_id ] = $attribute;
 	}
 
 	/**

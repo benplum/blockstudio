@@ -34,7 +34,7 @@ final class FieldTypeRegistry
 
         return match ($type) {
             'text', 'textarea', 'richtext', 'wysiwyg', 'code',
-            'date', 'datetime', 'classes', 'html-tag', 'unit',
+            'date', 'datetime', 'classes', 'html-tag', 'unit', 
             'gradient' => new StringType(),
 
             'number', 'range' => TypeCombinator::union(new IntegerType(), new FloatType()),

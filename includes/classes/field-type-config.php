@@ -288,7 +288,8 @@ final class Field_Type_Config {
 	 * @return string|array|null The attribute type or null if not found.
 	 */
 	public static function get_attribute_type( string $type ): string|array|null {
-		return self::TYPES[ $type ]['attribute'] ?? null;
+		$config = self::get_type_config( $type );
+		return $config['attribute'] ?? null;
 	}
 
 	/**
@@ -299,7 +300,22 @@ final class Field_Type_Config {
 	 * @return mixed The default value.
 	 */
 	public static function get_default_value( string $type ): mixed {
-		return self::TYPES[ $type ]['default'] ?? null;
+		$config = self::get_type_config( $type );
+		return $config['default'] ?? null;
+	}
+
+	/**
+	 * Get storage value type override for a field type.
+	 *
+	 * @param string $type The field type.
+	 *
+	 * @return string|null Storage value type or null.
+	 */
+	public static function get_storage_value_type( string $type ): ?string {
+		$config = self::get_custom_type_config( $type );
+		$value  = $config['storageType'] ?? null;
+
+		return is_string( $value ) ? $value : null;
 	}
 
 	/**
@@ -310,7 +326,11 @@ final class Field_Type_Config {
 	 * @return bool Whether it's a string type.
 	 */
 	public static function is_string_type( string $type ): bool {
-		return in_array( $type, self::STRING_TYPES, true );
+		if ( in_array( $type, self::STRING_TYPES, true ) ) {
+			return true;
+		}
+
+		return 'string' === self::get_attribute_type( $type );
 	}
 
 	/**
@@ -321,7 +341,11 @@ final class Field_Type_Config {
 	 * @return bool Whether it's a number type.
 	 */
 	public static function is_number_type( string $type ): bool {
-		return in_array( $type, self::NUMBER_TYPES, true );
+		if ( in_array( $type, self::NUMBER_TYPES, true ) ) {
+			return true;
+		}
+
+		return 'number' === self::get_attribute_type( $type );
 	}
 
 	/**
@@ -332,7 +356,11 @@ final class Field_Type_Config {
 	 * @return bool Whether it's a boolean type.
 	 */
 	public static function is_boolean_type( string $type ): bool {
-		return in_array( $type, self::BOOLEAN_TYPES, true );
+		if ( in_array( $type, self::BOOLEAN_TYPES, true ) ) {
+			return true;
+		}
+
+		return 'boolean' === self::get_attribute_type( $type );
 	}
 
 	/**
@@ -343,7 +371,11 @@ final class Field_Type_Config {
 	 * @return bool Whether it's an object type.
 	 */
 	public static function is_object_type( string $type ): bool {
-		return in_array( $type, self::OBJECT_TYPES, true );
+		if ( in_array( $type, self::OBJECT_TYPES, true ) ) {
+			return true;
+		}
+
+		return 'object' === self::get_attribute_type( $type );
 	}
 
 	/**
@@ -354,7 +386,11 @@ final class Field_Type_Config {
 	 * @return bool Whether it's an array type.
 	 */
 	public static function is_array_type( string $type ): bool {
-		return in_array( $type, self::ARRAY_TYPES, true );
+		if ( in_array( $type, self::ARRAY_TYPES, true ) ) {
+			return true;
+		}
+
+		return 'array' === self::get_attribute_type( $type );
 	}
 
 	/**
@@ -365,7 +401,11 @@ final class Field_Type_Config {
 	 * @return bool Whether it supports options.
 	 */
 	public static function has_options( string $type ): bool {
-		return in_array( $type, self::OPTION_TYPES, true );
+		if ( in_array( $type, self::OPTION_TYPES, true ) ) {
+			return true;
+		}
+
+		return true === ( self::get_custom_type_config( $type )['options'] ?? false );
 	}
 
 	/**
@@ -376,7 +416,11 @@ final class Field_Type_Config {
 	 * @return bool Whether it supports multiple selection.
 	 */
 	public static function is_multiple_option_type( string $type ): bool {
-		return in_array( $type, self::MULTIPLE_OPTION_TYPES, true );
+		if ( in_array( $type, self::MULTIPLE_OPTION_TYPES, true ) ) {
+			return true;
+		}
+
+		return true === ( self::get_custom_type_config( $type )['multiple'] ?? false );
 	}
 
 	/**
@@ -387,7 +431,11 @@ final class Field_Type_Config {
 	 * @return bool Whether it's a container type.
 	 */
 	public static function is_container_type( string $type ): bool {
-		return in_array( $type, self::CONTAINER_TYPES, true );
+		if ( in_array( $type, self::CONTAINER_TYPES, true ) ) {
+			return true;
+		}
+
+		return true === ( self::get_custom_type_config( $type )['container'] ?? false );
 	}
 
 	/**
@@ -398,7 +446,16 @@ final class Field_Type_Config {
 	 * @return bool Whether it produces an attribute.
 	 */
 	public static function produces_attribute( string $type ): bool {
-		return ! in_array( $type, self::NON_ATTRIBUTE_TYPES, true );
+		if ( in_array( $type, self::NON_ATTRIBUTE_TYPES, true ) ) {
+			return false;
+		}
+
+		$custom = self::get_custom_type_config( $type );
+		if ( null !== $custom && array_key_exists( 'producesAttribute', $custom ) ) {
+			return true === $custom['producesAttribute'];
+		}
+
+		return true;
 	}
 
 	/**
@@ -412,6 +469,33 @@ final class Field_Type_Config {
 	public static function is_multiple_options( string $type, array $field ): bool {
 		return 'checkbox' === $type ||
 			'token' === $type ||
-			( 'select' === $type && ( $field['multiple'] ?? false ) );
+			( 'select' === $type && ( $field['multiple'] ?? false ) ) ||
+			( true === ( self::get_custom_type_config( $type )['multiple'] ?? false ) );
+	}
+
+	/**
+	 * Get field type config from built-ins and custom registry.
+	 *
+	 * @param string $type The field type.
+	 *
+	 * @return array|null Type config.
+	 */
+	private static function get_type_config( string $type ): ?array {
+		if ( isset( self::TYPES[ $type ] ) ) {
+			return self::TYPES[ $type ];
+		}
+
+		return self::get_custom_type_config( $type );
+	}
+
+	/**
+	 * Get custom type config from registry.
+	 *
+	 * @param string $type The field type.
+	 *
+	 * @return array|null
+	 */
+	private static function get_custom_type_config( string $type ): ?array {
+		return Field_Type_Registry::instance()->get( $type );
 	}
 }

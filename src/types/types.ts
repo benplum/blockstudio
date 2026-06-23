@@ -215,6 +215,20 @@ declare global {
           >;
       media?: BlockstudioBlockStore['media'];
       registerBlock?: (block: BlockstudioBlock) => void;
+      registerFieldType?: (
+        type: string,
+        definition: {
+          component: (props: Any) => ReactNode;
+          normalizer?: (context: {
+            allProps: Any;
+            attributes: BlockstudioBlockAttributes;
+            change: (value: Any, direct?: boolean, size?: string) => void;
+            item: BlockstudioAttribute;
+            value: Any;
+          }) => Any;
+        },
+      ) => void;
+      unregisterFieldType?: (type: string) => void;
       addPreloads?: (
         entries: Array<{
           rendered: string;

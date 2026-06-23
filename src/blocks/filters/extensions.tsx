@@ -102,7 +102,7 @@ const getAttributes = (
                 : value;
 
               if (set.attribute === 'class') {
-                classNames.push(val);
+                classNames.push(String(val));
               } else if (set.attribute === 'style') {
                 styles.push(val.replace(/;+$/, ''));
               } else {

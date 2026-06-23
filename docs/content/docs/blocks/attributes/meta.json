@@ -11,6 +11,7 @@
     "block-attributes",
     "field-types",
     "custom-fields",
+    "custom-field-types",
     "block-field",
     "html-utilities"
   ]
