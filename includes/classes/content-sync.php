@@ -703,8 +703,9 @@ class Content_Sync {
 	 * @return array Error rows.
 	 */
 	private function validate_post_files( array $items, array $post_uids, array $term_uids ): array {
-		$errors = array();
-		$seen   = array();
+		$errors    = array();
+		$seen      = array();
+		$slug_keys = array();
 
 		foreach ( $items as $item ) {
 			$data = $item['data'];
@@ -728,7 +729,16 @@ class Content_Sync {
 
 			$existing = $this->find_post_by_uid( $uid );
 
-			if ( $this->has_slug_conflict( $data, $existing ) ) {
+			$slug_key = $this->post_slug_plan_key( $data );
+			if ( '' !== $slug_key ) {
+				if ( isset( $slug_keys[ $slug_key ] ) ) {
+					$errors[] = $this->row( 'error', 'post', (string) ( $data['slug'] ?? '' ), $uid, 'Duplicate post slug in file plan.' );
+				}
+
+				$slug_keys[ $slug_key ] = true;
+			}
+
+			if ( $this->has_slug_conflict( $data, $existing, $post_uids ) ) {
 				$errors[] = $this->row( 'error', 'post', (string) ( $data['slug'] ?? '' ), $uid, 'Slug conflict.' );
 			}
 
@@ -1922,20 +1932,49 @@ class Content_Sync {
 	}
 
 	/**
+	 * Build a slug uniqueness key for one post file.
+	 *
+	 * @param array $data File data.
+	 *
+	 * @return string
+	 */
+	private function post_slug_plan_key( array $data ): string {
+		$slug      = (string) ( $data['slug'] ?? '' );
+		$post_type = (string) ( $data['type'] ?? '' );
+
+		if ( '' === $slug || '' === $post_type ) {
+			return '';
+		}
+
+		$parent = (string) ( $data['parent'] ?? '0' );
+		return $post_type . '|' . $parent . '|' . $slug;
+	}
+
+	/**
 	 * Check slug conflict.
 	 *
 	 * @param array        $data     File data.
 	 * @param WP_Post|null $existing Existing post.
+	 * @param array        $post_uids Post UIDs in the current push plan.
 	 *
 	 * @return bool
 	 */
-	private function has_slug_conflict( array $data, ?WP_Post $existing ): bool {
+	private function has_slug_conflict( array $data, ?WP_Post $existing, array $post_uids ): bool {
 		$slug      = (string) ( $data['slug'] ?? '' );
 		$post_type = (string) ( $data['type'] ?? '' );
-		$parent    = ! empty( $data['parent'] ) ? $this->resolve_post_uid( (string) $data['parent'] ) : 0;
+		$parent_id = 0;
 
 		if ( '' === $slug || '' === $post_type ) {
 			return false;
+		}
+
+		if ( ! empty( $data['parent'] ) ) {
+			$parent_uid = (string) $data['parent'];
+			$parent_id  = $this->resolve_post_uid( $parent_uid );
+
+			if ( $parent_id <= 0 && isset( $post_uids[ $parent_uid ] ) ) {
+				return false;
+			}
 		}
 
 		$posts = get_posts(
@@ -1943,7 +1982,7 @@ class Content_Sync {
 				'name'           => $slug,
 				'post_type'      => $post_type,
 				'post_status'    => 'any',
-				'post_parent'    => $parent,
+				'post_parent'    => $parent_id,
 				'posts_per_page' => 1,
 			)
 		);

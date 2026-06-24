@@ -483,6 +483,102 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Push blocks duplicate post slugs in the same file plan.
+	 *
+	 * @return void
+	 */
+	public function test_push_blocks_duplicate_file_plan_post_slugs(): void {
+		$first_uid  = wp_generate_uuid4();
+		$second_uid = wp_generate_uuid4();
+
+		foreach ( array( $first_uid, $second_uid ) as $index => $uid ) {
+			$this->write_post_file(
+				'duplicate-plan-' . $index,
+				array(
+					'uid'          => $uid,
+					'type'         => $this->post_type,
+					'status'       => 'publish',
+					'slug'         => 'duplicate-plan',
+					'title'        => 'Duplicate Plan ' . $index,
+					'parent'       => null,
+					'menuOrder'    => 0,
+					'meta'         => array(),
+					'metaEncoding' => array(),
+				),
+				''
+			);
+		}
+
+		$sync = new Content_Sync( $this->config() );
+		$rows = $sync->push();
+
+		$this->assertContains( 'error', wp_list_pluck( $rows, 'action' ) );
+		$this->assertNull( $this->get_post_by_uid( $first_uid ) );
+		$this->assertNull( $this->get_post_by_uid( $second_uid ) );
+	}
+
+	/**
+	 * A child under a queued parent can reuse an unrelated top-level slug.
+	 *
+	 * @return void
+	 */
+	public function test_push_allows_child_slug_when_parent_is_queued(): void {
+		$this->insert_post(
+			array(
+				'post_title' => 'Top Level Existing',
+				'post_name'  => 'shared-child-slug',
+			)
+		);
+
+		$parent_uid = wp_generate_uuid4();
+		$child_uid  = wp_generate_uuid4();
+
+		$this->write_post_file(
+			'queued-parent',
+			array(
+				'uid'          => $parent_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'queued-parent',
+				'title'        => 'Queued Parent',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			''
+		);
+		$this->write_post_file(
+			'shared-child-slug',
+			array(
+				'uid'          => $child_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'shared-child-slug',
+				'title'        => 'Shared Child Slug',
+				'parent'       => $parent_uid,
+				'menuOrder'    => 0,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			''
+		);
+
+		$sync = new Content_Sync( $this->config() );
+		$rows = $sync->push();
+
+		$this->assertNotContains( 'error', wp_list_pluck( $rows, 'action' ) );
+
+		$parent = $this->get_post_by_uid( $parent_uid );
+		$child  = $this->get_post_by_uid( $child_uid );
+
+		$this->assertInstanceOf( WP_Post::class, $parent );
+		$this->assertInstanceOf( WP_Post::class, $child );
+		$this->assertSame( $parent->ID, (int) $child->post_parent );
+		$this->assertSame( 'shared-child-slug', $child->post_name );
+	}
+
+	/**
 	 * Pull rewrites only declared structured reference paths.
 	 *
 	 * @return void
