@@ -485,6 +485,19 @@ add_action(
 			);
 		}
 
+		if ( ! taxonomy_exists( 'bs_content_topic' ) ) {
+			register_taxonomy(
+				'bs_content_topic',
+				'bs_content_sync',
+				array(
+					'label'        => 'Content Sync Topic',
+					'public'       => true,
+					'show_in_rest' => true,
+					'hierarchical' => true,
+				)
+			);
+		}
+
 		// Use blockstudio_theme instead of wp_theme to avoid conflict with WP core
 		if ( ! taxonomy_exists( 'blockstudio_theme' ) ) {
 			register_taxonomy(
