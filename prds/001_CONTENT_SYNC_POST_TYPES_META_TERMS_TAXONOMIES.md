@@ -28,9 +28,10 @@ Files are the source of truth; the database is a projection. This is the same
 stance Page Sync already takes, generalized from page templates to content data.
 
 This document is the full design. **v1 is deliberately a narrow, conservative
-slice** (see "V1 Scope"): one post type, declared references only, terms and
-relationships, portable identity, with safe-by-default behavior everywhere a
-choice could lose or corrupt data. The ambitious surface is the target, not the
+slice** (see "V1 Scope"): one post type, declared meta references only, portable
+identity, with safe-by-default behavior everywhere a choice could lose or corrupt
+data. Terms, relationships, multiple post types, and the shared core extraction
+are deliberate follow-up phases. The ambitious surface is the target, not the
 first commit.
 
 This is a Blockstudio-owned feature. It sits natively next to `Page_Sync`,
@@ -46,8 +47,6 @@ v1 ships exactly this, and nothing wider:
 
 - **One allowlisted post type** plus its declared meta. No implicit multi-type
   sweep.
-- **Terms, term relationships, and termmeta** for declared taxonomies (taxonomies
-  assumed already registered by the active theme/plugins).
 - **Portable identity** (`_blockstudio_content_uid`) and a **content-set
   namespace** (`content.id`) so one sync config can never prune another's content.
 - **Declared references only.** References are rewritten solely at configured
@@ -55,8 +54,13 @@ v1 ships exactly this, and nothing wider:
   an ID.
 - **Page Sync managed posts excluded by default.** Two systems never write the
   same `post_content`.
-- **Attachments are export-and-report, not resolve.** v1 does not ship binaries;
-  unresolved attachment references are reported, not fabricated.
+- **Attachments are export-and-preflight, not resolve.** v1 does not ship
+  binaries or fabricate attachments. A declared attachment reference must resolve
+  to an existing local attachment on push, or preflight blocks the apply with a
+  clear report.
+- **Terms, term relationships, and termmeta are phase 2.** The full design
+  includes them, but the first v1 slice proves post identity and declared meta
+  references before adding the relationship graph.
 - **Preflight then safe apply.** No destructive write (prune/delete) happens until
   the additive apply has fully succeeded. There is no claim of database-wide
   rollback.
@@ -71,9 +75,9 @@ when.
 - Project allowlisted content to files that are diffable, reviewable, and
   mergeable in git.
 - Round-trip content across environments and a fresh database with **no broken
-  references** for everything in scope (parents, term assignments, declared
-  references), and **clear reporting** for anything out of scope (for example
-  unresolved attachments).
+  references** for everything in scope (parents and declared references in v1,
+  term assignments from phase 2 onward), and **clear reporting** for anything out
+  of scope.
 - Bidirectional and idempotent: `pull` then `push` then `pull` yields identical
   files; a no-change `push` performs no database writes.
 - Allowlist-scoped, with a safe-by-default exclusion of users, secrets, Page Sync
@@ -86,9 +90,9 @@ when.
 
 ## Non Goals (v1)
 
-- Media binaries. Attachment references are exported; unresolved references are
-  reported. The binaries in `wp-content/uploads` are not copied or committed, and
-  push does not fabricate attachments.
+- Media binaries. Attachment references are exported and validated. The binaries
+  in `wp-content/uploads` are not copied or committed, and push does not
+  fabricate attachments.
 - `wp_options`, widgets, nav menus, comments, users, and post revisions. The
   allowlist is the boundary; git is the revision history.
 - Full-database mirroring (VersionPress-style live change tracking). Content Sync
@@ -205,28 +209,30 @@ not export.
 
 Content Sync needs a stronger, explicit identity layer:
 
-1. **A portable UID per entity.** On first pull, assign each synced post and term
-   a GUID stored in meta (`_blockstudio_content_uid` in postmeta and termmeta).
-   The file is keyed by this UID, never by the auto-increment ID. The UID travels
-   with the file across environments and branches.
+1. **A portable UID per entity.** On first pull, assign each synced post a GUID
+   stored in postmeta (`_blockstudio_content_uid`). Phase 2 applies the same
+   scheme to terms via termmeta. The file is keyed by this UID, never by the
+   auto-increment ID. The UID travels with the file across environments and
+   branches.
 2. **Declared references stored as UIDs, not local IDs.** A reference is rewritten
    only where the config declares it (a meta key, optionally a path into a
    structured value), plus the structural references Content Sync owns
-   (`post_parent`, term relationships, author). Undeclared values are never
-   touched. There is no inference that an integer is an ID.
+   (`post_parent`, term relationships from phase 2 onward, and author only when
+   author sync is explicitly enabled). Undeclared values are never touched. There
+   is no inference that an integer is an ID.
 3. **Reference rewriting on both directions.** On pull, local IDs at declared
    locations are translated to UIDs. On push, UIDs are translated to this
    environment's local IDs, inserting missing in-scope entities first.
 4. **Dependency-ordered, validate-then-apply.** Push resolves the dependency graph
-   (taxonomies assumed registered, then terms parents-first, then posts
-   parents-first, then relationships, then declared meta), validates the whole
-   plan before any write, applies additively, and only then prunes. See "Push
-   semantics" for why this replaces transactional rollback.
+   (posts parents-first in v1; terms, relationships, and taxonomy ordering from
+   phase 2 onward), validates the whole plan before any write, applies
+   additively, and only then prunes. See "Push semantics" for why this replaces
+   transactional rollback.
 
 ### Sync state (stored meta)
 
 Identity and conflict detection rely on a concrete, stored meta schema, written on
-both posts (postmeta) and terms (termmeta):
+posts in v1 and on terms from phase 2 onward:
 
 | Meta key | Purpose |
 |---|---|
@@ -234,6 +240,7 @@ both posts (postmeta) and terms (termmeta):
 | `_blockstudio_content_set` | The `content.id` this entity belongs to. Prune and ownership namespace. |
 | `_blockstudio_content_source` | Relative path of the file this entity maps to. |
 | `_blockstudio_content_fingerprint` | Hash of the entity's synced representation as of the last successful sync (either direction). Drives skip-if-unchanged and drift detection. |
+| `_blockstudio_content_locked` | Optional lock flag. When truthy, push skips the entity and reports it. |
 
 Drift (the database changed under a file since last sync) is detected by comparing
 the live entity's current hash against `_blockstudio_content_fingerprint`. A
@@ -254,6 +261,7 @@ A new `content` settings key, read via `Settings::get('content/...')`:
     "id": "default",
     "path": "content",
     "includePageSyncManaged": false,
+    "authors": "ignore",
     "postTypes": ["team_member"],
     "meta": {
       "include": ["_my_*"],
@@ -275,7 +283,12 @@ A new `content` settings key, read via `Settings::get('content/...')`:
   other's content. Required; defaults to `default`.
 - `includePageSyncManaged`: default `false`. When false, posts carrying
   `_blockstudio_page_*` meta are skipped entirely. When true, only their meta and
-  terms are synced, never their `post_content` (Page Sync owns the body).
+  from phase 2 onward their terms are synced, never their `post_content` (Page
+  Sync owns the body).
+- `authors`: v1 default `ignore`. Author data is not exported or applied, because
+  users are not synced. A later `login` mode may export authors by login; in that
+  mode a missing user is a blocking preflight error unless an explicit fallback
+  option is added.
 - `postTypes`: allowlist of post types to sync. Empty means none. There is no
   implicit "all". v1 supports one.
 - `meta.include` / `meta.exclude`: glob-aware allowlist of meta keys. The default
@@ -285,20 +298,23 @@ A new `content` settings key, read via `Settings::get('content/...')`:
   entry declares a meta key, a `kind` (`attachment`, `post`, `term`), and an
   optional `path` into a structured value (dot path, `*` for "each element"). A
   meta key with no entry here is treated as opaque data and round-tripped
-  byte-exact, never scanned for IDs.
+  byte-exact, never scanned for IDs. `term` references are recognized from phase
+  2 onward.
 - `taxonomies`: which taxonomies' terms and relationships to sync. The taxonomy
   must already be registered by the site (Blockstudio does not register
   taxonomies). Capturing `register_taxonomy` definitions is deferred (Open
-  Questions).
+  Questions). Term sync begins in phase 2.
 - `media`: `manifest` (default) records attachment references and a content hash
-  and reports unresolved ones; `none` drops attachment references entirely.
-  Copying binaries is out of scope for v1.
+  and validates declared attachment references on push; `none` drops attachment
+  references entirely. Copying binaries is out of scope for v1.
 - The allowlist is also the security boundary (see Security And Safety).
 
 ### File layout and serialization
 
 The post body is raw block markup, not Markdown, so it is not stored in a `.md`
-file. Structured metadata and the body are split into two diffable siblings.
+file. Structured metadata and the body are split into two diffable siblings. The
+layout below shows the full feature; `terms/`, term relationship fields, and
+`taxonomies/` begin in phase 2 or later as noted.
 
 ```
 <theme>/content/
@@ -326,13 +342,14 @@ Post `.json`:
   "date": "2026-01-02T10:00:00Z",
   "modified": "2026-01-04T08:30:00Z",
   "parent": "3f2a...",
-  "author": { "login": "jane" },
   "menuOrder": 0,
-  "terms": { "category": ["c1a2...", "7d44..."] },
   "meta": {
     "_my_subtitle": "We build things",
     "_thumbnail_id": "5e90...",
     "_hero": { "image": { "id": "5e90..." }, "align": "center" }
+  },
+  "metaEncoding": {
+    "_hero": "json"
   }
 }
 ```
@@ -345,8 +362,14 @@ Post `.json`:
   where order is not semantic, preserved where it is, for example `menuOrder`).
   The goal is minimal, meaningful git diffs.
 - Declared meta references are stored as UIDs at exactly their declared key and
-  path. All other meta is round-tripped byte-exact (PHP `serialize` and JSON forms
-  preserved on push).
+  path. Meta values are written in decoded, human-readable form only when doing so
+  is required for a declared reference or safe scalar value. `metaEncoding`
+  records the original storage form (`scalar`, `json`, `php-serialized`,
+  `base64`) so push can write the expected representation back to WordPress.
+  Opaque PHP serialized, binary-ish, or unanalyzable values are stored as encoded
+  payloads rather than lossy decoded structures. Byte-exact round-trip is required
+  for opaque values; declared structured references preserve storage encoding but
+  may normalize insignificant JSON or serialization formatting.
 
 ### Commands
 
@@ -368,12 +391,15 @@ Direction is explicit and unambiguous:
   is data; writing it must be deliberate. Sync is on-demand via CLI (and later
   optional REST for an admin UI). This avoids surprise database writes on page
   load.
-- `--dry-run` runs preflight only and prints the full plan (inserts, updates,
-  prunes, reference resolutions, conflicts, unresolved references) without
-  writing.
+- `push --dry-run` runs preflight only and prints the full plan (inserts,
+  updates, prunes, reference resolutions, conflicts, unresolved references)
+  without writing.
+- `pull --dry-run` reports the UIDs it would assign and the files it would create,
+  update, or leave stale, without writing database meta or files.
 - `--prune` enables orphan handling on push (see below). Off by default so push
-  is additive unless asked.
+  is additive unless asked. Prune handling lands in phase 3.
 - `--yes` skips the confirmation prompt for destructive operations.
+- `--taxonomy` is accepted from phase 2 onward, when term sync lands.
 
 ### Push semantics (files to database)
 
@@ -383,15 +409,17 @@ database-wide rollback.
 1. **Discover and plan.** Parse files, build the dependency graph, compute file
    hashes.
 2. **Preflight (no writes).** Resolve every declared and structural reference to a
-   local ID or a queued in-scope insert. Detect: unresolved attachment references
-   (report), slug conflicts, locked entities, coarse or unanalyzable meta, and
-   drift (live entity hash differs from `_blockstudio_content_fingerprint`). If
-   preflight finds a blocking error (a required reference that can neither resolve
-   nor be inserted), abort before any write with a complete report. `--dry-run`
+   local ID or a queued in-scope insert. Detect: unresolved attachment references,
+   slug conflicts, locked entities, coarse or unanalyzable meta, and drift (live
+   entity hash differs from `_blockstudio_content_fingerprint`). In v1, an
+   unresolved declared attachment reference is a blocking error unless the config
+   uses `media: "none"` and drops attachment references. If preflight finds any
+   blocking error, abort before any write with a complete report. `--dry-run`
    stops here.
-3. **Additive apply, in dependency order.** Terms (parents first), then posts
-   (parents first), then term relationships (`wp_set_object_terms`), then declared
-   meta with references rewritten only at their declared key and path.
+3. **Additive apply, in dependency order.** Posts are applied parents-first in v1.
+   Phase 2 prepends terms (parents first), then applies term relationships
+   (`wp_set_object_terms`) after posts and terms exist. Declared meta is applied
+   with references rewritten only at the configured key and path.
    Skip-if-unchanged via fingerprint. Locked entities are skipped and reported.
    Referents are always written before referrers, so the database is never left
    with a dangling in-scope reference even on partial failure. Where the engine
@@ -403,18 +431,20 @@ database-wide rollback.
    shared orphan service and the `orphan_action` policy (trash, delete, keep).
    Prune never runs if the additive phase reported any error, and never touches
    another content set.
-5. **Record state.** Write `_blockstudio_content_uid`, `_set`, `_source`, and the
-   updated `_fingerprint` on every applied entity.
+5. **Record state.** Write `_blockstudio_content_uid`,
+   `_blockstudio_content_set`, `_blockstudio_content_source`, and the updated
+   `_blockstudio_content_fingerprint` on every applied entity.
 
 Slug behavior: WordPress enforces slug uniqueness per post type. The file slug is
-authoritative; if WordPress mutates it on insert (for example `about` to
-`about-2`), push surfaces that as a conflict in the result rather than silently
-accepting it. The UID remains identity regardless.
+authoritative in v1. If preflight detects that WordPress would mutate it on
+insert or update (for example `about` to `about-2`), push treats that as a
+blocking conflict rather than silently accepting it. The UID remains identity
+regardless.
 
 ### Pull semantics (database to files)
 
-1. Query allowlisted content (the configured post type and taxonomies) honoring
-   the meta allowlist and the Page Sync exclusion.
+1. Query allowlisted content (the configured post type in v1, plus taxonomies
+   from phase 2 onward) honoring the meta allowlist and the Page Sync exclusion.
 2. Ensure identity: any in-scope entity without `_blockstudio_content_uid` is
    assigned one and tagged with `_blockstudio_content_set` (the only writes pull
    performs, both idempotent).
@@ -438,29 +468,31 @@ accepting it. The UID remains identity regardless.
   second `push` with no file change writes nothing.
 - Conflict: `status` flags it; `push` honors locks and the files-win rule but
   surfaces every overwrite in `--dry-run`; `pull` captures the database state into
-  the file for git to resolve. The lock (reused from Page Sync) is the explicit
-  "do not overwrite this" signal.
+  the file for git to resolve. `_blockstudio_content_locked` is the explicit
+  "do not overwrite this" signal for Content Sync entities.
 
 ## Edge Cases
 
 - Declared structured meta with embedded IDs: rewrite **only** at the declared
   `meta.references` path; never scan a structure for arbitrary integers. A value
-  with no declared reference is round-tripped byte-exact (unserialize then
-  reserialize to the exact stored form; never string-edit serialized data).
-- Hierarchical terms and posts: parents before children; a missing parent UID is
-  an ordered in-scope insert, not an error.
-- Attachments: exported by reference via the manifest. An unresolved reference (no
-  matching attachment in the target) is reported, never fabricated; the post still
-  applies with that reference left unresolved and flagged. v1 does not ship
-  binaries.
-- Authors: stored as a portable reference (login or a stable user key), not a raw
-  user ID. On push, resolve to a local user if present, otherwise fall back to the
-  importing user and flag. Users are not synced (Non Goals).
-- Slug collisions: the file slug is authoritative; a WordPress slug mutation is
-  reported as a conflict, not silently accepted. UID is identity, so the entity is
-  still correctly matched.
+  with no declared reference is stored through the `metaEncoding` strategy above
+  and is never string-edited while serialized.
+- Hierarchical posts are applied parents before children; a missing parent UID is
+  an ordered in-scope insert, not an error. Hierarchical terms follow the same
+  rule from phase 2 onward.
+- Attachments: exported by reference via the manifest. In v1, a declared
+  attachment reference must resolve to an existing attachment in the target, or
+  push fails in preflight with a clear unresolved-reference report. Content Sync
+  never fabricates an attachment and does not ship binaries.
+- Authors: v1 ignores authors by default because users are not synced. Future
+  author sync may support a portable login or stable user key, but a missing user
+  must be a preflight decision, not an implicit silent fallback.
+- Slug collisions: the file slug is authoritative in v1; a predicted WordPress
+  slug mutation is a blocking preflight conflict. UID is identity, so a later
+  policy can choose to accept and rewrite slugs, but v1 does not.
 - Page Sync managed posts: excluded by default; with `includePageSyncManaged`,
-  only meta and terms sync, never `post_content`.
+  only meta syncs in v1. Terms join this behavior from phase 2 onward. Content
+  Sync never writes their `post_content`.
 - Multisite: scope to the current site; UIDs and content sets are per site.
   Cross-site is out of scope for v1.
 - Large content sets: stream and batch; `pull` and `push` must not load the entire
@@ -496,16 +528,17 @@ accepting it. The UID remains identity regardless.
 The single acceptance test that proves the identity layer:
 
 0. **Precondition.** Environment B has the same theme and plugins active, with the
-   synced post type and taxonomies already registered (Content Sync registers
-   neither).
+   synced post type already registered. From phase 2 onward, any synced taxonomies
+   must also already be registered. Content Sync registers neither.
 1. On environment A (seeded content), run `wp bs content pull`.
 2. Commit the files. On environment B with a **fresh, empty database** (different
    auto-increment baseline), check out the files and run `wp bs content push`.
-3. Assert environment B matches A for everything in scope: every post present,
-   every parent correct, every term assignment intact, every allowlisted meta
-   value equal, every declared reference resolved. Attachment references resolve
-   against B's media where it exists, and are reported identically where it does
-   not (v1 ships no binaries). No dangling in-scope references.
+3. Assert environment B matches A for everything in v1 scope: every post present,
+   every parent correct, every allowlisted meta value equal, every declared
+   reference resolved, and no dangling in-scope references. If the fixture uses a
+   declared attachment reference, environment B must already contain the matching
+   attachment; otherwise preflight must block before any write. Phase 2 extends
+   this acceptance test with term and term-relationship assertions.
 4. Run `wp bs content pull` on B and assert the files are byte-identical to the
    committed files (round-trip stability).
 
@@ -525,24 +558,50 @@ The **final conclusion gate for this feature is `[all]`**: a commit tagged
 `[all]` runs lint, unit, and E2E together, and that combined run going green is
 the acceptance signal. Use `[all]` for the landing commits of each phase.
 
-Required coverage:
+Required coverage by phase:
 
-- Unit: UID issue and idempotency, declared reference rewriting (including at a
+- V1 unit: UID issue and idempotency, declared reference rewriting (including at a
   path inside structured meta, and proof that undeclared integers are untouched),
-  serialization round-trip exactness, allowlist enforcement (include and exclude),
-  dependency ordering, preflight abort on unresolvable references, content-set
-  scoped prune (and proof one set cannot prune another), lock skip, slug-conflict
-  reporting, Page Sync exclusion.
-- E2E (wp-env, real database): a full `pull` then `push` cycle against seeded
-  content; term-relationship correctness; the portability test above run against
-  the second (empty) wp-env that CI already starts.
-- Regression (from the extraction phase onward): the existing Page Sync unit and
-  E2E suites must stay green across the shared-core extraction and migration.
+  `metaEncoding` preservation, allowlist enforcement (include and exclude),
+  parent dependency ordering, preflight abort on unresolvable references, pull
+  dry-run with no UID/file writes, slug-conflict blocking, Page Sync exclusion.
+- V1 E2E (wp-env, real database): a full `pull` then `push` cycle against seeded
+  v1 content and the portability test above run against the second (empty) wp-env
+  that CI already starts.
+- Phase 2: add term UID, term parent ordering, termmeta, term relationships,
+  declared `term` references, and term-relationship E2E correctness.
+- Phase 3: add content-set scoped prune (and proof one set cannot prune another),
+  lock skip, `status` diff, and `push --dry-run` coverage for destructive plans.
+- Extraction phase: the existing Page Sync unit and E2E suites must stay green
+  across the shared-core extraction and migration.
 
-Follow the repo conventions: update `docs/src/schemas/` for the new
-`blockstudio.json` `content` settings, add the TypeScript types, document the
-commands under `docs/content/docs/`, and add a `readme.txt` changelog entry at the
-release boundary (not for iterative work).
+Every landing phase must include a full local verification pass for the code it
+touches before pushing: focused unit tests while developing, then the relevant
+full unit and E2E suites for the phase. The release gate is a pushed commit with
+`[all]` and a green combined GitHub CI run.
+
+## Documentation, Schemas, And Changelog
+
+Each phase that exposes user-facing behavior must land with the documentation and
+release metadata needed to ship it, not as a follow-up cleanup task:
+
+- Update `docs/src/schemas/` for the new `blockstudio.json` `content` settings,
+  including `content.id`, `path`, `includePageSyncManaged`, `authors`,
+  `postTypes`, `meta.include`, `meta.exclude`, `meta.references`, `taxonomies`,
+  and `media`.
+- Add or update TypeScript types for the content settings and CLI-facing status
+  shapes where the frontend/docs tooling consumes them.
+- Document the CLI workflow under `docs/content/docs/`: `wp bs content pull`,
+  `push`, `status`, `--dry-run`, `--prune`, `--yes`, the v1 scope, Page Sync
+  exclusion, attachment preflight behavior, slug conflicts, and portability.
+- Document the file format: post JSON, sibling `.html` body file, `metaEncoding`,
+  content-set ownership, stored meta keys, and phase boundaries for terms and
+  taxonomies.
+- Regenerate or update `includes/llm/blockstudio-llm.txt` when the docs source
+  changes, so the static LLM documentation reflects the shipped behavior.
+- Add a `readme.txt` changelog entry at the release boundary for the phase being
+  shipped. Iterative implementation commits do not need separate changelog churn,
+  but the final release commit does.
 
 ## Architecture: A Reusable Sync Core (extracted after the first slice)
 
@@ -622,7 +681,8 @@ and menus, taxonomy definition capture, a REST and admin UI surface.
   terms, taxonomies, relationships) with portable identity and bidirectional push
   and pull. To avoid two systems writing the same `wp_posts` row, Content Sync
   **excludes Page Sync managed posts by default**; with `includePageSyncManaged`
-  it syncs only their meta and terms, never their `post_content`.
+  it syncs only their meta in v1, and terms from phase 2 onward, never their
+  `post_content`.
 - **`storage: jsonc`** in `Database` is an existing records-to-files projection.
   The plan converges it onto the shared core as a consumer (Phase 5), so record
   sync gains the same identity, fingerprint, diff-minimal writes, and dry-run.
@@ -632,16 +692,15 @@ and menus, taxonomy definition capture, a REST and admin UI surface.
 
 ## Open Questions
 
-- Author portability: login versus a dedicated portable user key; behavior when
-  the user is absent on push (fall back and flag is the proposed default).
+- Future author portability: login versus a dedicated portable user key; behavior
+  when the user is absent on push. v1 ignores authors by default.
 - Taxonomy definition capture: whether to record `register_taxonomy` args so a
   fresh environment can register the taxonomy, given Blockstudio does not register
   taxonomies today. Proposed: deferred.
 - Whether `_blockstudio_content_last_export_hash` is needed alongside the single
   fingerprint to distinguish file-origin from db-origin change. Proposed: single
   fingerprint in v1, add only if status proves ambiguous.
-- Slug-conflict resolution policy: report-and-stop versus report-and-accept WP's
-  mutation (then rewrite the file on next pull). Proposed: report in v1, operator
-  decides.
+- Future slug-conflict resolution policy: v1 blocks in preflight. A later version
+  may choose to accept WordPress slug mutation and rewrite the file on next pull.
 - `push`/`pull` naming confirmation: push deploys files to the database, pull
   captures the database to files. Lock this before implementation.
