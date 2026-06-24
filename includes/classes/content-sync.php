@@ -1444,6 +1444,8 @@ class Content_Sync {
 		$data = array();
 
 		foreach ( $this->config['taxonomies'] as $taxonomy ) {
+			$data[ $taxonomy ] = array();
+
 			$terms = wp_get_object_terms( $post_id, $taxonomy );
 			if ( is_wp_error( $terms ) || empty( $terms ) ) {
 				continue;

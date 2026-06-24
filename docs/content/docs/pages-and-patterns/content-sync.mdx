@@ -171,6 +171,8 @@ resolved back to local IDs in the current database.
 
 Post parents, term parents, and post-term relationships are structural
 references owned by Content Sync and are stored as UIDs automatically.
+Configured taxonomies are written to post files even when empty; an empty array
+clears that taxonomy's relationships on push.
 
 Attachment references are validated, not imported. With `media: "manifest"`,
 referenced attachments are listed in `content/media/manifest.json`; push requires

@@ -1222,6 +1222,74 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Pull writes empty configured taxonomy relationships.
+	 *
+	 * @return void
+	 */
+	public function test_pull_writes_empty_configured_taxonomy_relationships(): void {
+		$this->insert_post(
+			array(
+				'post_title' => 'No Topic',
+				'post_name'  => 'no-topic',
+			)
+		);
+
+		$sync = new Content_Sync( $this->config( array( 'taxonomies' => array( $this->taxonomy ) ) ) );
+		$sync->pull();
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local content sync fixture.
+		$data = json_decode( (string) file_get_contents( $this->find_post_json_file() ), true );
+
+		$this->assertSame( array( $this->taxonomy => array() ), $data['terms'] );
+	}
+
+	/**
+	 * Push clears configured taxonomy relationships when the file has an empty list.
+	 *
+	 * @return void
+	 */
+	public function test_push_clears_empty_term_relationships(): void {
+		$post_uid = wp_generate_uuid4();
+		$post_id  = $this->insert_post(
+			array(
+				'post_title' => 'Clear Topic',
+				'post_name'  => 'clear-topic',
+			)
+		);
+		$term     = wp_insert_term( 'Topic To Clear', $this->taxonomy, array( 'slug' => 'topic-to-clear' ) );
+
+		$this->assertIsArray( $term );
+		update_post_meta( $post_id, Content_Sync::META_UID, $post_uid );
+		update_post_meta( $post_id, Content_Sync::META_SET, 'unit' );
+		wp_set_object_terms( $post_id, array( (int) $term['term_id'] ), $this->taxonomy );
+
+		$this->write_post_file(
+			'clear-topic',
+			array(
+				'uid'          => $post_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'clear-topic',
+				'title'        => 'Clear Topic',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'terms'        => array(
+					$this->taxonomy => array(),
+				),
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			''
+		);
+
+		$sync = new Content_Sync( $this->config( array( 'taxonomies' => array( $this->taxonomy ) ) ) );
+		$rows = $sync->push();
+
+		$this->assertNotContains( 'error', wp_list_pluck( $rows, 'action' ) );
+		$this->assertSame( array(), wp_get_object_terms( $post_id, $this->taxonomy, array( 'fields' => 'ids' ) ) );
+	}
+
+	/**
 	 * Push rewrites declared queued term references in post meta.
 	 *
 	 * @return void
