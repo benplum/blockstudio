@@ -160,7 +160,7 @@ plugins, WordPress, PHP, or Blockstudio versions change.
 | `meta.include`           | array   | `[]`                                     | Glob patterns for meta keys to sync                       |
 | `meta.exclude`           | array   | `["_edit_lock", "_edit_last", "_wp_old_slug"]` | Glob patterns for meta keys to exclude                    |
 | `meta.references`        | object  | `{}`                                     | Declared meta references rewritten between IDs and UIDs   |
-| `taxonomies`             | array   | `[]`                                     | Reserved allowlist for term and relationship sync phases  |
+| `taxonomies`             | array   | `[]`                                     | Allowlisted registered taxonomies for terms and relationships |
 | `media`                  | string  | `"manifest"`                             | Attachment reference behavior (`manifest` or `none`)      |
 
 Content Sync is managed through `wp bs content` and projects allowlisted posts,

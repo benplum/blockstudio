@@ -257,7 +257,7 @@ export const blockstudio = {
           default: [],
           items: { type: 'string' },
           description:
-            'Allowlisted taxonomies for later term and relationship sync phases.',
+            'Allowlisted registered taxonomies whose terms and post relationships are synced. Taxonomy definitions are not captured.',
           descriptionFilter:
             'This filter allows you to configure Content Sync taxonomy allowlists.',
           example: ['category', 'post_tag'],

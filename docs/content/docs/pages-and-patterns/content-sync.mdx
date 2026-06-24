@@ -6,8 +6,9 @@ description: Project allowlisted WordPress content to portable files and apply i
 # Content Sync
 
 Content Sync is a WP-CLI workflow for versioning selected WordPress content in
-your theme. It projects allowlisted posts and postmeta to files, stores portable
-UIDs in WordPress meta, and rewrites only the references you explicitly declare.
+your theme. It projects allowlisted posts, postmeta, terms, termmeta, and
+post-term relationships to files, stores portable UIDs in WordPress meta, and
+rewrites only the references you explicitly declare.
 
 Content Sync is on-demand. It does not run on every admin request.
 
@@ -41,7 +42,10 @@ Enable Content Sync in `blockstudio.json`:
 ```
 
 `postTypes` is an allowlist. Empty means Content Sync does not touch posts.
-Postmeta is also allowlisted through `meta.include`; `meta.exclude` always wins.
+`taxonomies` is an allowlist of already registered taxonomies whose terms and
+post relationships should sync. Blockstudio does not register taxonomy
+definitions from Content Sync files. Postmeta and termmeta are allowlisted
+through `meta.include`; `meta.exclude` always wins.
 
 `content.id` is stored on synced entities as `_blockstudio_content_set`. Prune
 and ownership checks are scoped to that value, so one content set cannot delete
@@ -54,7 +58,7 @@ but Page Sync still owns their `post_content`.
 ## Commands
 
 ```bash
-wp bs content pull [--post-type=<type>] [--dry-run]
+wp bs content pull [--post-type=<type>] [--taxonomy=<taxonomy>] [--dry-run]
 wp bs content push [--dry-run] [--prune] [--yes]
 wp bs content status
 ```
@@ -83,13 +87,18 @@ content/
     team_member/
       jane.9b1c0e6e.json
       jane.9b1c0e6e.html
+  terms/
+    category/
+      leadership.5e900000.json
   media/
     manifest.json
 ```
 
-The `.json` file stores identity, post fields, declared meta, and meta encoding.
-The sibling `.html` file stores `post_content` as raw block markup and is omitted
-when the content is empty.
+Post `.json` files store identity, post fields, term relationships, declared
+meta, and meta encoding. The sibling `.html` file stores `post_content` as raw
+block markup and is omitted when the content is empty. Term `.json` files store
+identity, taxonomy, slug, name, description, parent UID, declared termmeta, and
+meta encoding.
 
 ```json title="content/posts/team_member/jane.9b1c0e6e.json"
 {
@@ -100,6 +109,9 @@ when the content is empty.
   "title": "Jane",
   "parent": null,
   "menuOrder": 0,
+  "terms": {
+    "category": ["11110000-0000-4000-9000-000000000000"]
+  },
   "meta": {
     "_my_subtitle": "Creative Director",
     "_thumbnail_id": "5e900000-0000-4000-9000-000000000000"
@@ -131,6 +143,7 @@ only when configured in `meta.references`.
   "meta": {
     "references": {
       "_related_posts": { "kind": "post", "path": "*" },
+      "_topic": { "kind": "term" },
       "_hero": { "kind": "attachment", "path": "image.id" }
     }
   }
@@ -139,6 +152,9 @@ only when configured in `meta.references`.
 
 On pull, local IDs at those paths become portable UIDs. On push, the UIDs are
 resolved back to local IDs in the current database.
+
+Post parents, term parents, and post-term relationships are structural
+references owned by Content Sync and are stored as UIDs automatically.
 
 Attachment references are validated, not imported. With `media: "manifest"`,
 referenced attachments are listed in `content/media/manifest.json`; push requires
@@ -163,11 +179,14 @@ The 7.4.0 Content Sync surface is intentionally conservative:
 
 - posts from allowlisted post types
 - allowlisted postmeta
-- declared `post` and `attachment` references
-- portable post UIDs and content-set ownership
+- terms from allowlisted registered taxonomies
+- allowlisted termmeta
+- post-term relationships
+- declared `post`, `attachment`, and `term` references
+- portable post and term UIDs and content-set ownership
 - Page Sync exclusion by default
 - attachment manifest and preflight validation
 - `pull`, `push`, `status`, `--dry-run`, `--prune`, and locked-entity handling
 
-Term files, termmeta, term relationships, taxonomy definition capture, media
-binary copying, and block-markup ID rewriting are later phases.
+Taxonomy definition capture, media binary copying, and block-markup ID rewriting
+are later phases.

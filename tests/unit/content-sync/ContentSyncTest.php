@@ -21,6 +21,13 @@ class ContentSyncTest extends TestCase {
 	private string $post_type = 'bs_content_test';
 
 	/**
+	 * Test taxonomy.
+	 *
+	 * @var string
+	 */
+	private string $taxonomy = 'bs_content_topic';
+
+	/**
 	 * Test content path.
 	 *
 	 * @var string
@@ -53,7 +60,20 @@ class ContentSyncTest extends TestCase {
 			);
 		}
 
+		if ( ! taxonomy_exists( $this->taxonomy ) ) {
+			register_taxonomy(
+				$this->taxonomy,
+				$this->post_type,
+				array(
+					'public'       => true,
+					'hierarchical' => true,
+					'label'        => 'Content Sync Topic',
+				)
+			);
+		}
+
 		$this->delete_test_posts();
+		$this->delete_test_terms();
 		$this->remove_content_dir();
 	}
 
@@ -69,6 +89,7 @@ class ContentSyncTest extends TestCase {
 
 		$this->post_ids = array();
 		$this->delete_test_posts();
+		$this->delete_test_terms();
 		$this->remove_content_dir();
 
 		parent::tearDown();
@@ -607,6 +628,183 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Push creates terms parent-first and assigns post term relationships.
+	 *
+	 * @return void
+	 */
+	public function test_push_creates_terms_and_assigns_relationships(): void {
+		$parent_uid = wp_generate_uuid4();
+		$child_uid  = wp_generate_uuid4();
+		$post_uid   = wp_generate_uuid4();
+
+		$this->write_term_file(
+			'topic-parent',
+			array(
+				'uid'          => $parent_uid,
+				'taxonomy'     => $this->taxonomy,
+				'slug'         => 'topic-parent',
+				'name'         => 'Topic Parent',
+				'description'  => '',
+				'parent'       => null,
+				'meta'         => array(
+					'_my_color' => 'blue',
+				),
+				'metaEncoding' => array(
+					'_my_color' => 'scalar',
+				),
+			)
+		);
+		$this->write_term_file(
+			'topic-child',
+			array(
+				'uid'          => $child_uid,
+				'taxonomy'     => $this->taxonomy,
+				'slug'         => 'topic-child',
+				'name'         => 'Topic Child',
+				'description'  => '',
+				'parent'       => $parent_uid,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			)
+		);
+		$this->write_post_file(
+			'with-topic',
+			array(
+				'uid'          => $post_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'with-topic',
+				'title'        => 'With Topic',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'terms'        => array(
+					$this->taxonomy => array( $child_uid ),
+				),
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			''
+		);
+
+		$sync = new Content_Sync( $this->config( array( 'taxonomies' => array( $this->taxonomy ) ) ) );
+		$rows = $sync->push();
+
+		$this->assertNotContains( 'error', wp_list_pluck( $rows, 'action' ) );
+
+		$parent = $this->get_term_by_uid( $parent_uid );
+		$child  = $this->get_term_by_uid( $child_uid );
+		$post   = $this->get_post_by_uid( $post_uid );
+
+		$this->assertInstanceOf( WP_Term::class, $parent );
+		$this->assertInstanceOf( WP_Term::class, $child );
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertSame( $parent->term_id, $child->parent );
+		$this->assertSame( 'blue', get_term_meta( $parent->term_id, '_my_color', true ) );
+		$this->assertSame( array( $child->term_id ), wp_get_object_terms( $post->ID, $this->taxonomy, array( 'fields' => 'ids' ) ) );
+	}
+
+	/**
+	 * Push rewrites declared queued term references in post meta.
+	 *
+	 * @return void
+	 */
+	public function test_push_rewrites_declared_queued_term_reference(): void {
+		$term_uid = wp_generate_uuid4();
+		$post_uid = wp_generate_uuid4();
+
+		$this->write_term_file(
+			'topic-reference',
+			array(
+				'uid'          => $term_uid,
+				'taxonomy'     => $this->taxonomy,
+				'slug'         => 'topic-reference',
+				'name'         => 'Topic Reference',
+				'description'  => '',
+				'parent'       => null,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			)
+		);
+		$this->write_post_file(
+			'term-reference',
+			array(
+				'uid'          => $post_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'term-reference',
+				'title'        => 'Term Reference',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(
+					'_my_term_ref' => $term_uid,
+				),
+				'metaEncoding' => array(
+					'_my_term_ref' => 'scalar',
+				),
+			),
+			''
+		);
+
+		$sync = new Content_Sync(
+			$this->config(
+				array(
+					'taxonomies' => array( $this->taxonomy ),
+					'meta'       => array(
+						'include'    => array( '_my_*' ),
+						'references' => array(
+							'_my_term_ref' => array( 'kind' => 'term' ),
+						),
+					),
+				)
+			)
+		);
+		$rows = $sync->push();
+
+		$this->assertNotContains( 'error', wp_list_pluck( $rows, 'action' ) );
+
+		$term = $this->get_term_by_uid( $term_uid );
+		$post = $this->get_post_by_uid( $post_uid );
+
+		$this->assertInstanceOf( WP_Term::class, $term );
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertSame( (string) $term->term_id, get_post_meta( $post->ID, '_my_term_ref', true ) );
+	}
+
+	/**
+	 * Push blocks unresolved term relationship references.
+	 *
+	 * @return void
+	 */
+	public function test_push_blocks_unresolved_term_relationship_reference(): void {
+		$post_uid = wp_generate_uuid4();
+
+		$this->write_post_file(
+			'missing-topic',
+			array(
+				'uid'          => $post_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'missing-topic',
+				'title'        => 'Missing Topic',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'terms'        => array(
+					$this->taxonomy => array( wp_generate_uuid4() ),
+				),
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			''
+		);
+
+		$sync = new Content_Sync( $this->config( array( 'taxonomies' => array( $this->taxonomy ) ) ) );
+		$rows = $sync->push();
+
+		$this->assertContains( 'error', wp_list_pluck( $rows, 'action' ) );
+		$this->assertNull( $this->get_post_by_uid( $post_uid ) );
+	}
+
+	/**
 	 * Get test config.
 	 *
 	 * @param array $overrides Config overrides.
@@ -689,6 +887,25 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Write a term content file.
+	 *
+	 * @param string $slug Slug.
+	 * @param array  $data Data.
+	 *
+	 * @return string
+	 */
+	private function write_term_file( string $slug, array $data ): string {
+		$dir  = $this->content_root() . '/terms/' . $this->taxonomy;
+		$file = $dir . '/' . $slug . '.' . substr( (string) $data['uid'], 0, 8 ) . '.json';
+
+		wp_mkdir_p( $dir );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writing local content sync fixture.
+		file_put_contents( $file, wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n" );
+
+		return $file;
+	}
+
+	/**
 	 * Write a post content file pair.
 	 *
 	 * @param string $slug Slug.
@@ -756,6 +973,30 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Find a term by content UID.
+	 *
+	 * @param string $uid UID.
+	 *
+	 * @return WP_Term|null
+	 */
+	private function get_term_by_uid( string $uid ): ?WP_Term {
+		$terms = get_terms(
+			array(
+				'taxonomy'   => $this->taxonomy,
+				'hide_empty' => false,
+				'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+					array(
+						'key'   => Content_Sync::META_UID,
+						'value' => $uid,
+					),
+				),
+			)
+		);
+
+		return ! is_wp_error( $terms ) && ! empty( $terms ) && $terms[0] instanceof WP_Term ? $terms[0] : null;
+	}
+
+	/**
 	 * Remove content directory.
 	 *
 	 * @return void
@@ -799,6 +1040,30 @@ class ContentSyncTest extends TestCase {
 
 		foreach ( $posts as $post_id ) {
 			wp_delete_post( (int) $post_id, true );
+		}
+	}
+
+	/**
+	 * Delete test terms.
+	 *
+	 * @return void
+	 */
+	private function delete_test_terms(): void {
+		$terms = get_terms(
+			array(
+				'taxonomy'   => $this->taxonomy,
+				'hide_empty' => false,
+			)
+		);
+
+		if ( is_wp_error( $terms ) ) {
+			return;
+		}
+
+		foreach ( $terms as $term ) {
+			if ( $term instanceof WP_Term ) {
+				wp_delete_term( $term->term_id, $this->taxonomy );
+			}
 		}
 	}
 }

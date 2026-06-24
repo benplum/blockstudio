@@ -414,7 +414,8 @@ export interface Content {
    */
   postTypes?: string[];
   /**
-   * Allowlisted taxonomies for later term and relationship sync phases.
+   * Allowlisted registered taxonomies whose terms and post relationships are synced. Taxonomy
+   * definitions are not captured.
    */
   taxonomies?: string[];
   [property: string]: any;
@@ -660,7 +661,7 @@ function transform(
       const typ = typs[i];
       try {
         return transform(val, typ, getProps);
-    } catch {}
+      } catch {}
     }
     return invalidValue(typs, val, key, parent);
   }

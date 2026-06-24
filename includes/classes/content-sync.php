@@ -319,25 +319,26 @@ class Content_Sync {
 			'errors' => array(),
 		);
 
+		$post_uids = $this->collect_plan_uids( $plan['posts'] );
+		$term_uids = $this->collect_plan_uids( $plan['terms'] );
+
 		$plan['errors'] = array_merge(
-			$this->validate_post_files( $plan['posts'] ),
-			$this->validate_term_files( $plan['terms'] )
+			$this->validate_post_files( $plan['posts'], $post_uids, $term_uids ),
+			$this->validate_term_files( $plan['terms'], $term_uids )
 		);
 
 		return $plan;
 	}
 
 	/**
-	 * Validate post file plan.
+	 * Collect UIDs from file plan items.
 	 *
-	 * @param array $items Post file items.
+	 * @param array $items File plan items.
 	 *
-	 * @return array Error rows.
+	 * @return array
 	 */
-	private function validate_post_files( array $items ): array {
-		$errors = array();
-		$uids   = array();
-		$seen   = array();
+	private function collect_plan_uids( array $items ): array {
+		$uids = array();
 
 		foreach ( $items as $item ) {
 			$uid = (string) ( $item['data']['uid'] ?? '' );
@@ -345,6 +346,22 @@ class Content_Sync {
 				$uids[ $uid ] = true;
 			}
 		}
+
+		return $uids;
+	}
+
+	/**
+	 * Validate post file plan.
+	 *
+	 * @param array $items     Post file items.
+	 * @param array $post_uids Post UIDs in the current push plan.
+	 * @param array $term_uids Term UIDs in the current push plan.
+	 *
+	 * @return array Error rows.
+	 */
+	private function validate_post_files( array $items, array $post_uids, array $term_uids ): array {
+		$errors = array();
+		$seen   = array();
 
 		foreach ( $items as $item ) {
 			$data = $item['data'];
@@ -379,7 +396,10 @@ class Content_Sync {
 				$errors[] = $this->row( 'error', 'post', (string) ( $data['slug'] ?? '' ), $uid, 'Parent reference cannot be resolved.' );
 			}
 
-			$reference_errors = $this->validate_meta_references( $data['meta'] ?? array(), $data['metaEncoding'] ?? array(), $uid, $uids, array() );
+			$reference_errors = array_merge(
+				$this->validate_meta_references( $data['meta'] ?? array(), $data['metaEncoding'] ?? array(), $uid, $post_uids, $term_uids ),
+				$this->validate_post_term_references( $data, $uid, $term_uids )
+			);
 			$errors           = array_merge( $errors, $reference_errors );
 		}
 
@@ -389,12 +409,14 @@ class Content_Sync {
 	/**
 	 * Validate term file plan.
 	 *
-	 * @param array $items Term file items.
+	 * @param array $items     Term file items.
+	 * @param array $term_uids Term UIDs in the current push plan.
 	 *
 	 * @return array Error rows.
 	 */
-	private function validate_term_files( array $items ): array {
+	private function validate_term_files( array $items, array $term_uids ): array {
 		$errors = array();
+		$seen   = array();
 
 		foreach ( $items as $item ) {
 			$data     = $item['data'];
@@ -406,8 +428,55 @@ class Content_Sync {
 				continue;
 			}
 
+			if ( isset( $seen[ $uid ] ) ) {
+				$errors[] = $this->row( 'error', 'term', '', $uid, 'Duplicate term uid.' );
+			}
+
+			$seen[ $uid ] = true;
+
 			if ( '' === $taxonomy || ! taxonomy_exists( $taxonomy ) ) {
 				$errors[] = $this->row( 'error', 'term', '', $uid, "Taxonomy '{$taxonomy}' is not registered." );
+			}
+
+			$existing = '' !== $taxonomy ? $this->find_term_by_uid( $uid, $taxonomy ) : null;
+			if ( $existing && get_term_meta( $existing->term_id, self::META_LOCKED, true ) ) {
+				$errors[] = $this->row( 'locked', 'term', (string) $existing->term_id, $uid, 'Locked entity skipped.' );
+			}
+
+			if ( ! empty( $data['parent'] ) && ! isset( $term_uids[ (string) $data['parent'] ] ) && $this->resolve_term_uid( (string) $data['parent'], $taxonomy ) <= 0 ) {
+				$errors[] = $this->row( 'error', 'term', (string) ( $data['slug'] ?? '' ), $uid, 'Parent term reference cannot be resolved.' );
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Validate post term relationship references.
+	 *
+	 * @param array  $data      Post file data.
+	 * @param string $owner_uid Owner UID.
+	 * @param array  $term_uids Term UIDs in the current push plan.
+	 *
+	 * @return array Error rows.
+	 */
+	private function validate_post_term_references( array $data, string $owner_uid, array $term_uids ): array {
+		$errors = array();
+
+		foreach ( (array) ( $data['terms'] ?? array() ) as $taxonomy => $uids ) {
+			$taxonomy = (string) $taxonomy;
+			if ( ! taxonomy_exists( $taxonomy ) ) {
+				$errors[] = $this->row( 'error', 'terms', $taxonomy, $owner_uid, "Taxonomy '{$taxonomy}' is not registered." );
+				continue;
+			}
+
+			foreach ( (array) $uids as $uid ) {
+				$uid = (string) $uid;
+				if ( '' === $uid || isset( $term_uids[ $uid ] ) || $this->resolve_term_uid( $uid, $taxonomy ) > 0 ) {
+					continue;
+				}
+
+				$errors[] = $this->row( 'error', 'terms', $taxonomy, $owner_uid, "Term reference '{$uid}' cannot be resolved." );
 			}
 		}
 
