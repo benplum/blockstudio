@@ -1,0 +1,2005 @@
+<?php
+/**
+ * Content Sync class.
+ *
+ * @package Blockstudio
+ */
+
+namespace Blockstudio;
+
+use WP_Error;
+use WP_Post;
+use WP_Term;
+
+/**
+ * Bidirectional file projection for allowlisted WordPress content.
+ *
+ * @since 7.4.0
+ */
+class Content_Sync {
+
+	public const META_UID         = '_blockstudio_content_uid';
+	public const META_SET         = '_blockstudio_content_set';
+	public const META_SOURCE      = '_blockstudio_content_source';
+	public const META_FINGERPRINT = '_blockstudio_content_fingerprint';
+	public const META_LOCKED      = '_blockstudio_content_locked';
+
+	/**
+	 * Sync configuration.
+	 *
+	 * @var array
+	 */
+	private array $config;
+
+	/**
+	 * Whether this run may write to the database or files.
+	 *
+	 * @var bool
+	 */
+	private bool $dry_run = false;
+
+	/**
+	 * Constructor.
+	 *
+	 * @param array|null $config Optional config override.
+	 */
+	public function __construct( ?array $config = null ) {
+		$this->config = $this->normalize_config( $config ?? (array) Settings::get( 'content', array() ) );
+	}
+
+	/**
+	 * Pull database content into files.
+	 *
+	 * @param array $args Pull options.
+	 *
+	 * @return array Result rows.
+	 */
+	public function pull( array $args = array() ): array {
+		$this->dry_run = ! empty( $args['dry-run'] );
+		$rows          = array();
+
+		foreach ( $this->selected_post_types( $args ) as $post_type ) {
+			if ( ! post_type_exists( $post_type ) ) {
+				$rows[] = $this->row( 'error', 'post_type', $post_type, '', "Post type '{$post_type}' is not registered." );
+				continue;
+			}
+
+			foreach ( $this->query_posts( $post_type ) as $post ) {
+				if ( $this->is_page_sync_managed( $post->ID ) && ! $this->config['includePageSyncManaged'] ) {
+					$rows[] = $this->row( 'skipped', 'post', (string) $post->ID, '', 'Page Sync managed post.' );
+					continue;
+				}
+
+				$uid = $this->ensure_post_uid( $post->ID );
+				if ( '' === $uid ) {
+					$uid = 'dry-run';
+				}
+
+				$projection = $this->project_post( $post, $uid );
+				$source     = $this->post_source_path( $post, $uid );
+				$body_path  = $this->body_path_for_source( $source );
+				$fingerprint = $this->fingerprint_projection(
+					$projection,
+					(string) $post->post_content
+				);
+
+				if ( $this->dry_run ) {
+					$rows[] = $this->row( 'would-write', 'post', (string) $post->ID, $uid, $this->relative_path( $source ) );
+					continue;
+				}
+
+				$this->write_json_file( $source, $projection );
+				if ( '' !== (string) $post->post_content ) {
+					$this->write_file( $body_path, (string) $post->post_content );
+				} elseif ( file_exists( $body_path ) ) {
+					wp_delete_file( $body_path );
+				}
+
+				$this->update_entity_state( 'post', $post->ID, $uid, $source, $fingerprint );
+				$rows[] = $this->row( 'written', 'post', (string) $post->ID, $uid, $this->relative_path( $source ) );
+			}
+		}
+
+		foreach ( $this->selected_taxonomies( $args ) as $taxonomy ) {
+			$rows = array_merge( $rows, $this->pull_terms( $taxonomy ) );
+		}
+
+		$this->write_media_manifest( $rows );
+
+		return $rows;
+	}
+
+	/**
+	 * Push file content into the database.
+	 *
+	 * @param array $args Push options.
+	 *
+	 * @return array Result rows.
+	 */
+	public function push( array $args = array() ): array {
+		$this->dry_run = ! empty( $args['dry-run'] );
+		$plan          = $this->build_push_plan( $args );
+
+		if ( ! empty( $plan['errors'] ) || $this->dry_run ) {
+			return array_merge( $plan['rows'], $plan['errors'] );
+		}
+
+		$rows      = $plan['rows'];
+		$post_ids  = array();
+		$term_ids  = array();
+
+		foreach ( $this->sort_terms_by_parent( $plan['terms'] ) as $item ) {
+			$result = $this->apply_term_file( $item, $term_ids );
+			$rows[] = $result['row'];
+
+			if ( isset( $result['term_id'] ) ) {
+				$term_ids[ $item['data']['uid'] ] = (int) $result['term_id'];
+			}
+		}
+
+		foreach ( $this->sort_posts_by_parent( $plan['posts'] ) as $item ) {
+			$result = $this->apply_post_file( $item, $post_ids, $term_ids );
+			$rows[] = $result['row'];
+
+			if ( isset( $result['post_id'] ) ) {
+				$post_ids[ $item['data']['uid'] ] = (int) $result['post_id'];
+			}
+		}
+
+		if ( ! empty( $args['prune'] ) && ! $this->has_error_rows( $rows ) ) {
+			$rows = array_merge( $rows, $this->prune_missing( $plan ) );
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Compare files and database state.
+	 *
+	 * @param array $args Status options.
+	 *
+	 * @return array Status rows.
+	 */
+	public function status( array $args = array() ): array {
+		$rows = array();
+		$plan = $this->build_push_plan( array_merge( $args, array( 'dry-run' => true ) ) );
+
+		foreach ( $plan['posts'] as $item ) {
+			$post = $this->find_post_by_uid( (string) $item['data']['uid'] );
+
+			if ( ! $post ) {
+				$rows[] = $this->row( 'missing-db', 'post', $item['data']['slug'] ?? '', (string) $item['data']['uid'], $this->relative_path( $item['source'] ) );
+				continue;
+			}
+
+			$file_fingerprint = $this->fingerprint_projection( $item['data'], $item['body'] );
+			$stored           = (string) get_post_meta( $post->ID, self::META_FINGERPRINT, true );
+			$live             = $this->fingerprint_post( $post );
+
+			if ( '' !== $stored && ! hash_equals( $stored, $live ) ) {
+				$rows[] = $this->row( 'conflict', 'post', (string) $post->ID, (string) $item['data']['uid'], 'Database changed since last sync.' );
+			} elseif ( '' !== $stored && hash_equals( $stored, $file_fingerprint ) ) {
+				$rows[] = $this->row( 'unchanged', 'post', (string) $post->ID, (string) $item['data']['uid'], $this->relative_path( $item['source'] ) );
+			} else {
+				$rows[] = $this->row( 'would-update', 'post', (string) $post->ID, (string) $item['data']['uid'], $this->relative_path( $item['source'] ) );
+			}
+		}
+
+		foreach ( $plan['terms'] as $item ) {
+			$term = $this->find_term_by_uid( (string) $item['data']['uid'], (string) $item['data']['taxonomy'] );
+
+			$rows[] = $this->row(
+				$term ? 'known' : 'missing-db',
+				'term',
+				$term ? (string) $term->term_id : (string) ( $item['data']['slug'] ?? '' ),
+				(string) $item['data']['uid'],
+				$this->relative_path( $item['source'] )
+			);
+		}
+
+		return array_merge( $rows, $plan['errors'] );
+	}
+
+	/**
+	 * Get normalized config.
+	 *
+	 * @return array
+	 */
+	public function config(): array {
+		return $this->config;
+	}
+
+	/**
+	 * Normalize settings.
+	 *
+	 * @param array $config Raw config.
+	 *
+	 * @return array
+	 */
+	private function normalize_config( array $config ): array {
+		$defaults = array(
+			'enabled'                => false,
+			'id'                     => 'default',
+			'path'                   => 'content',
+			'includePageSyncManaged' => false,
+			'authors'                => 'ignore',
+			'postTypes'              => array(),
+			'meta'                   => array(
+				'include'    => array(),
+				'exclude'    => array( '_edit_lock', '_edit_last', '_wp_old_slug' ),
+				'references' => array(),
+			),
+			'taxonomies'             => array(),
+			'media'                  => 'manifest',
+		);
+
+		$config         = array_replace_recursive( $defaults, $config );
+		$config['id']   = sanitize_key( (string) $config['id'] ) ?: 'default';
+		$config['path'] = trim( (string) $config['path'], "/ \t\n\r\0\x0B" );
+
+		if ( '' === $config['path'] ) {
+			$config['path'] = 'content';
+		}
+
+		$config['postTypes']  = array_values( array_filter( array_map( 'sanitize_key', (array) $config['postTypes'] ) ) );
+		$config['taxonomies'] = array_values( array_filter( array_map( 'sanitize_key', (array) $config['taxonomies'] ) ) );
+
+		$config['meta']['include'] = array_values( array_filter( array_map( 'strval', (array) ( $config['meta']['include'] ?? array() ) ) ) );
+		$config['meta']['exclude'] = array_values(
+			array_unique(
+				array_merge(
+					array( '_edit_lock', '_edit_last', '_wp_old_slug', self::META_UID, self::META_SET, self::META_SOURCE, self::META_FINGERPRINT, self::META_LOCKED ),
+					array_filter( array_map( 'strval', (array) ( $config['meta']['exclude'] ?? array() ) ) )
+				)
+			)
+		);
+
+		$config['meta']['references'] = $this->normalize_reference_config( (array) ( $config['meta']['references'] ?? array() ) );
+		$config['media']             = 'none' === $config['media'] ? 'none' : 'manifest';
+		$config['authors']           = 'login' === $config['authors'] ? 'login' : 'ignore';
+
+		return $config;
+	}
+
+	/**
+	 * Normalize meta reference declarations.
+	 *
+	 * @param array $references Raw references.
+	 *
+	 * @return array
+	 */
+	private function normalize_reference_config( array $references ): array {
+		$normalized = array();
+
+		foreach ( $references as $key => $definition ) {
+			$key = (string) $key;
+			if ( '' === $key ) {
+				continue;
+			}
+
+			if ( is_string( $definition ) ) {
+				$definition = array( 'kind' => $definition );
+			}
+
+			if ( ! is_array( $definition ) ) {
+				continue;
+			}
+
+			$kind = sanitize_key( (string) ( $definition['kind'] ?? '' ) );
+			if ( ! in_array( $kind, array( 'post', 'attachment', 'term' ), true ) ) {
+				continue;
+			}
+
+			$normalized[ $key ] = array(
+				'kind' => $kind,
+				'path' => isset( $definition['path'] ) ? (string) $definition['path'] : '',
+			);
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Build a push plan from files.
+	 *
+	 * @param array $args Push options.
+	 *
+	 * @return array
+	 */
+	private function build_push_plan( array $args ): array {
+		$this->dry_run = ! empty( $args['dry-run'] );
+
+		$plan = array(
+			'posts'  => $this->read_post_files( $args ),
+			'terms'  => $this->read_term_files( $args ),
+			'rows'   => array(),
+			'errors' => array(),
+		);
+
+		$plan['errors'] = array_merge(
+			$this->validate_post_files( $plan['posts'] ),
+			$this->validate_term_files( $plan['terms'] )
+		);
+
+		return $plan;
+	}
+
+	/**
+	 * Validate post file plan.
+	 *
+	 * @param array $items Post file items.
+	 *
+	 * @return array Error rows.
+	 */
+	private function validate_post_files( array $items ): array {
+		$errors = array();
+		$uids   = array();
+		$seen   = array();
+
+		foreach ( $items as $item ) {
+			$uid = (string) ( $item['data']['uid'] ?? '' );
+			if ( '' !== $uid ) {
+				$uids[ $uid ] = true;
+			}
+		}
+
+		foreach ( $items as $item ) {
+			$data = $item['data'];
+			$uid  = (string) ( $data['uid'] ?? '' );
+
+			if ( '' === $uid ) {
+				$errors[] = $this->row( 'error', 'post', '', '', $this->relative_path( $item['source'] ) . ' has no uid.' );
+				continue;
+			}
+
+			if ( isset( $seen[ $uid ] ) ) {
+				$errors[] = $this->row( 'error', 'post', '', $uid, 'Duplicate post uid.' );
+			}
+
+			$seen[ $uid ] = true;
+
+			$post_type = (string) ( $data['type'] ?? '' );
+			if ( '' === $post_type || ! post_type_exists( $post_type ) ) {
+				$errors[] = $this->row( 'error', 'post', '', $uid, "Post type '{$post_type}' is not registered." );
+			}
+
+			$existing = $this->find_post_by_uid( $uid );
+			if ( $existing && get_post_meta( $existing->ID, self::META_LOCKED, true ) ) {
+				$errors[] = $this->row( 'locked', 'post', (string) $existing->ID, $uid, 'Locked entity skipped.' );
+			}
+
+			if ( $this->has_slug_conflict( $data, $existing ) ) {
+				$errors[] = $this->row( 'error', 'post', (string) ( $data['slug'] ?? '' ), $uid, 'Slug conflict.' );
+			}
+
+			if ( ! empty( $data['parent'] ) && ! $this->can_resolve_post_reference( (string) $data['parent'], $items ) ) {
+				$errors[] = $this->row( 'error', 'post', (string) ( $data['slug'] ?? '' ), $uid, 'Parent reference cannot be resolved.' );
+			}
+
+			$reference_errors = $this->validate_meta_references( $data['meta'] ?? array(), $data['metaEncoding'] ?? array(), $uid, $uids, array() );
+			$errors           = array_merge( $errors, $reference_errors );
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Validate term file plan.
+	 *
+	 * @param array $items Term file items.
+	 *
+	 * @return array Error rows.
+	 */
+	private function validate_term_files( array $items ): array {
+		$errors = array();
+
+		foreach ( $items as $item ) {
+			$data     = $item['data'];
+			$uid      = (string) ( $data['uid'] ?? '' );
+			$taxonomy = (string) ( $data['taxonomy'] ?? '' );
+
+			if ( '' === $uid ) {
+				$errors[] = $this->row( 'error', 'term', '', '', $this->relative_path( $item['source'] ) . ' has no uid.' );
+				continue;
+			}
+
+			if ( '' === $taxonomy || ! taxonomy_exists( $taxonomy ) ) {
+				$errors[] = $this->row( 'error', 'term', '', $uid, "Taxonomy '{$taxonomy}' is not registered." );
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Validate declared meta references.
+	 *
+	 * @param array  $meta          Meta values.
+	 * @param array  $meta_encoding Meta encodings.
+	 * @param string $owner_uid     Owner UID.
+	 *
+	 * @return array Error rows.
+	 */
+	private function validate_meta_references( array $meta, array $meta_encoding, string $owner_uid, array $post_uids, array $term_uids ): array {
+		$errors = array();
+
+		foreach ( $this->config['meta']['references'] as $key => $definition ) {
+			if ( ! array_key_exists( $key, $meta ) ) {
+				continue;
+			}
+
+			$encoding = $meta_encoding[ $key ] ?? 'scalar';
+			if ( 'base64' === $encoding ) {
+				$errors[] = $this->row( 'error', 'meta', $key, $owner_uid, 'Reference meta cannot use opaque base64 encoding.' );
+				continue;
+			}
+
+			$values = $this->collect_reference_values( $meta[ $key ], (string) $definition['path'] );
+			foreach ( $values as $value ) {
+				if ( null === $value || '' === $value ) {
+					continue;
+				}
+
+				if ( 'attachment' === $definition['kind'] && 'none' === $this->config['media'] ) {
+					continue;
+				}
+
+				if ( 'post' === $definition['kind'] && isset( $post_uids[ (string) $value ] ) ) {
+					continue;
+				}
+
+				if ( 'term' === $definition['kind'] && isset( $term_uids[ (string) $value ] ) ) {
+					continue;
+				}
+
+				if ( ! $this->resolve_reference_uid( (string) $value, (string) $definition['kind'] ) ) {
+					$errors[] = $this->row( 'error', 'meta', $key, $owner_uid, "Reference '{$value}' cannot be resolved." );
+				}
+			}
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Pull terms for one taxonomy.
+	 *
+	 * @param string $taxonomy Taxonomy.
+	 *
+	 * @return array Result rows.
+	 */
+	private function pull_terms( string $taxonomy ): array {
+		$rows = array();
+
+		if ( ! taxonomy_exists( $taxonomy ) ) {
+			return array( $this->row( 'error', 'taxonomy', $taxonomy, '', "Taxonomy '{$taxonomy}' is not registered." ) );
+		}
+
+		$terms = get_terms(
+			array(
+				'taxonomy'   => $taxonomy,
+				'hide_empty' => false,
+			)
+		);
+
+		if ( is_wp_error( $terms ) ) {
+			return array( $this->row( 'error', 'taxonomy', $taxonomy, '', $terms->get_error_message() ) );
+		}
+
+		foreach ( $terms as $term ) {
+			if ( ! $term instanceof WP_Term ) {
+				continue;
+			}
+
+			$uid = $this->ensure_term_uid( $term->term_id );
+			if ( '' === $uid ) {
+				$uid = 'dry-run';
+			}
+
+			$projection  = $this->project_term( $term, $uid );
+			$source      = $this->term_source_path( $term, $uid );
+			$fingerprint = $this->fingerprint_projection( $projection, '' );
+
+			if ( $this->dry_run ) {
+				$rows[] = $this->row( 'would-write', 'term', (string) $term->term_id, $uid, $this->relative_path( $source ) );
+				continue;
+			}
+
+			$this->write_json_file( $source, $projection );
+			$this->update_entity_state( 'term', $term->term_id, $uid, $source, $fingerprint );
+			$rows[] = $this->row( 'written', 'term', (string) $term->term_id, $uid, $this->relative_path( $source ) );
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Apply one post file.
+	 *
+	 * @param array $item     File item.
+	 * @param array $post_ids UID to post ID map.
+	 * @param array $term_ids UID to term ID map.
+	 *
+	 * @return array
+	 */
+	private function apply_post_file( array $item, array $post_ids, array $term_ids ): array {
+		$data        = $item['data'];
+		$uid         = (string) $data['uid'];
+		$existing    = $this->find_post_by_uid( $uid );
+		$fingerprint = $this->fingerprint_projection( $data, $item['body'] );
+
+		if ( $existing && (string) get_post_meta( $existing->ID, self::META_FINGERPRINT, true ) === $fingerprint ) {
+			return array(
+				'post_id' => $existing->ID,
+				'row'     => $this->row( 'unchanged', 'post', (string) $existing->ID, $uid, $this->relative_path( $item['source'] ) ),
+			);
+		}
+
+		if ( $existing && get_post_meta( $existing->ID, self::META_LOCKED, true ) ) {
+			return array(
+				'post_id' => $existing->ID,
+				'row'     => $this->row( 'locked', 'post', (string) $existing->ID, $uid, 'Locked entity skipped.' ),
+			);
+		}
+
+		$post_data = array(
+			'post_type'    => (string) $data['type'],
+			'post_status'  => (string) ( $data['status'] ?? 'publish' ),
+			'post_name'    => (string) $data['slug'],
+			'post_title'   => (string) ( $data['title'] ?? '' ),
+			'post_content' => $item['body'],
+			'menu_order'   => (int) ( $data['menuOrder'] ?? 0 ),
+		);
+
+		if ( ! empty( $data['date'] ) ) {
+			$post_data['post_date_gmt'] = gmdate( 'Y-m-d H:i:s', strtotime( (string) $data['date'] ) );
+			$post_data['post_date']     = get_date_from_gmt( $post_data['post_date_gmt'] );
+		}
+
+		if ( ! empty( $data['modified'] ) ) {
+			$post_data['post_modified_gmt'] = gmdate( 'Y-m-d H:i:s', strtotime( (string) $data['modified'] ) );
+			$post_data['post_modified']     = get_date_from_gmt( $post_data['post_modified_gmt'] );
+		}
+
+		if ( ! empty( $data['parent'] ) ) {
+			$post_data['post_parent'] = $post_ids[ (string) $data['parent'] ] ?? $this->resolve_post_uid( (string) $data['parent'] );
+		}
+
+		if ( $existing ) {
+			$post_data['ID'] = $existing->ID;
+			$post_id         = wp_update_post( wp_slash( $post_data ), true );
+			$action          = 'updated';
+		} else {
+			$post_id = wp_insert_post( wp_slash( $post_data ), true );
+			$action  = 'created';
+		}
+
+		if ( is_wp_error( $post_id ) ) {
+			return array( 'row' => $this->row( 'error', 'post', (string) ( $data['slug'] ?? '' ), $uid, $post_id->get_error_message() ) );
+		}
+
+		$this->apply_post_meta( (int) $post_id, $data );
+		$this->apply_post_terms( (int) $post_id, $data, $term_ids );
+		$this->update_entity_state( 'post', (int) $post_id, $uid, $item['source'], $fingerprint );
+
+		return array(
+			'post_id' => (int) $post_id,
+			'row'     => $this->row( $action, 'post', (string) $post_id, $uid, $this->relative_path( $item['source'] ) ),
+		);
+	}
+
+	/**
+	 * Apply one term file.
+	 *
+	 * @param array $item     File item.
+	 * @param array $term_ids UID to term ID map.
+	 *
+	 * @return array
+	 */
+	private function apply_term_file( array $item, array $term_ids ): array {
+		$data        = $item['data'];
+		$uid         = (string) $data['uid'];
+		$taxonomy    = (string) $data['taxonomy'];
+		$existing    = $this->find_term_by_uid( $uid, $taxonomy );
+		$fingerprint = $this->fingerprint_projection( $data, '' );
+
+		if ( $existing && (string) get_term_meta( $existing->term_id, self::META_FINGERPRINT, true ) === $fingerprint ) {
+			return array(
+				'term_id' => $existing->term_id,
+				'row'     => $this->row( 'unchanged', 'term', (string) $existing->term_id, $uid, $this->relative_path( $item['source'] ) ),
+			);
+		}
+
+		$args = array(
+			'slug'        => (string) ( $data['slug'] ?? '' ),
+			'description' => (string) ( $data['description'] ?? '' ),
+		);
+
+		if ( ! empty( $data['parent'] ) ) {
+			$args['parent'] = $term_ids[ (string) $data['parent'] ] ?? $this->resolve_term_uid( (string) $data['parent'], $taxonomy );
+		}
+
+		if ( $existing ) {
+			$result = wp_update_term( $existing->term_id, $taxonomy, array_merge( $args, array( 'name' => (string) ( $data['name'] ?? '' ) ) ) );
+			$action = 'updated';
+		} else {
+			$result = wp_insert_term( (string) ( $data['name'] ?? $data['slug'] ?? '' ), $taxonomy, $args );
+			$action = 'created';
+		}
+
+		if ( is_wp_error( $result ) ) {
+			return array( 'row' => $this->row( 'error', 'term', (string) ( $data['slug'] ?? '' ), $uid, $result->get_error_message() ) );
+		}
+
+		$term_id = (int) ( $result['term_id'] ?? $existing->term_id ?? 0 );
+		$this->apply_term_meta( $term_id, $data );
+		$this->update_entity_state( 'term', $term_id, $uid, $item['source'], $fingerprint );
+
+		return array(
+			'term_id' => $term_id,
+			'row'     => $this->row( $action, 'term', (string) $term_id, $uid, $this->relative_path( $item['source'] ) ),
+		);
+	}
+
+	/**
+	 * Apply post meta from a file projection.
+	 *
+	 * @param int   $post_id Post ID.
+	 * @param array $data    File data.
+	 *
+	 * @return void
+	 */
+	private function apply_post_meta( int $post_id, array $data ): void {
+		$this->apply_meta( 'post', $post_id, (array) ( $data['meta'] ?? array() ), (array) ( $data['metaEncoding'] ?? array() ) );
+	}
+
+	/**
+	 * Apply term meta from a file projection.
+	 *
+	 * @param int   $term_id Term ID.
+	 * @param array $data    File data.
+	 *
+	 * @return void
+	 */
+	private function apply_term_meta( int $term_id, array $data ): void {
+		$this->apply_meta( 'term', $term_id, (array) ( $data['meta'] ?? array() ), (array) ( $data['metaEncoding'] ?? array() ) );
+	}
+
+	/**
+	 * Apply meta to an entity.
+	 *
+	 * @param string $type          Entity type.
+	 * @param int    $id            Entity ID.
+	 * @param array  $meta          Meta values.
+	 * @param array  $meta_encoding Meta encodings.
+	 *
+	 * @return void
+	 */
+	private function apply_meta( string $type, int $id, array $meta, array $meta_encoding ): void {
+		$existing = $this->get_raw_meta( $type, $id );
+
+		foreach ( $existing as $key => $_values ) {
+			if ( $this->meta_key_allowed( $key ) && ! array_key_exists( $key, $meta ) ) {
+				delete_metadata( $type, $id, $key );
+			}
+		}
+
+		foreach ( $meta as $key => $value ) {
+			if ( ! $this->meta_key_allowed( (string) $key ) ) {
+				continue;
+			}
+
+			$value    = $this->rewrite_meta_references_for_push( (string) $key, $value );
+			$encoding = $meta_encoding[ $key ] ?? 'scalar';
+			$values   = $this->encode_meta_values( $value, $encoding );
+
+			delete_metadata( $type, $id, (string) $key );
+
+			foreach ( $values as $raw ) {
+				add_metadata( $type, $id, (string) $key, wp_slash( $raw ), false );
+			}
+		}
+	}
+
+	/**
+	 * Apply post term relationships.
+	 *
+	 * @param int   $post_id  Post ID.
+	 * @param array $data     File data.
+	 * @param array $term_ids UID to term ID map.
+	 *
+	 * @return void
+	 */
+	private function apply_post_terms( int $post_id, array $data, array $term_ids ): void {
+		foreach ( (array) ( $data['terms'] ?? array() ) as $taxonomy => $uids ) {
+			if ( ! taxonomy_exists( (string) $taxonomy ) ) {
+				continue;
+			}
+
+			$ids = array();
+			foreach ( (array) $uids as $uid ) {
+				$term_id = $term_ids[ (string) $uid ] ?? $this->resolve_term_uid( (string) $uid, (string) $taxonomy );
+				if ( $term_id > 0 ) {
+					$ids[] = $term_id;
+				}
+			}
+
+			wp_set_object_terms( $post_id, $ids, (string) $taxonomy, false );
+		}
+	}
+
+	/**
+	 * Read post files.
+	 *
+	 * @param array $args Options.
+	 *
+	 * @return array
+	 */
+	private function read_post_files( array $args = array() ): array {
+		$items      = array();
+		$post_types = $this->selected_post_types( $args );
+
+		foreach ( $post_types as $post_type ) {
+			$dir = $this->root_path() . '/posts/' . $post_type;
+			if ( ! is_dir( $dir ) ) {
+				continue;
+			}
+
+			foreach ( glob( $dir . '/*.json' ) ?: array() as $file ) {
+				$data = $this->read_json_file( $file );
+				if ( ! is_array( $data ) ) {
+					continue;
+				}
+
+				$body_file = $this->body_path_for_source( $file );
+				$body      = file_exists( $body_file ) ? (string) file_get_contents( $body_file ) : '';
+
+				$items[] = array(
+					'source' => $file,
+					'body'   => $body,
+					'data'   => $data,
+				);
+			}
+		}
+
+		return $items;
+	}
+
+	/**
+	 * Read term files.
+	 *
+	 * @param array $args Options.
+	 *
+	 * @return array
+	 */
+	private function read_term_files( array $args = array() ): array {
+		$items = array();
+
+		foreach ( $this->selected_taxonomies( $args ) as $taxonomy ) {
+			$dir = $this->root_path() . '/terms/' . $taxonomy;
+			if ( ! is_dir( $dir ) ) {
+				continue;
+			}
+
+			foreach ( glob( $dir . '/*.json' ) ?: array() as $file ) {
+				$data = $this->read_json_file( $file );
+				if ( ! is_array( $data ) ) {
+					continue;
+				}
+
+				$items[] = array(
+					'source' => $file,
+					'data'   => $data,
+				);
+			}
+		}
+
+		return $items;
+	}
+
+	/**
+	 * Project a post into file data.
+	 *
+	 * @param WP_Post $post Post object.
+	 * @param string  $uid  UID.
+	 *
+	 * @return array
+	 */
+	private function project_post( WP_Post $post, string $uid ): array {
+		$meta = $this->project_meta( 'post', $post->ID );
+		$data = array(
+			'uid'          => $uid,
+			'type'         => $post->post_type,
+			'status'       => $post->post_status,
+			'slug'         => $post->post_name,
+			'title'        => html_entity_decode( get_the_title( $post ), ENT_QUOTES, get_bloginfo( 'charset' ) ),
+			'date'         => $this->mysql_gmt_to_iso( $post->post_date_gmt ),
+			'modified'     => $this->mysql_gmt_to_iso( $post->post_modified_gmt ),
+			'parent'       => $post->post_parent > 0 ? $this->ensure_post_uid( (int) $post->post_parent ) : null,
+			'menuOrder'    => (int) $post->menu_order,
+			'meta'         => $meta['meta'],
+			'metaEncoding' => $meta['encoding'],
+		);
+
+		if ( 'login' === $this->config['authors'] ) {
+			$user = get_user_by( 'id', (int) $post->post_author );
+			if ( $user ) {
+				$data['author'] = array( 'login' => $user->user_login );
+			}
+		}
+
+		$terms = $this->project_post_terms( $post->ID );
+		if ( ! empty( $terms ) ) {
+			$data['terms'] = $terms;
+		}
+
+		return $this->sort_projection( $data );
+	}
+
+	/**
+	 * Project a term into file data.
+	 *
+	 * @param WP_Term $term Term.
+	 * @param string  $uid  UID.
+	 *
+	 * @return array
+	 */
+	private function project_term( WP_Term $term, string $uid ): array {
+		$meta = $this->project_meta( 'term', $term->term_id );
+
+		return $this->sort_projection(
+			array(
+				'uid'          => $uid,
+				'taxonomy'     => $term->taxonomy,
+				'slug'         => $term->slug,
+				'name'         => $term->name,
+				'description'  => $term->description,
+				'parent'       => $term->parent > 0 ? $this->ensure_term_uid( (int) $term->parent ) : null,
+				'meta'         => $meta['meta'],
+				'metaEncoding' => $meta['encoding'],
+			)
+		);
+	}
+
+	/**
+	 * Project allowed meta.
+	 *
+	 * @param string $type Entity type.
+	 * @param int    $id   Entity ID.
+	 *
+	 * @return array
+	 */
+	private function project_meta( string $type, int $id ): array {
+		$meta     = array();
+		$encoding = array();
+
+		foreach ( $this->get_raw_meta( $type, $id ) as $key => $values ) {
+			if ( ! $this->meta_key_allowed( $key ) ) {
+				continue;
+			}
+
+			$projected_values  = array();
+			$projected_encoding = array();
+
+			foreach ( $values as $raw ) {
+				$decoded = $this->decode_meta_value( (string) $raw );
+				$value   = $this->rewrite_meta_references_for_pull( $key, $decoded['value'] );
+
+				$projected_values[]   = $value;
+				$projected_encoding[] = $decoded['encoding'];
+			}
+
+			$meta[ $key ]     = 1 === count( $projected_values ) ? $projected_values[0] : $projected_values;
+			$encoding[ $key ] = 1 === count( $projected_encoding ) ? $projected_encoding[0] : $projected_encoding;
+		}
+
+		return array(
+			'meta'     => $meta,
+			'encoding' => $encoding,
+		);
+	}
+
+	/**
+	 * Project post term relationships.
+	 *
+	 * @param int $post_id Post ID.
+	 *
+	 * @return array
+	 */
+	private function project_post_terms( int $post_id ): array {
+		$data = array();
+
+		foreach ( $this->config['taxonomies'] as $taxonomy ) {
+			$terms = wp_get_object_terms( $post_id, $taxonomy );
+			if ( is_wp_error( $terms ) || empty( $terms ) ) {
+				continue;
+			}
+
+			$uids = array();
+			foreach ( $terms as $term ) {
+				if ( $term instanceof WP_Term ) {
+					$uids[] = $this->ensure_term_uid( $term->term_id );
+				}
+			}
+
+			sort( $uids );
+			$data[ $taxonomy ] = $uids;
+		}
+
+		return $data;
+	}
+
+	/**
+	 * Rewrite meta references from local IDs to UIDs.
+	 *
+	 * @param string $key   Meta key.
+	 * @param mixed  $value Meta value.
+	 *
+	 * @return mixed
+	 */
+	private function rewrite_meta_references_for_pull( string $key, mixed $value ): mixed {
+		$definition = $this->config['meta']['references'][ $key ] ?? null;
+		if ( ! $definition ) {
+			return $value;
+		}
+
+		if ( 'attachment' === $definition['kind'] && 'none' === $this->config['media'] ) {
+			return null;
+		}
+
+		return $this->map_reference_value(
+			$value,
+			(string) $definition['path'],
+			function ( $local_id ) use ( $definition ) {
+				$local_id = (int) $local_id;
+				if ( $local_id <= 0 ) {
+					return $local_id;
+				}
+
+				if ( 'attachment' === $definition['kind'] || 'post' === $definition['kind'] ) {
+					return $this->ensure_post_uid( $local_id );
+				}
+
+				if ( 'term' === $definition['kind'] ) {
+					return $this->ensure_term_uid( $local_id );
+				}
+
+				return $local_id;
+			}
+		);
+	}
+
+	/**
+	 * Rewrite meta references from UIDs to local IDs.
+	 *
+	 * @param string $key   Meta key.
+	 * @param mixed  $value Meta value.
+	 *
+	 * @return mixed
+	 */
+	private function rewrite_meta_references_for_push( string $key, mixed $value ): mixed {
+		$definition = $this->config['meta']['references'][ $key ] ?? null;
+		if ( ! $definition ) {
+			return $value;
+		}
+
+		if ( 'attachment' === $definition['kind'] && 'none' === $this->config['media'] ) {
+			return null;
+		}
+
+		return $this->map_reference_value(
+			$value,
+			(string) $definition['path'],
+			function ( $uid ) use ( $definition ) {
+				if ( null === $uid || '' === $uid ) {
+					return $uid;
+				}
+
+				$id = $this->resolve_reference_uid( (string) $uid, (string) $definition['kind'] );
+				return $id > 0 ? $id : $uid;
+			}
+		);
+	}
+
+	/**
+	 * Map a reference value at a declared path.
+	 *
+	 * @param mixed    $value    Value.
+	 * @param string   $path     Path.
+	 * @param callable $callback Mapper.
+	 *
+	 * @return mixed
+	 */
+	private function map_reference_value( mixed $value, string $path, callable $callback ): mixed {
+		if ( '' === $path ) {
+			return $callback( $value );
+		}
+
+		$segments = explode( '.', $path );
+		return $this->map_reference_segments( $value, $segments, $callback );
+	}
+
+	/**
+	 * Map reference path segments.
+	 *
+	 * @param mixed    $value    Value.
+	 * @param array    $segments Path segments.
+	 * @param callable $callback Mapper.
+	 *
+	 * @return mixed
+	 */
+	private function map_reference_segments( mixed $value, array $segments, callable $callback ): mixed {
+		if ( empty( $segments ) ) {
+			return $callback( $value );
+		}
+
+		$segment = array_shift( $segments );
+
+		if ( '*' === $segment && is_array( $value ) ) {
+			foreach ( $value as $index => $item ) {
+				$value[ $index ] = $this->map_reference_segments( $item, $segments, $callback );
+			}
+			return $value;
+		}
+
+		if ( is_array( $value ) && array_key_exists( $segment, $value ) ) {
+			$value[ $segment ] = $this->map_reference_segments( $value[ $segment ], $segments, $callback );
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Collect declared reference values.
+	 *
+	 * @param mixed  $value Value.
+	 * @param string $path  Path.
+	 *
+	 * @return array
+	 */
+	private function collect_reference_values( mixed $value, string $path ): array {
+		$values = array();
+
+		$this->map_reference_value(
+			$value,
+			$path,
+			function ( $item ) use ( &$values ) {
+				$values[] = $item;
+				return $item;
+			}
+		);
+
+		return $values;
+	}
+
+	/**
+	 * Decode raw meta value.
+	 *
+	 * @param string $raw Raw meta value.
+	 *
+	 * @return array
+	 */
+	private function decode_meta_value( string $raw ): array {
+		if ( ! $this->is_utf8( $raw ) ) {
+			return array(
+				'encoding' => 'base64',
+				'value'    => base64_encode( $raw ),
+			);
+		}
+
+		if ( is_serialized( $raw ) ) {
+			return array(
+				'encoding' => 'php-serialized',
+				'value'    => maybe_unserialize( $raw ),
+			);
+		}
+
+		$trimmed = trim( $raw );
+		if ( '' !== $trimmed && in_array( $trimmed[0], array( '{', '[' ), true ) ) {
+			$json = json_decode( $raw, true );
+			if ( JSON_ERROR_NONE === json_last_error() ) {
+				return array(
+					'encoding' => 'json',
+					'value'    => $json,
+				);
+			}
+		}
+
+		return array(
+			'encoding' => 'scalar',
+			'value'    => $raw,
+		);
+	}
+
+	/**
+	 * Encode meta values for storage.
+	 *
+	 * @param mixed        $value    Value.
+	 * @param string|array $encoding Encoding.
+	 *
+	 * @return array
+	 */
+	private function encode_meta_values( mixed $value, string|array $encoding ): array {
+		if ( is_array( $encoding ) && array_is_list( $encoding ) ) {
+			$values = array();
+			foreach ( (array) $value as $index => $item ) {
+				$values[] = $this->encode_single_meta_value( $item, (string) ( $encoding[ $index ] ?? 'scalar' ) );
+			}
+			return $values;
+		}
+
+		return array( $this->encode_single_meta_value( $value, (string) $encoding ) );
+	}
+
+	/**
+	 * Encode one meta value.
+	 *
+	 * @param mixed  $value    Value.
+	 * @param string $encoding Encoding.
+	 *
+	 * @return string
+	 */
+	private function encode_single_meta_value( mixed $value, string $encoding ): string {
+		if ( 'base64' === $encoding ) {
+			$decoded = base64_decode( (string) $value, true );
+			return false === $decoded ? '' : $decoded;
+		}
+
+		if ( 'php-serialized' === $encoding ) {
+			return serialize( $value );
+		}
+
+		if ( 'json' === $encoding ) {
+			return (string) wp_json_encode( $value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		}
+
+		if ( is_bool( $value ) ) {
+			return $value ? '1' : '0';
+		}
+
+		return is_scalar( $value ) || null === $value ? (string) $value : (string) wp_json_encode( $value );
+	}
+
+	/**
+	 * Query posts by type.
+	 *
+	 * @param string $post_type Post type.
+	 *
+	 * @return array<WP_Post>
+	 */
+	private function query_posts( string $post_type ): array {
+		return get_posts(
+			array(
+				'post_type'      => $post_type,
+				'post_status'    => 'any',
+				'posts_per_page' => -1,
+				'orderby'        => array(
+					'post_parent' => 'ASC',
+					'menu_order'  => 'ASC',
+					'ID'          => 'ASC',
+				),
+			)
+		);
+	}
+
+	/**
+	 * Selected post types.
+	 *
+	 * @param array $args Options.
+	 *
+	 * @return array
+	 */
+	private function selected_post_types( array $args = array() ): array {
+		if ( ! empty( $args['post-type'] ) ) {
+			return array( sanitize_key( (string) $args['post-type'] ) );
+		}
+
+		return $this->config['postTypes'];
+	}
+
+	/**
+	 * Selected taxonomies.
+	 *
+	 * @param array $args Options.
+	 *
+	 * @return array
+	 */
+	private function selected_taxonomies( array $args = array() ): array {
+		if ( ! empty( $args['taxonomy'] ) ) {
+			return array( sanitize_key( (string) $args['taxonomy'] ) );
+		}
+
+		return $this->config['taxonomies'];
+	}
+
+	/**
+	 * Ensure post UID.
+	 *
+	 * @param int $post_id Post ID.
+	 *
+	 * @return string
+	 */
+	private function ensure_post_uid( int $post_id ): string {
+		$uid = (string) get_post_meta( $post_id, self::META_UID, true );
+		if ( '' !== $uid ) {
+			return $uid;
+		}
+
+		$uid = wp_generate_uuid4();
+		if ( ! $this->dry_run ) {
+			update_post_meta( $post_id, self::META_UID, $uid );
+			update_post_meta( $post_id, self::META_SET, $this->config['id'] );
+		}
+
+		return $uid;
+	}
+
+	/**
+	 * Ensure term UID.
+	 *
+	 * @param int $term_id Term ID.
+	 *
+	 * @return string
+	 */
+	private function ensure_term_uid( int $term_id ): string {
+		$uid = (string) get_term_meta( $term_id, self::META_UID, true );
+		if ( '' !== $uid ) {
+			return $uid;
+		}
+
+		$uid = wp_generate_uuid4();
+		if ( ! $this->dry_run ) {
+			update_term_meta( $term_id, self::META_UID, $uid );
+			update_term_meta( $term_id, self::META_SET, $this->config['id'] );
+		}
+
+		return $uid;
+	}
+
+	/**
+	 * Find post by UID.
+	 *
+	 * @param string $uid UID.
+	 *
+	 * @return WP_Post|null
+	 */
+	private function find_post_by_uid( string $uid ): ?WP_Post {
+		$posts = get_posts(
+			array(
+				'post_type'      => 'any',
+				'post_status'    => 'any',
+				'posts_per_page' => 1,
+				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+					array(
+						'key'   => self::META_UID,
+						'value' => $uid,
+					),
+					array(
+						'key'   => self::META_SET,
+						'value' => $this->config['id'],
+					),
+				),
+			)
+		);
+
+		return ! empty( $posts ) ? $posts[0] : null;
+	}
+
+	/**
+	 * Find term by UID.
+	 *
+	 * @param string $uid      UID.
+	 * @param string $taxonomy Taxonomy.
+	 *
+	 * @return WP_Term|null
+	 */
+	private function find_term_by_uid( string $uid, string $taxonomy ): ?WP_Term {
+		$terms = get_terms(
+			array(
+				'taxonomy'   => $taxonomy,
+				'hide_empty' => false,
+				'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+					array(
+						'key'   => self::META_UID,
+						'value' => $uid,
+					),
+					array(
+						'key'   => self::META_SET,
+						'value' => $this->config['id'],
+					),
+				),
+			)
+		);
+
+		return ! is_wp_error( $terms ) && ! empty( $terms ) && $terms[0] instanceof WP_Term ? $terms[0] : null;
+	}
+
+	/**
+	 * Resolve a reference UID.
+	 *
+	 * @param string $uid  UID.
+	 * @param string $kind Kind.
+	 *
+	 * @return int
+	 */
+	private function resolve_reference_uid( string $uid, string $kind ): int {
+		if ( 'term' === $kind ) {
+			return $this->resolve_term_uid( $uid, '' );
+		}
+
+		$id = $this->resolve_post_uid( $uid );
+		if ( $id <= 0 ) {
+			return 0;
+		}
+
+		if ( 'attachment' === $kind && 'attachment' !== get_post_type( $id ) ) {
+			return 0;
+		}
+
+		return $id;
+	}
+
+	/**
+	 * Resolve post UID.
+	 *
+	 * @param string $uid UID.
+	 *
+	 * @return int
+	 */
+	private function resolve_post_uid( string $uid ): int {
+		$post = $this->find_post_by_uid( $uid );
+		return $post ? (int) $post->ID : 0;
+	}
+
+	/**
+	 * Resolve term UID.
+	 *
+	 * @param string $uid      UID.
+	 * @param string $taxonomy Taxonomy.
+	 *
+	 * @return int
+	 */
+	private function resolve_term_uid( string $uid, string $taxonomy ): int {
+		$taxonomies = '' !== $taxonomy ? array( $taxonomy ) : $this->config['taxonomies'];
+
+		foreach ( $taxonomies as $tax ) {
+			$term = $this->find_term_by_uid( $uid, $tax );
+			if ( $term ) {
+				return (int) $term->term_id;
+			}
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Check whether a post UID can resolve.
+	 *
+	 * @param string $uid   UID.
+	 * @param array  $items File items.
+	 *
+	 * @return bool
+	 */
+	private function can_resolve_post_reference( string $uid, array $items ): bool {
+		if ( $this->resolve_post_uid( $uid ) > 0 ) {
+			return true;
+		}
+
+		foreach ( $items as $item ) {
+			if ( $uid === (string) ( $item['data']['uid'] ?? '' ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check slug conflict.
+	 *
+	 * @param array        $data     File data.
+	 * @param WP_Post|null $existing Existing post.
+	 *
+	 * @return bool
+	 */
+	private function has_slug_conflict( array $data, ?WP_Post $existing ): bool {
+		$slug      = (string) ( $data['slug'] ?? '' );
+		$post_type = (string) ( $data['type'] ?? '' );
+		$parent    = ! empty( $data['parent'] ) ? $this->resolve_post_uid( (string) $data['parent'] ) : 0;
+
+		if ( '' === $slug || '' === $post_type ) {
+			return false;
+		}
+
+		$posts = get_posts(
+			array(
+				'name'           => $slug,
+				'post_type'      => $post_type,
+				'post_status'    => 'any',
+				'post_parent'    => $parent,
+				'posts_per_page' => 1,
+			)
+		);
+
+		if ( empty( $posts ) ) {
+			return false;
+		}
+
+		return ! $existing || (int) $posts[0]->ID !== (int) $existing->ID;
+	}
+
+	/**
+	 * Check whether post is managed by Page Sync.
+	 *
+	 * @param int $post_id Post ID.
+	 *
+	 * @return bool
+	 */
+	private function is_page_sync_managed( int $post_id ): bool {
+		foreach ( array( '_blockstudio_page_key', '_blockstudio_page_source', '_blockstudio_page_name' ) as $key ) {
+			if ( '' !== (string) get_post_meta( $post_id, $key, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get raw meta values grouped by key.
+	 *
+	 * @param string $type Entity type.
+	 * @param int    $id   Entity ID.
+	 *
+	 * @return array
+	 */
+	private function get_raw_meta( string $type, int $id ): array {
+		global $wpdb;
+
+		$table = 'term' === $type ? $wpdb->termmeta : $wpdb->postmeta;
+		$id_column = 'term' === $type ? 'term_id' : 'post_id';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table and column are controlled internally.
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT meta_key, meta_value FROM {$table} WHERE {$id_column} = %d ORDER BY meta_id ASC", $id ) );
+
+		$meta = array();
+		foreach ( $rows as $row ) {
+			$key = (string) $row->meta_key;
+			if ( ! isset( $meta[ $key ] ) ) {
+				$meta[ $key ] = array();
+			}
+
+			$meta[ $key ][] = (string) $row->meta_value;
+		}
+
+		return $meta;
+	}
+
+	/**
+	 * Check meta key allowlist.
+	 *
+	 * @param string $key Meta key.
+	 *
+	 * @return bool
+	 */
+	private function meta_key_allowed( string $key ): bool {
+		foreach ( $this->config['meta']['exclude'] as $pattern ) {
+			if ( fnmatch( $pattern, $key ) ) {
+				return false;
+			}
+		}
+
+		foreach ( $this->config['meta']['include'] as $pattern ) {
+			if ( fnmatch( $pattern, $key ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Sort projection keys.
+	 *
+	 * @param array $data Projection data.
+	 *
+	 * @return array
+	 */
+	private function sort_projection( array $data ): array {
+		$order  = array( 'uid', 'type', 'taxonomy', 'status', 'slug', 'title', 'name', 'description', 'date', 'modified', 'parent', 'author', 'menuOrder', 'terms', 'meta', 'metaEncoding' );
+		$sorted = array();
+
+		foreach ( $order as $key ) {
+			if ( array_key_exists( $key, $data ) && ( null !== $data[ $key ] || in_array( $key, array( 'parent' ), true ) ) ) {
+				$sorted[ $key ] = $data[ $key ];
+			}
+		}
+
+		foreach ( $data as $key => $value ) {
+			if ( ! array_key_exists( $key, $sorted ) ) {
+				$sorted[ $key ] = $value;
+			}
+		}
+
+		if ( isset( $sorted['meta'] ) && is_array( $sorted['meta'] ) ) {
+			ksort( $sorted['meta'] );
+		}
+
+		if ( isset( $sorted['metaEncoding'] ) && is_array( $sorted['metaEncoding'] ) ) {
+			ksort( $sorted['metaEncoding'] );
+		}
+
+		return $sorted;
+	}
+
+	/**
+	 * Sort posts parent-first.
+	 *
+	 * @param array $items Post items.
+	 *
+	 * @return array
+	 */
+	private function sort_posts_by_parent( array $items ): array {
+		return $this->sort_by_parent_uid( $items );
+	}
+
+	/**
+	 * Sort terms parent-first.
+	 *
+	 * @param array $items Term items.
+	 *
+	 * @return array
+	 */
+	private function sort_terms_by_parent( array $items ): array {
+		return $this->sort_by_parent_uid( $items );
+	}
+
+	/**
+	 * Sort items by parent UID.
+	 *
+	 * @param array $items Items.
+	 *
+	 * @return array
+	 */
+	private function sort_by_parent_uid( array $items ): array {
+		$sorted = array();
+		$seen   = array();
+		$count  = count( $items );
+
+		while ( count( $sorted ) < $count ) {
+			$progress = false;
+
+			foreach ( $items as $item ) {
+				$uid = (string) ( $item['data']['uid'] ?? '' );
+				if ( isset( $seen[ $uid ] ) ) {
+					continue;
+				}
+
+				$parent = (string) ( $item['data']['parent'] ?? '' );
+				if ( '' !== $parent && ! isset( $seen[ $parent ] ) && $this->item_uid_exists( $parent, $items ) ) {
+					continue;
+				}
+
+				$seen[ $uid ] = true;
+				$sorted[]     = $item;
+				$progress     = true;
+			}
+
+			if ( ! $progress ) {
+				foreach ( $items as $item ) {
+					$uid = (string) ( $item['data']['uid'] ?? '' );
+					if ( ! isset( $seen[ $uid ] ) ) {
+						$seen[ $uid ] = true;
+						$sorted[]     = $item;
+					}
+				}
+			}
+		}
+
+		return $sorted;
+	}
+
+	/**
+	 * Check if item UID exists in a list.
+	 *
+	 * @param string $uid   UID.
+	 * @param array  $items Items.
+	 *
+	 * @return bool
+	 */
+	private function item_uid_exists( string $uid, array $items ): bool {
+		foreach ( $items as $item ) {
+			if ( $uid === (string) ( $item['data']['uid'] ?? '' ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Prune missing entities.
+	 *
+	 * @param array $plan Push plan.
+	 *
+	 * @return array
+	 */
+	private function prune_missing( array $plan ): array {
+		$rows      = array();
+		$post_uids = array();
+		$term_uids = array();
+
+		foreach ( $plan['posts'] as $item ) {
+			$post_uids[] = (string) $item['data']['uid'];
+		}
+
+		foreach ( $plan['terms'] as $item ) {
+			$term_uids[] = (string) $item['data']['uid'];
+		}
+
+		foreach ( $this->query_content_posts() as $post ) {
+			$uid = (string) get_post_meta( $post->ID, self::META_UID, true );
+			if ( '' !== $uid && ! in_array( $uid, $post_uids, true ) ) {
+				$action = $this->orphan_action( 'post', $post->ID );
+				$this->apply_orphan_action( 'post', $post->ID, $action );
+				$rows[] = $this->row( 'pruned-' . $action, 'post', (string) $post->ID, $uid, '' );
+			}
+		}
+
+		foreach ( $this->query_content_terms() as $term ) {
+			$uid = (string) get_term_meta( $term->term_id, self::META_UID, true );
+			if ( '' !== $uid && ! in_array( $uid, $term_uids, true ) ) {
+				$action = $this->orphan_action( 'term', $term->term_id );
+				$this->apply_orphan_action( 'term', $term->term_id, $action );
+				$rows[] = $this->row( 'pruned-' . $action, 'term', (string) $term->term_id, $uid, '' );
+			}
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Query content-owned posts.
+	 *
+	 * @return array
+	 */
+	private function query_content_posts(): array {
+		return get_posts(
+			array(
+				'post_type'      => 'any',
+				'post_status'    => 'any',
+				'posts_per_page' => -1,
+				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+					array(
+						'key'   => self::META_SET,
+						'value' => $this->config['id'],
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * Query content-owned terms.
+	 *
+	 * @return array
+	 */
+	private function query_content_terms(): array {
+		$terms = array();
+
+		foreach ( $this->config['taxonomies'] as $taxonomy ) {
+			$result = get_terms(
+				array(
+					'taxonomy'   => $taxonomy,
+					'hide_empty' => false,
+					'meta_query' => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+						array(
+							'key'   => self::META_SET,
+							'value' => $this->config['id'],
+						),
+					),
+				)
+			);
+
+			if ( ! is_wp_error( $result ) ) {
+				$terms = array_merge( $terms, $result );
+			}
+		}
+
+		return $terms;
+	}
+
+	/**
+	 * Resolve orphan action.
+	 *
+	 * @param string $type Entity type.
+	 * @param int    $id   Entity ID.
+	 *
+	 * @return string
+	 */
+	private function orphan_action( string $type, int $id ): string {
+		$action = (string) apply_filters( 'blockstudio/content/orphan_action', 'trash', $type, $id, $this->config );
+		return in_array( $action, array( 'trash', 'delete', 'keep' ), true ) ? $action : 'trash';
+	}
+
+	/**
+	 * Apply orphan action.
+	 *
+	 * @param string $type   Entity type.
+	 * @param int    $id     Entity ID.
+	 * @param string $action Action.
+	 *
+	 * @return void
+	 */
+	private function apply_orphan_action( string $type, int $id, string $action ): void {
+		if ( 'keep' === $action ) {
+			return;
+		}
+
+		if ( 'post' === $type ) {
+			if ( 'delete' === $action ) {
+				wp_delete_post( $id, true );
+			} else {
+				wp_trash_post( $id );
+			}
+			return;
+		}
+
+		$term = get_term( $id );
+		if ( $term instanceof WP_Term ) {
+			wp_delete_term( $id, $term->taxonomy );
+		}
+	}
+
+	/**
+	 * Update sync state.
+	 *
+	 * @param string $type        Entity type.
+	 * @param int    $id          Entity ID.
+	 * @param string $uid         UID.
+	 * @param string $source      Source path.
+	 * @param string $fingerprint Fingerprint.
+	 *
+	 * @return void
+	 */
+	private function update_entity_state( string $type, int $id, string $uid, string $source, string $fingerprint ): void {
+		$update = 'term' === $type ? 'update_term_meta' : 'update_post_meta';
+
+		$update( $id, self::META_UID, $uid );
+		$update( $id, self::META_SET, $this->config['id'] );
+		$update( $id, self::META_SOURCE, $this->relative_path( $source ) );
+		$update( $id, self::META_FINGERPRINT, $fingerprint );
+	}
+
+	/**
+	 * Fingerprint a live post.
+	 *
+	 * @param WP_Post $post Post.
+	 *
+	 * @return string
+	 */
+	private function fingerprint_post( WP_Post $post ): string {
+		$uid = (string) get_post_meta( $post->ID, self::META_UID, true );
+		return $this->fingerprint_projection( $this->project_post( $post, $uid ), (string) $post->post_content );
+	}
+
+	/**
+	 * Fingerprint projection.
+	 *
+	 * @param array  $projection Projection.
+	 * @param string $body       Body.
+	 *
+	 * @return string
+	 */
+	private function fingerprint_projection( array $projection, string $body ): string {
+		return hash( 'sha256', wp_json_encode( $this->sort_projection( $projection ), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . "\n" . $body );
+	}
+
+	/**
+	 * Root sync path.
+	 *
+	 * @return string
+	 */
+	private function root_path(): string {
+		return trailingslashit( get_stylesheet_directory() ) . $this->config['path'];
+	}
+
+	/**
+	 * Post source path.
+	 *
+	 * @param WP_Post $post Post.
+	 * @param string  $uid  UID.
+	 *
+	 * @return string
+	 */
+	private function post_source_path( WP_Post $post, string $uid ): string {
+		$filename = sanitize_title( $post->post_name ?: $post->post_title ?: $post->ID ) . '.' . substr( $uid, 0, 8 ) . '.json';
+		return $this->root_path() . '/posts/' . $post->post_type . '/' . $filename;
+	}
+
+	/**
+	 * Term source path.
+	 *
+	 * @param WP_Term $term Term.
+	 * @param string  $uid  UID.
+	 *
+	 * @return string
+	 */
+	private function term_source_path( WP_Term $term, string $uid ): string {
+		$filename = sanitize_title( $term->slug ?: $term->name ?: $term->term_id ) . '.' . substr( $uid, 0, 8 ) . '.json';
+		return $this->root_path() . '/terms/' . $term->taxonomy . '/' . $filename;
+	}
+
+	/**
+	 * Body path for post source.
+	 *
+	 * @param string $source JSON path.
+	 *
+	 * @return string
+	 */
+	private function body_path_for_source( string $source ): string {
+		return preg_replace( '/\.json$/', '.html', $source ) ?: $source . '.html';
+	}
+
+	/**
+	 * Read JSON file.
+	 *
+	 * @param string $file File path.
+	 *
+	 * @return array|null
+	 */
+	private function read_json_file( string $file ): ?array {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local content sync file.
+		$content = file_get_contents( $file );
+		if ( false === $content ) {
+			return null;
+		}
+
+		$data = json_decode( $content, true );
+		return is_array( $data ) ? $data : null;
+	}
+
+	/**
+	 * Write JSON file.
+	 *
+	 * @param string $file File path.
+	 * @param array  $data Data.
+	 *
+	 * @return void
+	 */
+	private function write_json_file( string $file, array $data ): void {
+		$this->write_file( $file, wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . "\n" );
+	}
+
+	/**
+	 * Write file.
+	 *
+	 * @param string $file    File path.
+	 * @param string $content Content.
+	 *
+	 * @return void
+	 */
+	private function write_file( string $file, string $content ): void {
+		wp_mkdir_p( dirname( $file ) );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writing local content sync file.
+		file_put_contents( $file, $content );
+	}
+
+	/**
+	 * Write media manifest.
+	 *
+	 * @param array $rows Rows.
+	 *
+	 * @return void
+	 */
+	private function write_media_manifest( array &$rows ): void {
+		if ( 'manifest' !== $this->config['media'] || $this->dry_run ) {
+			return;
+		}
+
+		$manifest = array();
+
+		foreach ( $this->query_content_posts() as $post ) {
+			if ( 'attachment' !== $post->post_type ) {
+				continue;
+			}
+
+			$uid = (string) get_post_meta( $post->ID, self::META_UID, true );
+			if ( '' === $uid ) {
+				continue;
+			}
+
+			$file = get_attached_file( $post->ID );
+			$manifest[ $uid ] = array(
+				'path' => $file ? wp_basename( $file ) : '',
+				'hash' => $file && file_exists( $file ) ? hash_file( 'sha256', $file ) : '',
+				'mime' => get_post_mime_type( $post ),
+				'alt'  => (string) get_post_meta( $post->ID, '_wp_attachment_image_alt', true ),
+			);
+		}
+
+		if ( empty( $manifest ) ) {
+			return;
+		}
+
+		ksort( $manifest );
+		$this->write_json_file( $this->root_path() . '/media/manifest.json', $manifest );
+		$rows[] = $this->row( 'written', 'media', 'manifest', '', $this->relative_path( $this->root_path() . '/media/manifest.json' ) );
+	}
+
+	/**
+	 * Relative path from theme.
+	 *
+	 * @param string $path Absolute path.
+	 *
+	 * @return string
+	 */
+	private function relative_path( string $path ): string {
+		$theme = trailingslashit( get_stylesheet_directory() );
+		return str_starts_with( $path, $theme ) ? ltrim( substr( $path, strlen( $theme ) ), '/' ) : $path;
+	}
+
+	/**
+	 * Format a result row.
+	 *
+	 * @param string $action  Action.
+	 * @param string $entity  Entity.
+	 * @param string $id      ID.
+	 * @param string $uid     UID.
+	 * @param string $message Message.
+	 *
+	 * @return array
+	 */
+	private function row( string $action, string $entity, string $id, string $uid, string $message ): array {
+		return array(
+			'action'  => $action,
+			'entity'  => $entity,
+			'id'      => $id,
+			'uid'     => $uid,
+			'message' => $message,
+		);
+	}
+
+	/**
+	 * Check whether rows contain errors.
+	 *
+	 * @param array $rows Rows.
+	 *
+	 * @return bool
+	 */
+	private function has_error_rows( array $rows ): bool {
+		foreach ( $rows as $row ) {
+			if ( 'error' === ( $row['action'] ?? '' ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Convert MySQL GMT date to ISO.
+	 *
+	 * @param string $date Date.
+	 *
+	 * @return string|null
+	 */
+	private function mysql_gmt_to_iso( string $date ): ?string {
+		if ( '' === $date || '0000-00-00 00:00:00' === $date ) {
+			return null;
+		}
+
+		return gmdate( 'c', strtotime( $date . ' UTC' ) );
+	}
+
+	/**
+	 * Check UTF-8.
+	 *
+	 * @param string $value Value.
+	 *
+	 * @return bool
+	 */
+	private function is_utf8( string $value ): bool {
+		return 1 === preg_match( '//u', $value );
+	}
+}

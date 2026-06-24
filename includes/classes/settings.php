@@ -95,6 +95,21 @@ class Settings {
 		'cache'       => array(
 			'enabled' => true,
 		),
+		'content'     => array(
+			'enabled'                => false,
+			'id'                     => 'default',
+			'path'                   => 'content',
+			'includePageSyncManaged' => false,
+			'authors'                => 'ignore',
+			'postTypes'              => array(),
+			'meta'                   => array(
+				'include'    => array(),
+				'exclude'    => array( '_edit_lock', '_edit_last', '_wp_old_slug' ),
+				'references' => array(),
+			),
+			'taxonomies'             => array(),
+			'media'                  => 'manifest',
+		),
 		'editor'      => array(
 			'formatOnSave' => false,
 			'assets'       => array(),
