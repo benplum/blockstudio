@@ -370,6 +370,59 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * media:none drops declared attachment reference meta.
+	 *
+	 * @return void
+	 */
+	public function test_media_none_drops_declared_attachment_references(): void {
+		$attachment_id = $this->insert_attachment( 'media-none.jpg' );
+		$post_id       = $this->insert_post(
+			array(
+				'post_title' => 'Media None Source',
+				'post_name'  => 'media-none-source',
+			)
+		);
+
+		update_post_meta( $post_id, '_thumbnail_id', $attachment_id );
+
+		$sync = new Content_Sync( $this->config( array( 'media' => 'none' ) ) );
+		$sync->pull();
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local content sync fixture.
+		$data = json_decode( (string) file_get_contents( $this->find_post_json_file() ), true );
+		$this->assertArrayNotHasKey( '_thumbnail_id', $data['meta'] );
+		$this->assertSame( '', (string) get_post_meta( $attachment_id, Content_Sync::META_UID, true ) );
+
+		$incoming_uid = wp_generate_uuid4();
+		$this->write_post_file(
+			'media-none-push',
+			array(
+				'uid'          => $incoming_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'media-none-push',
+				'title'        => 'Media None Push',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(
+					'_thumbnail_id' => wp_generate_uuid4(),
+				),
+				'metaEncoding' => array(
+					'_thumbnail_id' => 'scalar',
+				),
+			),
+			''
+		);
+
+		$rows = $sync->push();
+		$this->assertNotContains( 'error', wp_list_pluck( $rows, 'action' ) );
+
+		$post = $this->get_post_by_uid( $incoming_uid );
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertSame( '', (string) get_post_meta( $post->ID, '_thumbnail_id', true ) );
+	}
+
+	/**
 	 * Page Sync managed posts are excluded by default.
 	 *
 	 * @return void

@@ -1110,6 +1110,8 @@ class Content_Sync {
 	 * @return void
 	 */
 	private function apply_meta( string $type, int $id, array $meta, array $meta_encoding ): void {
+		$meta = $this->filter_applicable_meta( $meta );
+
 		$existing = $this->get_raw_meta( $type, $id );
 
 		foreach ( $existing as $key => $_values ) {
@@ -1133,6 +1135,35 @@ class Content_Sync {
 				add_metadata( $type, $id, (string) $key, wp_slash( $raw ), false );
 			}
 		}
+	}
+
+	/**
+	 * Remove file meta entries that should not be applied.
+	 *
+	 * @param array $meta Meta values.
+	 *
+	 * @return array
+	 */
+	private function filter_applicable_meta( array $meta ): array {
+		foreach ( array_keys( $meta ) as $key ) {
+			if ( $this->should_drop_meta_key( (string) $key ) ) {
+				unset( $meta[ $key ] );
+			}
+		}
+
+		return $meta;
+	}
+
+	/**
+	 * Check whether a meta key should be omitted entirely.
+	 *
+	 * @param string $key Meta key.
+	 *
+	 * @return bool
+	 */
+	private function should_drop_meta_key( string $key ): bool {
+		$definition = $this->config['meta']['references'][ $key ] ?? null;
+		return 'none' === $this->config['media'] && is_array( $definition ) && 'attachment' === ( $definition['kind'] ?? '' );
 	}
 
 	/**
@@ -1364,6 +1395,10 @@ class Content_Sync {
 
 		foreach ( $this->get_raw_meta( $type, $id ) as $key => $values ) {
 			if ( ! $this->meta_key_allowed( $key ) ) {
+				continue;
+			}
+
+			if ( $this->should_drop_meta_key( $key ) ) {
 				continue;
 			}
 
