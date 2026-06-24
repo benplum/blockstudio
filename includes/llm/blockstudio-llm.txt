@@ -6995,7 +6995,7 @@ Preview the apply plan without writing:
 wp bs content push --dry-run
 ```
 
-Prune content-set owned database posts that no longer exist in files:
+Prune content-set owned database posts and terms that no longer exist in files:
 
 ```bash
 wp bs content push --prune --yes
