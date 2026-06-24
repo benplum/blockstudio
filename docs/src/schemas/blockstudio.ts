@@ -184,7 +184,7 @@ export const blockstudio = {
           enum: ['ignore', 'login'],
           default: 'ignore',
           description:
-            'Author portability mode. The v1 default ignores authors because users are not synced.',
+            'Author portability mode. Use ignore to omit authors or login to store author logins and resolve existing users on push.',
           descriptionFilter:
             'This filter allows you to configure Content Sync author handling.',
           example: 'ignore',

@@ -60,6 +60,11 @@ Page Sync managed posts are excluded by default. If
 `includePageSyncManaged` is enabled, Content Sync can sync their configured meta
 but Page Sync still owns their `post_content`.
 
+Authors are ignored by default because users are not synced. Set
+`authors: "login"` to store the author's login in post files and resolve that
+login to an existing user on push. Missing users are a preflight error; Content
+Sync does not create users.
+
 ## Commands
 
 ```bash

@@ -155,7 +155,7 @@ plugins, WordPress, PHP, or Blockstudio versions change.
 | `id`                     | string  | `"default"`                              | Content-set namespace stored on synced entities           |
 | `path`                   | string  | `"content"`                              | Theme-relative content file directory                     |
 | `includePageSyncManaged` | boolean | `false`                                  | Include Page Sync managed posts without owning their body |
-| `authors`                | string  | `"ignore"`                               | Author portability mode                                   |
+| `authors`                | string  | `"ignore"`                               | Author handling (`ignore` or existing-user `login`)       |
 | `postTypes`              | array   | `[]`                                     | Allowlisted post types                                    |
 | `meta.include`           | array   | `[]`                                     | Glob patterns for meta keys to sync                       |
 | `meta.exclude`           | array   | `["_edit_lock", "_edit_last", "_wp_old_slug"]` | Glob patterns for meta keys to exclude                    |

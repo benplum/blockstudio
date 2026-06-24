@@ -42,6 +42,13 @@ class ContentSyncTest extends TestCase {
 	private array $post_ids = array();
 
 	/**
+	 * Created user IDs.
+	 *
+	 * @var array<int>
+	 */
+	private array $user_ids = array();
+
+	/**
 	 * Set up test state.
 	 *
 	 * @return void
@@ -87,7 +94,16 @@ class ContentSyncTest extends TestCase {
 			wp_delete_post( $post_id, true );
 		}
 
+		if ( ! function_exists( 'wp_delete_user' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/user.php';
+		}
+
+		foreach ( $this->user_ids as $user_id ) {
+			wp_delete_user( $user_id );
+		}
+
 		$this->post_ids = array();
+		$this->user_ids = array();
 		$this->delete_test_posts();
 		$this->delete_test_terms();
 		$this->remove_content_dir();
@@ -511,6 +527,79 @@ class ContentSyncTest extends TestCase {
 
 		$hero = json_decode( (string) get_post_meta( $post->ID, '_hero', true ), true );
 		$this->assertSame( $attachment_id, $hero['image']['id'] );
+	}
+
+	/**
+	 * Push applies author login mapping when enabled.
+	 *
+	 * @return void
+	 */
+	public function test_push_applies_author_login_mapping(): void {
+		$login   = 'content_sync_author_' . wp_rand();
+		$user_id = $this->insert_user( $login );
+		$uid     = wp_generate_uuid4();
+
+		$this->write_post_file(
+			'authored-post',
+			array(
+				'uid'          => $uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'authored-post',
+				'title'        => 'Authored Post',
+				'author'       => array(
+					'login' => $login,
+				),
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			''
+		);
+
+		$sync = new Content_Sync( $this->config( array( 'authors' => 'login' ) ) );
+		$rows = $sync->push();
+
+		$this->assertNotContains( 'error', wp_list_pluck( $rows, 'action' ) );
+
+		$post = $this->get_post_by_uid( $uid );
+		$this->assertInstanceOf( WP_Post::class, $post );
+		$this->assertSame( $user_id, (int) $post->post_author );
+	}
+
+	/**
+	 * Push blocks missing author login references.
+	 *
+	 * @return void
+	 */
+	public function test_push_blocks_missing_author_login(): void {
+		$uid = wp_generate_uuid4();
+
+		$this->write_post_file(
+			'missing-author',
+			array(
+				'uid'          => $uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'missing-author',
+				'title'        => 'Missing Author',
+				'author'       => array(
+					'login' => 'missing_content_sync_author',
+				),
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			''
+		);
+
+		$sync = new Content_Sync( $this->config( array( 'authors' => 'login' ) ) );
+		$rows = $sync->push();
+
+		$this->assertContains( 'error', wp_list_pluck( $rows, 'action' ) );
+		$this->assertNull( $this->get_post_by_uid( $uid ) );
 	}
 
 	/**
@@ -1142,6 +1231,28 @@ class ContentSyncTest extends TestCase {
 		$this->post_ids[] = $post_id;
 
 		return $post_id;
+	}
+
+	/**
+	 * Insert a test user.
+	 *
+	 * @param string $login User login.
+	 *
+	 * @return int
+	 */
+	private function insert_user( string $login ): int {
+		$user_id = wp_insert_user(
+			array(
+				'user_login' => $login,
+				'user_pass'  => wp_generate_password(),
+				'user_email' => $login . '@example.test',
+			)
+		);
+
+		$this->assertIsInt( $user_id );
+		$this->user_ids[] = $user_id;
+
+		return $user_id;
 	}
 
 	/**

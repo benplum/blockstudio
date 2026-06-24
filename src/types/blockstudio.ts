@@ -380,7 +380,8 @@ export interface Cache {
  */
 export interface Content {
   /**
-   * Author portability mode. The v1 default ignores authors because users are not synced.
+   * Author portability mode. Use ignore to omit authors or login to store author logins and
+   * resolve existing users on push.
    */
   authors?: Authors;
   /**

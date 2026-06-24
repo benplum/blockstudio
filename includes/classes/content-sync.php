@@ -713,6 +713,11 @@ class Content_Sync {
 				$errors[] = $this->row( 'error', 'post', (string) ( $data['slug'] ?? '' ), $uid, 'Parent reference cannot be resolved.' );
 			}
 
+			$author_login = (string) ( $data['author']['login'] ?? '' );
+			if ( 'login' === $this->config['authors'] && '' !== $author_login && ! get_user_by( 'login', $author_login ) ) {
+				$errors[] = $this->row( 'error', 'post', (string) ( $data['slug'] ?? '' ), $uid, "Author login '{$author_login}' cannot be resolved." );
+			}
+
 			$reference_errors = array_merge(
 				$this->validate_meta_references( $data['meta'] ?? array(), $data['metaEncoding'] ?? array(), $uid, $post_uids, $term_uids ),
 				$this->validate_post_term_references( $data, $uid, $term_uids )
@@ -951,6 +956,13 @@ class Content_Sync {
 		if ( ! empty( $data['modified'] ) ) {
 			$post_data['post_modified_gmt'] = gmdate( 'Y-m-d H:i:s', strtotime( (string) $data['modified'] ) );
 			$post_data['post_modified']     = get_date_from_gmt( $post_data['post_modified_gmt'] );
+		}
+
+		if ( 'login' === $this->config['authors'] && ! empty( $data['author']['login'] ) ) {
+			$user = get_user_by( 'login', (string) $data['author']['login'] );
+			if ( $user ) {
+				$post_data['post_author'] = (int) $user->ID;
+			}
 		}
 
 		if ( ! empty( $data['parent'] ) ) {
