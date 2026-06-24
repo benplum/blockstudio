@@ -57,6 +57,7 @@ class Content_Sync {
 	public function pull( array $args = array() ): array {
 		$this->dry_run = ! empty( $args['dry-run'] );
 		$rows          = array();
+		$seen_sources  = array();
 
 		foreach ( $this->selected_post_types( $args ) as $post_type ) {
 			if ( ! post_type_exists( $post_type ) ) {
@@ -84,6 +85,8 @@ class Content_Sync {
 					$body
 				);
 
+				$seen_sources[ $this->normalize_file_path( $source ) ] = $uid;
+
 				if ( $this->dry_run ) {
 					$rows[] = $this->row( 'would-write', 'post', (string) $post->ID, $uid, $this->relative_path( $source ) );
 					continue;
@@ -103,9 +106,10 @@ class Content_Sync {
 		}
 
 		foreach ( $this->selected_taxonomies( $args ) as $taxonomy ) {
-			$rows = array_merge( $rows, $this->pull_terms( $taxonomy ) );
+			$rows = array_merge( $rows, $this->pull_terms( $taxonomy, $seen_sources ) );
 		}
 
+		$rows = array_merge( $rows, $this->stale_file_rows( $args, $seen_sources ) );
 		$this->write_media_manifest( $rows );
 
 		return $rows;
@@ -714,11 +718,12 @@ class Content_Sync {
 	/**
 	 * Pull terms for one taxonomy.
 	 *
-	 * @param string $taxonomy Taxonomy.
+	 * @param string $taxonomy     Taxonomy.
+	 * @param array  $seen_sources Absolute source paths seen during pull.
 	 *
 	 * @return array Result rows.
 	 */
-	private function pull_terms( string $taxonomy ): array {
+	private function pull_terms( string $taxonomy, array &$seen_sources ): array {
 		$rows = array();
 
 		if ( ! taxonomy_exists( $taxonomy ) ) {
@@ -749,6 +754,8 @@ class Content_Sync {
 			$projection  = $this->project_term( $term, $uid );
 			$source      = $this->term_source_path( $term, $uid );
 			$fingerprint = $this->fingerprint_projection( $projection, '' );
+
+			$seen_sources[ $this->normalize_file_path( $source ) ] = $uid;
 
 			if ( $this->dry_run ) {
 				$rows[] = $this->row( 'would-write', 'term', (string) $term->term_id, $uid, $this->relative_path( $source ) );
@@ -1058,6 +1065,58 @@ class Content_Sync {
 		}
 
 		return $items;
+	}
+
+	/**
+	 * Report existing content files that were not produced by the current pull.
+	 *
+	 * @param array $args         Pull options.
+	 * @param array $seen_sources Absolute source paths seen during pull.
+	 *
+	 * @return array
+	 */
+	private function stale_file_rows( array $args, array $seen_sources ): array {
+		$rows = array();
+
+		foreach ( $this->selected_post_types( $args ) as $post_type ) {
+			$rows = array_merge( $rows, $this->stale_json_files_in_dir( $this->root_path() . '/posts/' . $post_type, 'post', $seen_sources ) );
+		}
+
+		foreach ( $this->selected_taxonomies( $args ) as $taxonomy ) {
+			$rows = array_merge( $rows, $this->stale_json_files_in_dir( $this->root_path() . '/terms/' . $taxonomy, 'term', $seen_sources ) );
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Report stale JSON files in one directory.
+	 *
+	 * @param string $dir          Directory.
+	 * @param string $entity       Entity type.
+	 * @param array  $seen_sources Absolute source paths seen during pull.
+	 *
+	 * @return array
+	 */
+	private function stale_json_files_in_dir( string $dir, string $entity, array $seen_sources ): array {
+		if ( ! is_dir( $dir ) ) {
+			return array();
+		}
+
+		$rows  = array();
+		$files = glob( $dir . '/*.json' );
+
+		foreach ( false !== $files ? $files : array() as $file ) {
+			if ( isset( $seen_sources[ $this->normalize_file_path( $file ) ] ) ) {
+				continue;
+			}
+
+			$data   = $this->read_json_file( $file );
+			$uid    = is_array( $data ) ? (string) ( $data['uid'] ?? '' ) : '';
+			$rows[] = $this->row( 'stale', $entity, '', $uid, $this->relative_path( $file ) );
+		}
+
+		return $rows;
 	}
 
 	/**
@@ -2296,6 +2355,17 @@ class Content_Sync {
 	private function relative_path( string $path ): string {
 		$theme = trailingslashit( get_stylesheet_directory() );
 		return str_starts_with( $path, $theme ) ? ltrim( substr( $path, strlen( $theme ) ), '/' ) : $path;
+	}
+
+	/**
+	 * Normalize a file path for comparisons.
+	 *
+	 * @param string $path Path.
+	 *
+	 * @return string
+	 */
+	private function normalize_file_path( string $path ): string {
+		return wp_normalize_path( $path );
 	}
 
 	/**

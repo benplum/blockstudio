@@ -9035,7 +9035,9 @@ wp bs content status
 ```
 
 `pull` captures database content into files. It assigns
-`_blockstudio_content_uid` to in-scope posts that do not have one yet.
+`_blockstudio_content_uid` to in-scope posts that do not have one yet and reports
+stale files whose database source no longer exists. Stale files are not deleted
+by pull.
 
 `push` applies files to the current database. It validates the plan before
 writing and blocks unresolved declared references, slug conflicts, locked

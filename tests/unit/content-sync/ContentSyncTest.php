@@ -196,6 +196,45 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Pull reports stale files whose database source no longer exists.
+	 *
+	 * @return void
+	 */
+	public function test_pull_reports_stale_post_and_term_files(): void {
+		$post_id = $this->insert_post(
+			array(
+				'post_title' => 'Stale Source',
+				'post_name'  => 'stale-source',
+			)
+		);
+		$term    = wp_insert_term( 'Stale Topic', $this->taxonomy, array( 'slug' => 'stale-topic' ) );
+
+		$this->assertIsArray( $term );
+
+		$sync = new Content_Sync( $this->config( array( 'taxonomies' => array( $this->taxonomy ) ) ) );
+		$sync->pull();
+
+		$post_file = $this->find_post_json_file();
+		$term_file = $this->find_term_json_file();
+
+		wp_delete_post( $post_id, true );
+		wp_delete_term( (int) $term['term_id'], $this->taxonomy );
+
+		$rows  = $sync->pull( array( 'dry-run' => true ) );
+		$stale = array_values(
+			array_filter(
+				$rows,
+				static fn( array $row ): bool => 'stale' === $row['action']
+			)
+		);
+
+		$this->assertCount( 2, $stale );
+		$this->assertSame( array( 'post', 'term' ), wp_list_pluck( $stale, 'entity' ) );
+		$this->assertFileExists( $post_file );
+		$this->assertFileExists( $term_file );
+	}
+
+	/**
 	 * Push creates posts and rewrites declared post references.
 	 *
 	 * @return void
@@ -1127,6 +1166,18 @@ class ContentSyncTest extends TestCase {
 	 */
 	private function find_post_json_file(): string {
 		$files = glob( $this->content_root() . '/posts/' . $this->post_type . '/*.json' );
+		$this->assertNotEmpty( $files );
+
+		return $files[0];
+	}
+
+	/**
+	 * Find the generated term JSON file.
+	 *
+	 * @return string
+	 */
+	private function find_term_json_file(): string {
+		$files = glob( $this->content_root() . '/terms/' . $this->taxonomy . '/*.json' );
 		$this->assertNotEmpty( $files );
 
 		return $files[0];
