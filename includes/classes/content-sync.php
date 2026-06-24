@@ -164,42 +164,25 @@ class Content_Sync {
 	 */
 	public function status( array $args = array() ): array {
 		$rows = array();
-		$plan = $this->build_push_plan( array_merge( $args, array( 'dry-run' => true ) ) );
+		$plan = $this->build_push_plan(
+			array_merge(
+				$args,
+				array(
+					'dry-run' => true,
+					'preview' => false,
+				)
+			)
+		);
 
 		foreach ( $plan['posts'] as $item ) {
-			$post = $this->find_post_by_uid( (string) $item['data']['uid'] );
-
-			if ( ! $post ) {
-				$rows[] = $this->row( 'missing-db', 'post', $item['data']['slug'] ?? '', (string) $item['data']['uid'], $this->relative_path( $item['source'] ) );
-				continue;
-			}
-
-			$file_fingerprint = $this->fingerprint_projection( $item['data'], $item['body'] );
-			$stored           = (string) get_post_meta( $post->ID, self::META_FINGERPRINT, true );
-			$live             = $this->fingerprint_post( $post, $item['data'] );
-
-			if ( '' !== $stored && ! hash_equals( $stored, $live ) ) {
-				$rows[] = $this->row( 'conflict', 'post', (string) $post->ID, (string) $item['data']['uid'], 'Database changed since last sync.' );
-			} elseif ( '' !== $stored && hash_equals( $stored, $file_fingerprint ) ) {
-				$rows[] = $this->row( 'unchanged', 'post', (string) $post->ID, (string) $item['data']['uid'], $this->relative_path( $item['source'] ) );
-			} else {
-				$rows[] = $this->row( 'would-update', 'post', (string) $post->ID, (string) $item['data']['uid'], $this->relative_path( $item['source'] ) );
-			}
+			$rows[] = $this->status_post_file( $item, false );
 		}
 
 		foreach ( $plan['terms'] as $item ) {
-			$term = $this->find_term_by_uid( (string) $item['data']['uid'], (string) $item['data']['taxonomy'] );
-
-			$rows[] = $this->row(
-				$term ? 'known' : 'missing-db',
-				'term',
-				$term ? (string) $term->term_id : (string) ( $item['data']['slug'] ?? '' ),
-				(string) $item['data']['uid'],
-				$this->relative_path( $item['source'] )
-			);
+			$rows[] = $this->status_term_file( $item, false );
 		}
 
-		return array_merge( $rows, $plan['errors'] );
+		return array_merge( $rows, $this->preview_prune_missing( $plan, 'orphaned' ), $plan['errors'] );
 	}
 
 	/**
@@ -327,7 +310,158 @@ class Content_Sync {
 			$this->validate_term_files( $plan['terms'], $term_uids )
 		);
 
+		if ( $this->dry_run && false !== ( $args['preview'] ?? true ) ) {
+			$plan['rows'] = $this->preview_push_plan( $plan, ! empty( $args['prune'] ) );
+		}
+
 		return $plan;
+	}
+
+	/**
+	 * Build non-writing push plan rows.
+	 *
+	 * @param array $plan          Push plan.
+	 * @param bool  $include_prune Whether to preview prune candidates.
+	 *
+	 * @return array
+	 */
+	private function preview_push_plan( array $plan, bool $include_prune ): array {
+		$rows = array();
+
+		foreach ( $this->sort_terms_by_parent( $plan['terms'] ) as $item ) {
+			$rows[] = $this->status_term_file( $item, true );
+		}
+
+		foreach ( $this->sort_posts_by_parent( $plan['posts'] ) as $item ) {
+			$rows[] = $this->status_post_file( $item, true );
+		}
+
+		if ( $include_prune ) {
+			$rows = array_merge( $rows, $this->preview_prune_missing( $plan ) );
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Build status for a post file.
+	 *
+	 * @param array $item    File item.
+	 * @param bool  $dry_run Whether the row is for push --dry-run.
+	 *
+	 * @return array
+	 */
+	private function status_post_file( array $item, bool $dry_run ): array {
+		$data     = $item['data'];
+		$uid      = (string) ( $data['uid'] ?? '' );
+		$existing = '' !== $uid ? $this->find_post_by_uid( $uid ) : null;
+		$source   = $this->relative_path( $item['source'] );
+
+		if ( ! $existing ) {
+			return $this->row( $dry_run ? 'would-create' : 'missing-db', 'post', (string) ( $data['slug'] ?? '' ), $uid, $source );
+		}
+
+		if ( get_post_meta( $existing->ID, self::META_LOCKED, true ) ) {
+			return $this->row( 'locked', 'post', (string) $existing->ID, $uid, 'Locked entity skipped.' );
+		}
+
+		$file_fingerprint = $this->fingerprint_projection( $data, (string) ( $item['body'] ?? '' ) );
+		$stored           = (string) get_post_meta( $existing->ID, self::META_FINGERPRINT, true );
+		$live             = $this->fingerprint_post( $existing, $data );
+
+		if ( '' !== $stored && ! hash_equals( $stored, $live ) ) {
+			return $this->row( 'conflict', 'post', (string) $existing->ID, $uid, 'Database changed since last sync.' );
+		}
+
+		if ( '' !== $stored && hash_equals( $stored, $file_fingerprint ) ) {
+			return $this->row( 'unchanged', 'post', (string) $existing->ID, $uid, $source );
+		}
+
+		return $this->row( 'would-update', 'post', (string) $existing->ID, $uid, $source );
+	}
+
+	/**
+	 * Build status for a term file.
+	 *
+	 * @param array $item    File item.
+	 * @param bool  $dry_run Whether the row is for push --dry-run.
+	 *
+	 * @return array
+	 */
+	private function status_term_file( array $item, bool $dry_run ): array {
+		$data     = $item['data'];
+		$uid      = (string) ( $data['uid'] ?? '' );
+		$taxonomy = (string) ( $data['taxonomy'] ?? '' );
+		$existing = '' !== $uid && '' !== $taxonomy ? $this->find_term_by_uid( $uid, $taxonomy ) : null;
+		$source   = $this->relative_path( $item['source'] );
+
+		if ( ! $existing ) {
+			return $this->row( $dry_run ? 'would-create' : 'missing-db', 'term', (string) ( $data['slug'] ?? '' ), $uid, $source );
+		}
+
+		if ( get_term_meta( $existing->term_id, self::META_LOCKED, true ) ) {
+			return $this->row( 'locked', 'term', (string) $existing->term_id, $uid, 'Locked entity skipped.' );
+		}
+
+		$file_fingerprint = $this->fingerprint_projection( $data, '' );
+		$stored           = (string) get_term_meta( $existing->term_id, self::META_FINGERPRINT, true );
+		$live             = $this->fingerprint_term( $existing, $data );
+
+		if ( '' !== $stored && ! hash_equals( $stored, $live ) ) {
+			return $this->row( 'conflict', 'term', (string) $existing->term_id, $uid, 'Database changed since last sync.' );
+		}
+
+		if ( '' !== $stored && hash_equals( $stored, $file_fingerprint ) ) {
+			return $this->row( 'unchanged', 'term', (string) $existing->term_id, $uid, $source );
+		}
+
+		return $this->row( 'would-update', 'term', (string) $existing->term_id, $uid, $source );
+	}
+
+	/**
+	 * Preview content-set entities missing from the file plan.
+	 *
+	 * @param array  $plan        Push plan.
+	 * @param string $row_action  Row action. Use orphaned for status output.
+	 *
+	 * @return array
+	 */
+	private function preview_prune_missing( array $plan, string $row_action = 'would-prune' ): array {
+		$rows      = array();
+		$post_uids = array();
+		$term_uids = array();
+
+		foreach ( $plan['posts'] as $item ) {
+			$post_uids[] = (string) ( $item['data']['uid'] ?? '' );
+		}
+
+		foreach ( $plan['terms'] as $item ) {
+			$term_uids[] = (string) ( $item['data']['uid'] ?? '' );
+		}
+
+		foreach ( $this->query_prunable_posts() as $post ) {
+			$uid = (string) get_post_meta( $post->ID, self::META_UID, true );
+			if ( '' === $uid || in_array( $uid, $post_uids, true ) ) {
+				continue;
+			}
+
+			$action  = $this->orphan_action( 'post', $post->ID );
+			$message = 'orphaned' === $row_action ? 'Missing from files; push --prune would ' . $action . ' this entity.' : '';
+			$rows[]  = $this->row( 'orphaned' === $row_action ? 'orphaned' : $row_action . '-' . $action, 'post', (string) $post->ID, $uid, $message );
+		}
+
+		foreach ( $this->query_content_terms() as $term ) {
+			$uid = (string) get_term_meta( $term->term_id, self::META_UID, true );
+			if ( '' === $uid || in_array( $uid, $term_uids, true ) ) {
+				continue;
+			}
+
+			$action  = $this->orphan_action( 'term', $term->term_id );
+			$message = 'orphaned' === $row_action ? 'Missing from files; push --prune would ' . $action . ' this entity.' : '';
+			$rows[]  = $this->row( 'orphaned' === $row_action ? 'orphaned' : $row_action . '-' . $action, 'term', (string) $term->term_id, $uid, $message );
+		}
+
+		return $rows;
 	}
 
 	/**
@@ -384,9 +518,6 @@ class Content_Sync {
 			}
 
 			$existing = $this->find_post_by_uid( $uid );
-			if ( $existing && get_post_meta( $existing->ID, self::META_LOCKED, true ) ) {
-				$errors[] = $this->row( 'locked', 'post', (string) $existing->ID, $uid, 'Locked entity skipped.' );
-			}
 
 			if ( $this->has_slug_conflict( $data, $existing ) ) {
 				$errors[] = $this->row( 'error', 'post', (string) ( $data['slug'] ?? '' ), $uid, 'Slug conflict.' );
@@ -436,11 +567,6 @@ class Content_Sync {
 
 			if ( '' === $taxonomy || ! taxonomy_exists( $taxonomy ) ) {
 				$errors[] = $this->row( 'error', 'term', '', $uid, "Taxonomy '{$taxonomy}' is not registered." );
-			}
-
-			$existing = '' !== $taxonomy ? $this->find_term_by_uid( $uid, $taxonomy ) : null;
-			if ( $existing && get_term_meta( $existing->term_id, self::META_LOCKED, true ) ) {
-				$errors[] = $this->row( 'locked', 'term', (string) $existing->term_id, $uid, 'Locked entity skipped.' );
 			}
 
 			if ( ! empty( $data['parent'] ) && ! isset( $term_uids[ (string) $data['parent'] ] ) && $this->resolve_term_uid( (string) $data['parent'], $taxonomy ) <= 0 ) {
@@ -684,6 +810,13 @@ class Content_Sync {
 			return array(
 				'term_id' => $existing->term_id,
 				'row'     => $this->row( 'unchanged', 'term', (string) $existing->term_id, $uid, $this->relative_path( $item['source'] ) ),
+			);
+		}
+
+		if ( $existing && get_term_meta( $existing->term_id, self::META_LOCKED, true ) ) {
+			return array(
+				'term_id' => $existing->term_id,
+				'row'     => $this->row( 'locked', 'term', (string) $existing->term_id, $uid, 'Locked entity skipped.' ),
 			);
 		}
 
@@ -1723,7 +1856,7 @@ class Content_Sync {
 			$term_uids[] = (string) $item['data']['uid'];
 		}
 
-		foreach ( $this->query_content_posts() as $post ) {
+		foreach ( $this->query_prunable_posts() as $post ) {
 			$uid = (string) get_post_meta( $post->ID, self::META_UID, true );
 			if ( '' !== $uid && ! in_array( $uid, $post_uids, true ) ) {
 				$action = $this->orphan_action( 'post', $post->ID );
@@ -1753,6 +1886,31 @@ class Content_Sync {
 		return get_posts(
 			array(
 				'post_type'      => 'any',
+				'post_status'    => 'any',
+				'posts_per_page' => -1,
+				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+					array(
+						'key'   => self::META_SET,
+						'value' => $this->config['id'],
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * Query posts that prune is allowed to remove.
+	 *
+	 * @return array
+	 */
+	private function query_prunable_posts(): array {
+		if ( empty( $this->config['postTypes'] ) ) {
+			return array();
+		}
+
+		return get_posts(
+			array(
+				'post_type'      => $this->config['postTypes'],
 				'post_status'    => 'any',
 				'posts_per_page' => -1,
 				'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
@@ -1874,6 +2032,25 @@ class Content_Sync {
 		}
 
 		return $this->fingerprint_projection( $projection, (string) $post->post_content );
+	}
+
+	/**
+	 * Fingerprint a live term.
+	 *
+	 * @param WP_Term    $term       Term.
+	 * @param array|null $file_shape Optional file projection shape.
+	 *
+	 * @return string
+	 */
+	private function fingerprint_term( WP_Term $term, ?array $file_shape = null ): string {
+		$uid        = (string) get_term_meta( $term->term_id, self::META_UID, true );
+		$projection = $this->project_term( $term, $uid );
+
+		if ( null !== $file_shape ) {
+			$projection = $this->shape_live_projection_for_file( $projection, $file_shape );
+		}
+
+		return $this->fingerprint_projection( $projection, '' );
 	}
 
 	/**

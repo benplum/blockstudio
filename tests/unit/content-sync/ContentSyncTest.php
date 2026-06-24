@@ -516,6 +516,7 @@ class ContentSyncTest extends TestCase {
 	 */
 	public function test_push_skips_locked_posts(): void {
 		$uid     = wp_generate_uuid4();
+		$next_uid = wp_generate_uuid4();
 		$post_id = $this->insert_post(
 			array(
 				'post_title' => 'Locked Original',
@@ -542,12 +543,29 @@ class ContentSyncTest extends TestCase {
 			),
 			'<p>Updated</p>'
 		);
+		$this->write_post_file(
+			'created-after-lock',
+			array(
+				'uid'          => $next_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'created-after-lock',
+				'title'        => 'Created After Lock',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			'<p>Created</p>'
+		);
 
 		$sync = new Content_Sync( $this->config() );
 		$rows = $sync->push();
 
 		$this->assertContains( 'locked', wp_list_pluck( $rows, 'action' ) );
+		$this->assertContains( 'created', wp_list_pluck( $rows, 'action' ) );
 		$this->assertSame( 'Locked Original', get_post( $post_id )->post_title );
+		$this->assertInstanceOf( WP_Post::class, $this->get_post_by_uid( $next_uid ) );
 	}
 
 	/**
@@ -558,6 +576,7 @@ class ContentSyncTest extends TestCase {
 	public function test_push_prune_deletes_only_current_content_set(): void {
 		$owned_uid = wp_generate_uuid4();
 		$other_uid = wp_generate_uuid4();
+		$attachment_uid = wp_generate_uuid4();
 
 		$owned_id = $this->insert_post(
 			array(
@@ -571,11 +590,14 @@ class ContentSyncTest extends TestCase {
 				'post_name'  => 'other-set',
 			)
 		);
+		$attachment_id = $this->insert_attachment( 'owned-media.jpg' );
 
 		update_post_meta( $owned_id, Content_Sync::META_UID, $owned_uid );
 		update_post_meta( $owned_id, Content_Sync::META_SET, 'unit' );
 		update_post_meta( $other_id, Content_Sync::META_UID, $other_uid );
 		update_post_meta( $other_id, Content_Sync::META_SET, 'other' );
+		update_post_meta( $attachment_id, Content_Sync::META_UID, $attachment_uid );
+		update_post_meta( $attachment_id, Content_Sync::META_SET, 'unit' );
 
 		$filter = static fn() => 'delete';
 		add_filter( 'blockstudio/content/orphan_action', $filter );
@@ -590,6 +612,7 @@ class ContentSyncTest extends TestCase {
 		$this->assertContains( 'pruned-delete', wp_list_pluck( $rows, 'action' ) );
 		$this->assertNull( get_post( $owned_id ) );
 		$this->assertInstanceOf( WP_Post::class, get_post( $other_id ) );
+		$this->assertInstanceOf( WP_Post::class, get_post( $attachment_id ) );
 	}
 
 	/**
@@ -625,6 +648,122 @@ class ContentSyncTest extends TestCase {
 		$rows = $sync->status();
 
 		$this->assertSame( array( 'unchanged' ), wp_list_pluck( $rows, 'action' ) );
+	}
+
+	/**
+	 * Push dry-run reports the plan without writing database changes.
+	 *
+	 * @return void
+	 */
+	public function test_push_dry_run_reports_plan_without_writes(): void {
+		$term_uid   = wp_generate_uuid4();
+		$post_uid   = wp_generate_uuid4();
+		$orphan_uid = wp_generate_uuid4();
+		$orphan_id  = $this->insert_post(
+			array(
+				'post_title' => 'Dry Run Orphan',
+				'post_name'  => 'dry-run-orphan',
+			)
+		);
+
+		update_post_meta( $orphan_id, Content_Sync::META_UID, $orphan_uid );
+		update_post_meta( $orphan_id, Content_Sync::META_SET, 'unit' );
+
+		$this->write_term_file(
+			'dry-run-topic',
+			array(
+				'uid'          => $term_uid,
+				'taxonomy'     => $this->taxonomy,
+				'slug'         => 'dry-run-topic',
+				'name'         => 'Dry Run Topic',
+				'description'  => '',
+				'parent'       => null,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			)
+		);
+		$this->write_post_file(
+			'dry-run-post',
+			array(
+				'uid'          => $post_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'dry-run-post',
+				'title'        => 'Dry Run Post',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'terms'        => array(
+					$this->taxonomy => array( $term_uid ),
+				),
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			''
+		);
+
+		$filter = static fn() => 'delete';
+		add_filter( 'blockstudio/content/orphan_action', $filter );
+
+		try {
+			$sync = new Content_Sync( $this->config( array( 'taxonomies' => array( $this->taxonomy ) ) ) );
+			$rows = $sync->push(
+				array(
+					'dry-run' => true,
+					'prune'   => true,
+				)
+			);
+		} finally {
+			remove_filter( 'blockstudio/content/orphan_action', $filter );
+		}
+
+		$this->assertContains( 'would-create', wp_list_pluck( $rows, 'action' ) );
+		$this->assertContains( 'would-prune-delete', wp_list_pluck( $rows, 'action' ) );
+		$this->assertNull( $this->get_post_by_uid( $post_uid ) );
+		$this->assertNull( $this->get_term_by_uid( $term_uid ) );
+		$this->assertInstanceOf( WP_Post::class, get_post( $orphan_id ) );
+	}
+
+	/**
+	 * Status reports term unchanged, file update, and database conflict states.
+	 *
+	 * @return void
+	 */
+	public function test_status_reports_term_update_and_conflict_states(): void {
+		$term_uid = wp_generate_uuid4();
+
+		$file = $this->write_term_file(
+			'status-topic',
+			array(
+				'uid'          => $term_uid,
+				'taxonomy'     => $this->taxonomy,
+				'slug'         => 'status-topic',
+				'name'         => 'Status Topic',
+				'description'  => '',
+				'parent'       => null,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			)
+		);
+
+		$sync = new Content_Sync( $this->config( array( 'taxonomies' => array( $this->taxonomy ) ) ) );
+		$sync->push();
+
+		$rows = $sync->status();
+		$this->assertSame( array( 'unchanged' ), wp_list_pluck( $rows, 'action' ) );
+
+		$data         = json_decode( (string) file_get_contents( $file ), true ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local content sync fixture.
+		$data['name'] = 'Status Topic From File';
+		file_put_contents( $file, wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Updating local content sync fixture.
+
+		$rows = $sync->status();
+		$this->assertSame( array( 'would-update' ), wp_list_pluck( $rows, 'action' ) );
+
+		$term = $this->get_term_by_uid( $term_uid );
+		$this->assertInstanceOf( WP_Term::class, $term );
+		wp_update_term( $term->term_id, $this->taxonomy, array( 'name' => 'Status Topic From Database' ) );
+
+		$rows = $sync->status();
+		$this->assertSame( array( 'conflict' ), wp_list_pluck( $rows, 'action' ) );
 	}
 
 	/**
