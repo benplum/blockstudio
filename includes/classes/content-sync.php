@@ -59,6 +59,11 @@ class Content_Sync {
 			return $this->disabled_rows();
 		}
 
+		$selection_errors = $this->selection_error_rows( $args );
+		if ( ! empty( $selection_errors ) ) {
+			return $selection_errors;
+		}
+
 		$this->dry_run = ! empty( $args['dry-run'] );
 		$rows          = array();
 		$seen_sources  = array();
@@ -131,6 +136,11 @@ class Content_Sync {
 			return $this->disabled_rows();
 		}
 
+		$selection_errors = $this->selection_error_rows( $args );
+		if ( ! empty( $selection_errors ) ) {
+			return $selection_errors;
+		}
+
 		$this->dry_run = ! empty( $args['dry-run'] );
 		$plan          = $this->build_push_plan( $args );
 
@@ -179,6 +189,11 @@ class Content_Sync {
 			return $this->disabled_rows();
 		}
 
+		$selection_errors = $this->selection_error_rows( $args );
+		if ( ! empty( $selection_errors ) ) {
+			return $selection_errors;
+		}
+
 		$rows = array();
 		$plan = $this->build_push_plan(
 			array_merge(
@@ -219,6 +234,33 @@ class Content_Sync {
 		return array(
 			$this->row( 'skipped', 'content', $this->config['id'], '', 'Content Sync is disabled. Set content.enabled to true to run this command.' ),
 		);
+	}
+
+	/**
+	 * Build errors for selectors outside the configured allowlist.
+	 *
+	 * @param array $args Command options.
+	 *
+	 * @return array
+	 */
+	private function selection_error_rows( array $args ): array {
+		$rows = array();
+
+		if ( ! empty( $args['post-type'] ) ) {
+			$post_type = sanitize_key( (string) $args['post-type'] );
+			if ( '' !== $post_type && ! in_array( $post_type, $this->config['postTypes'], true ) ) {
+				$rows[] = $this->row( 'error', 'post_type', $post_type, '', "Post type '{$post_type}' is not configured for Content Sync." );
+			}
+		}
+
+		if ( ! empty( $args['taxonomy'] ) ) {
+			$taxonomy = sanitize_key( (string) $args['taxonomy'] );
+			if ( '' !== $taxonomy && ! in_array( $taxonomy, $this->config['taxonomies'], true ) ) {
+				$rows[] = $this->row( 'error', 'taxonomy', $taxonomy, '', "Taxonomy '{$taxonomy}' is not configured for Content Sync." );
+			}
+		}
+
+		return $rows;
 	}
 
 	/**
@@ -815,6 +857,11 @@ class Content_Sync {
 
 		foreach ( (array) ( $data['terms'] ?? array() ) as $taxonomy => $uids ) {
 			$taxonomy = (string) $taxonomy;
+			if ( ! in_array( $taxonomy, $this->config['taxonomies'], true ) ) {
+				$errors[] = $this->row( 'error', 'terms', $taxonomy, $owner_uid, "Taxonomy '{$taxonomy}' is not configured for Content Sync." );
+				continue;
+			}
+
 			if ( ! taxonomy_exists( $taxonomy ) ) {
 				$errors[] = $this->row( 'error', 'terms', $taxonomy, $owner_uid, "Taxonomy '{$taxonomy}' is not registered." );
 				continue;
@@ -955,7 +1002,7 @@ class Content_Sync {
 		$existing    = $this->find_post_by_uid( $uid );
 		$fingerprint = $this->fingerprint_projection( $data, $item['body'] );
 
-		if ( $existing && (string) get_post_meta( $existing->ID, self::META_FINGERPRINT, true ) === $fingerprint ) {
+		if ( $existing && (string) get_post_meta( $existing->ID, self::META_FINGERPRINT, true ) === $fingerprint && hash_equals( $fingerprint, $this->fingerprint_post_for_file( $existing, $data, (string) $item['body'] ) ) ) {
 			return array(
 				'post_id' => $existing->ID,
 				'row'     => $this->row( 'unchanged', 'post', (string) $existing->ID, $uid, $this->relative_path( $item['source'] ) ),
@@ -1040,7 +1087,7 @@ class Content_Sync {
 		$existing    = $this->find_term_by_uid( $uid, $taxonomy );
 		$fingerprint = $this->fingerprint_projection( $data, '' );
 
-		if ( $existing && (string) get_term_meta( $existing->term_id, self::META_FINGERPRINT, true ) === $fingerprint ) {
+		if ( $existing && (string) get_term_meta( $existing->term_id, self::META_FINGERPRINT, true ) === $fingerprint && hash_equals( $fingerprint, $this->fingerprint_term( $existing, $data ) ) ) {
 			return array(
 				'term_id' => $existing->term_id,
 				'row'     => $this->row( 'unchanged', 'term', (string) $existing->term_id, $uid, $this->relative_path( $item['source'] ) ),
@@ -1187,6 +1234,10 @@ class Content_Sync {
 	 */
 	private function apply_post_terms( int $post_id, array $data, array $term_ids ): void {
 		foreach ( (array) ( $data['terms'] ?? array() ) as $taxonomy => $uids ) {
+			if ( ! in_array( (string) $taxonomy, $this->config['taxonomies'], true ) ) {
+				continue;
+			}
+
 			if ( ! taxonomy_exists( (string) $taxonomy ) ) {
 				continue;
 			}
@@ -1730,7 +1781,8 @@ class Content_Sync {
 	 */
 	private function selected_post_types( array $args = array() ): array {
 		if ( ! empty( $args['post-type'] ) ) {
-			return array( sanitize_key( (string) $args['post-type'] ) );
+			$post_type = sanitize_key( (string) $args['post-type'] );
+			return in_array( $post_type, $this->config['postTypes'], true ) ? array( $post_type ) : array();
 		}
 
 		return $this->config['postTypes'];
@@ -1745,7 +1797,8 @@ class Content_Sync {
 	 */
 	private function selected_taxonomies( array $args = array() ): array {
 		if ( ! empty( $args['taxonomy'] ) ) {
-			return array( sanitize_key( (string) $args['taxonomy'] ) );
+			$taxonomy = sanitize_key( (string) $args['taxonomy'] );
+			return in_array( $taxonomy, $this->config['taxonomies'], true ) ? array( $taxonomy ) : array();
 		}
 
 		return $this->config['taxonomies'];
@@ -2376,6 +2429,19 @@ class Content_Sync {
 	 * @return string
 	 */
 	private function fingerprint_post( WP_Post $post, ?array $file_shape = null ): string {
+		return $this->fingerprint_post_for_file( $post, $file_shape, (string) $post->post_content );
+	}
+
+	/**
+	 * Fingerprint a live post using the ownership shape of one file projection.
+	 *
+	 * @param WP_Post    $post       Post.
+	 * @param array|null $file_shape Optional file projection shape.
+	 * @param string     $file_body  File-owned body content.
+	 *
+	 * @return string
+	 */
+	private function fingerprint_post_for_file( WP_Post $post, ?array $file_shape, string $file_body ): string {
 		$uid        = (string) get_post_meta( $post->ID, self::META_UID, true );
 		$projection = $this->project_post( $post, $uid );
 
@@ -2383,7 +2449,8 @@ class Content_Sync {
 			$projection = $this->shape_live_projection_for_file( $projection, $file_shape );
 		}
 
-		return $this->fingerprint_projection( $projection, (string) $post->post_content );
+		$body = $this->is_page_sync_managed( $post->ID ) ? $file_body : (string) $post->post_content;
+		return $this->fingerprint_projection( $projection, $body );
 	}
 
 	/**

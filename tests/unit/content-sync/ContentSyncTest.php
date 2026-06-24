@@ -197,6 +197,25 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * CLI selectors cannot expand beyond the configured allowlist.
+	 *
+	 * @return void
+	 */
+	public function test_cli_selectors_must_be_configured(): void {
+		$sync = new Content_Sync( $this->config() );
+
+		$post_rows = $sync->pull( array( 'post-type' => 'post' ) );
+		$tax_rows  = $sync->pull( array( 'taxonomy' => 'category' ) );
+
+		$this->assertSame( array( 'error' ), wp_list_pluck( $post_rows, 'action' ) );
+		$this->assertSame( array( 'post_type' ), wp_list_pluck( $post_rows, 'entity' ) );
+		$this->assertSame( array( 'post' ), wp_list_pluck( $post_rows, 'id' ) );
+		$this->assertSame( array( 'error' ), wp_list_pluck( $tax_rows, 'action' ) );
+		$this->assertSame( array( 'taxonomy' ), wp_list_pluck( $tax_rows, 'entity' ) );
+		$this->assertSame( array( 'category' ), wp_list_pluck( $tax_rows, 'id' ) );
+	}
+
+	/**
 	 * Pull does not rewrite unchanged files.
 	 *
 	 * @return void
@@ -332,6 +351,58 @@ class ContentSyncTest extends TestCase {
 		$this->assertSame( $parent->ID, (int) $child->post_parent );
 		$this->assertSame( array( $parent->ID ), json_decode( (string) get_post_meta( $child->ID, '_related_posts', true ), true ) );
 		$this->assertSame( array( 'id' => 123 ), json_decode( (string) get_post_meta( $child->ID, '_my_payload', true ), true ) );
+	}
+
+	/**
+	 * Push restores database drift when files still match the last sync fingerprint.
+	 *
+	 * @return void
+	 */
+	public function test_push_restores_post_database_drift(): void {
+		$uid = wp_generate_uuid4();
+
+		$this->write_post_file(
+			'drift-source',
+			array(
+				'uid'          => $uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'drift-source',
+				'title'        => 'File Title',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(
+					'_my_subtitle' => 'File Subtitle',
+				),
+				'metaEncoding' => array(
+					'_my_subtitle' => 'scalar',
+				),
+			),
+			'<p>File body</p>'
+		);
+
+		$sync = new Content_Sync( $this->config() );
+		$sync->push();
+
+		$post = $this->get_post_by_uid( $uid );
+		$this->assertInstanceOf( WP_Post::class, $post );
+
+		wp_update_post(
+			array(
+				'ID'           => $post->ID,
+				'post_title'   => 'Database Drift',
+				'post_content' => '<p>Database drift</p>',
+			)
+		);
+		update_post_meta( $post->ID, '_my_subtitle', 'Database Drift' );
+
+		$rows = $sync->push();
+		$post = get_post( $post->ID );
+
+		$this->assertContains( 'updated', wp_list_pluck( $rows, 'action' ) );
+		$this->assertSame( 'File Title', $post->post_title );
+		$this->assertSame( '<p>File body</p>', $post->post_content );
+		$this->assertSame( 'File Subtitle', get_post_meta( $post->ID, '_my_subtitle', true ) );
 	}
 
 	/**
@@ -1066,6 +1137,58 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Push restores term drift when files still match the last sync fingerprint.
+	 *
+	 * @return void
+	 */
+	public function test_push_restores_term_database_drift(): void {
+		$term_uid = wp_generate_uuid4();
+
+		$this->write_term_file(
+			'drift-topic',
+			array(
+				'uid'          => $term_uid,
+				'taxonomy'     => $this->taxonomy,
+				'slug'         => 'drift-topic',
+				'name'         => 'File Topic',
+				'description'  => 'File description',
+				'parent'       => null,
+				'meta'         => array(
+					'_my_color' => 'blue',
+				),
+				'metaEncoding' => array(
+					'_my_color' => 'scalar',
+				),
+			)
+		);
+
+		$sync = new Content_Sync( $this->config( array( 'taxonomies' => array( $this->taxonomy ) ) ) );
+		$sync->push();
+
+		$term = $this->get_term_by_uid( $term_uid );
+		$this->assertInstanceOf( WP_Term::class, $term );
+
+		wp_update_term(
+			$term->term_id,
+			$this->taxonomy,
+			array(
+				'name'        => 'Database Drift',
+				'description' => 'Database drift',
+			)
+		);
+		update_term_meta( $term->term_id, '_my_color', 'red' );
+
+		$rows = $sync->push();
+		$term = get_term( $term->term_id, $this->taxonomy );
+
+		$this->assertContains( 'updated', wp_list_pluck( $rows, 'action' ) );
+		$this->assertInstanceOf( WP_Term::class, $term );
+		$this->assertSame( 'File Topic', $term->name );
+		$this->assertSame( 'File description', $term->description );
+		$this->assertSame( 'blue', get_term_meta( $term->term_id, '_my_color', true ) );
+	}
+
+	/**
 	 * Status warns when allowlisted meta keys look sensitive.
 	 *
 	 * @return void
@@ -1384,6 +1507,40 @@ class ContentSyncTest extends TestCase {
 		);
 
 		$sync = new Content_Sync( $this->config( array( 'taxonomies' => array( $this->taxonomy ) ) ) );
+		$rows = $sync->push();
+
+		$this->assertContains( 'error', wp_list_pluck( $rows, 'action' ) );
+		$this->assertNull( $this->get_post_by_uid( $post_uid ) );
+	}
+
+	/**
+	 * Push blocks post term relationships outside the configured taxonomy allowlist.
+	 *
+	 * @return void
+	 */
+	public function test_push_blocks_unconfigured_taxonomy_relationships(): void {
+		$post_uid = wp_generate_uuid4();
+
+		$this->write_post_file(
+			'unconfigured-taxonomy',
+			array(
+				'uid'          => $post_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'unconfigured-taxonomy',
+				'title'        => 'Unconfigured Taxonomy',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'terms'        => array(
+					'category' => array(),
+				),
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			''
+		);
+
+		$sync = new Content_Sync( $this->config() );
 		$rows = $sync->push();
 
 		$this->assertContains( 'error', wp_list_pluck( $rows, 'action' ) );
