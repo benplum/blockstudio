@@ -8977,6 +8977,7 @@ post-term relationships to files, stores portable UIDs in WordPress meta, and
 rewrites only the references you explicitly declare.
 
 Content Sync is on-demand. It does not run on every admin request.
+Commands return a skipped row until `content.enabled` is `true`.
 
 ## Configuration
 

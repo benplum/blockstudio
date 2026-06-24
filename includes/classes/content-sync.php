@@ -55,6 +55,10 @@ class Content_Sync {
 	 * @return array Result rows.
 	 */
 	public function pull( array $args = array() ): array {
+		if ( ! $this->config['enabled'] ) {
+			return $this->disabled_rows();
+		}
+
 		$this->dry_run = ! empty( $args['dry-run'] );
 		$rows          = array();
 		$seen_sources  = array();
@@ -123,6 +127,10 @@ class Content_Sync {
 	 * @return array Result rows.
 	 */
 	public function push( array $args = array() ): array {
+		if ( ! $this->config['enabled'] ) {
+			return $this->disabled_rows();
+		}
+
 		$this->dry_run = ! empty( $args['dry-run'] );
 		$plan          = $this->build_push_plan( $args );
 
@@ -167,6 +175,10 @@ class Content_Sync {
 	 * @return array Status rows.
 	 */
 	public function status( array $args = array() ): array {
+		if ( ! $this->config['enabled'] ) {
+			return $this->disabled_rows();
+		}
+
 		$rows = array();
 		$plan = $this->build_push_plan(
 			array_merge(
@@ -196,6 +208,17 @@ class Content_Sync {
 	 */
 	public function config(): array {
 		return $this->config;
+	}
+
+	/**
+	 * Build rows for disabled Content Sync runs.
+	 *
+	 * @return array
+	 */
+	private function disabled_rows(): array {
+		return array(
+			$this->row( 'skipped', 'content', $this->config['id'], '', 'Content Sync is disabled. Set content.enabled to true to run this command.' ),
+		);
 	}
 
 	/**

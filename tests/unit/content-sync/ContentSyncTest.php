@@ -175,6 +175,28 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Disabled Content Sync config does not read or write content.
+	 *
+	 * @return void
+	 */
+	public function test_disabled_content_sync_is_a_noop(): void {
+		$post_id = $this->insert_post(
+			array(
+				'post_title' => 'Disabled Source',
+				'post_name'  => 'disabled-source',
+			)
+		);
+
+		$sync = new Content_Sync( $this->config( array( 'enabled' => false ) ) );
+
+		$this->assertSame( array( 'skipped' ), wp_list_pluck( $sync->pull(), 'action' ) );
+		$this->assertSame( array( 'skipped' ), wp_list_pluck( $sync->push(), 'action' ) );
+		$this->assertSame( array( 'skipped' ), wp_list_pluck( $sync->status(), 'action' ) );
+		$this->assertSame( '', (string) get_post_meta( $post_id, Content_Sync::META_UID, true ) );
+		$this->assertFileDoesNotExist( $this->content_root() );
+	}
+
+	/**
 	 * Pull does not rewrite unchanged files.
 	 *
 	 * @return void
