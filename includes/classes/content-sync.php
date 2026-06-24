@@ -186,7 +186,7 @@ class Content_Sync {
 			$rows[] = $this->status_term_file( $item, false );
 		}
 
-		return array_merge( $rows, $this->preview_prune_missing( $plan, 'orphaned' ), $this->status_meta_secret_warnings( $plan ), $plan['errors'] );
+		return array_merge( $rows, $this->preview_prune_missing( $plan, 'orphaned' ), $this->status_meta_secret_warnings( $plan ), $this->status_body_reference_warnings( $plan ), $plan['errors'] );
 	}
 
 	/**
@@ -516,6 +516,138 @@ class Content_Sync {
 	 */
 	private function meta_key_looks_sensitive( string $key ): bool {
 		return 1 === preg_match( '/(?:secret|token|password|passwd|pwd|api[\W_]*key|private[\W_]*key|client[\W_]*secret|access[\W_]*key|credential)/i', $key );
+	}
+
+	/**
+	 * Build status warnings for numeric IDs inside block markup bodies.
+	 *
+	 * @param array $plan Push plan.
+	 *
+	 * @return array
+	 */
+	private function status_body_reference_warnings( array $plan ): array {
+		$warnings = array();
+
+		foreach ( $plan['posts'] as $item ) {
+			$body = (string) ( $item['body'] ?? '' );
+			if ( '' === $body || ! $this->body_contains_block_id_reference( $body ) ) {
+				continue;
+			}
+
+			$data       = $item['data'];
+			$warnings[] = $this->row(
+				'warning',
+				'body',
+				(string) ( $data['slug'] ?? '' ),
+				(string) ( $data['uid'] ?? '' ),
+				'Post body contains numeric IDs in block markup; Content Sync does not rewrite IDs inside .html files.'
+			);
+		}
+
+		return $warnings;
+	}
+
+	/**
+	 * Check whether block markup contains likely numeric content references.
+	 *
+	 * @param string $body Post body.
+	 *
+	 * @return bool
+	 */
+	private function body_contains_block_id_reference( string $body ): bool {
+		if ( ! str_contains( $body, '<!-- wp:' ) ) {
+			return false;
+		}
+
+		foreach ( parse_blocks( $body ) as $block ) {
+			if ( $this->block_contains_id_reference( $block ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check whether one parsed block contains a likely numeric content reference.
+	 *
+	 * @param array $block Parsed block.
+	 *
+	 * @return bool
+	 */
+	private function block_contains_id_reference( array $block ): bool {
+		if ( $this->attributes_contain_id_reference( (array) ( $block['attrs'] ?? array() ) ) ) {
+			return true;
+		}
+
+		foreach ( (array) ( $block['innerBlocks'] ?? array() ) as $inner_block ) {
+			if ( is_array( $inner_block ) && $this->block_contains_id_reference( $inner_block ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check parsed block attributes for numeric content reference fields.
+	 *
+	 * @param array $attributes Attributes.
+	 *
+	 * @return bool
+	 */
+	private function attributes_contain_id_reference( array $attributes ): bool {
+		$reference_keys = array(
+			'attachmentid',
+			'author',
+			'authors',
+			'categoryids',
+			'id',
+			'ids',
+			'include',
+			'mediaid',
+			'postid',
+			'postids',
+			'termid',
+			'termids',
+		);
+
+		foreach ( $attributes as $key => $value ) {
+			$normalized_key = strtolower( preg_replace( '/[^a-z0-9]/i', '', (string) $key ) ?? '' );
+
+			if ( in_array( $normalized_key, $reference_keys, true ) && $this->value_contains_numeric_reference( $value ) ) {
+				return true;
+			}
+
+			if ( is_array( $value ) && $this->attributes_contain_id_reference( $value ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check whether a value is, or contains, a numeric ID reference.
+	 *
+	 * @param mixed $value Value.
+	 *
+	 * @return bool
+	 */
+	private function value_contains_numeric_reference( mixed $value ): bool {
+		if ( is_int( $value ) || ( is_string( $value ) && ctype_digit( $value ) ) ) {
+			return (int) $value > 0;
+		}
+
+		if ( is_array( $value ) ) {
+			foreach ( $value as $item ) {
+				if ( $this->value_contains_numeric_reference( $item ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**

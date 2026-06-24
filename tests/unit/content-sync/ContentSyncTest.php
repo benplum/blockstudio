@@ -848,6 +848,44 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Status warns when block markup contains hardcoded numeric IDs.
+	 *
+	 * @return void
+	 */
+	public function test_status_warns_about_block_markup_id_references(): void {
+		$post_uid = wp_generate_uuid4();
+
+		$this->write_post_file(
+			'body-reference',
+			array(
+				'uid'          => $post_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'body-reference',
+				'title'        => 'Body Reference',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			'<!-- wp:image {"id":123,"sizeSlug":"large"} /-->'
+		);
+
+		$sync = new Content_Sync( $this->config() );
+		$rows = $sync->status();
+
+		$warnings = array_values(
+			array_filter(
+				$rows,
+				static fn( array $row ): bool => 'warning' === $row['action'] && 'body' === $row['entity']
+			)
+		);
+
+		$this->assertCount( 1, $warnings );
+		$this->assertSame( $post_uid, $warnings[0]['uid'] );
+	}
+
+	/**
 	 * Push creates terms parent-first and assigns post term relationships.
 	 *
 	 * @return void

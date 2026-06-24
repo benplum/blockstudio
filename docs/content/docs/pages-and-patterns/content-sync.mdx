@@ -79,7 +79,9 @@ entities, and missing post types.
 
 `status` compares files with the database and reports missing, changed,
 unchanged, orphaned, or conflicted entities. It also warns about allowlisted meta
-keys that look like secrets before those values are committed.
+keys that look like secrets before those values are committed, and about numeric
+IDs inside block markup bodies because Content Sync does not rewrite IDs in
+`.html` files.
 
 Use `--dry-run` to inspect a pull or push without writing. Use `push --prune
 --yes` to remove content-set owned database entities that no longer exist in the
