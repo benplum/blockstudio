@@ -89,15 +89,16 @@ class Content_Sync {
 					continue;
 				}
 
-				$this->write_json_file( $source, $projection );
+				$changed = $this->write_json_file( $source, $projection );
 				if ( '' !== $body ) {
-					$this->write_file( $body_path, $body );
+					$changed = $this->write_file( $body_path, $body ) || $changed;
 				} elseif ( file_exists( $body_path ) ) {
 					wp_delete_file( $body_path );
+					$changed = true;
 				}
 
 				$this->update_entity_state( 'post', $post->ID, $uid, $source, $fingerprint );
-				$rows[] = $this->row( 'written', 'post', (string) $post->ID, $uid, $this->relative_path( $source ) );
+				$rows[] = $this->row( $changed ? 'written' : 'unchanged', 'post', (string) $post->ID, $uid, $this->relative_path( $source ) );
 			}
 		}
 
@@ -509,9 +510,9 @@ class Content_Sync {
 				continue;
 			}
 
-			$this->write_json_file( $source, $projection );
+			$changed = $this->write_json_file( $source, $projection );
 			$this->update_entity_state( 'term', $term->term_id, $uid, $source, $fingerprint );
-			$rows[] = $this->row( 'written', 'term', (string) $term->term_id, $uid, $this->relative_path( $source ) );
+			$rows[] = $this->row( $changed ? 'written' : 'unchanged', 'term', (string) $term->term_id, $uid, $this->relative_path( $source ) );
 		}
 
 		return $rows;
@@ -1917,10 +1918,10 @@ class Content_Sync {
 	 * @param string $file File path.
 	 * @param array  $data Data.
 	 *
-	 * @return void
+	 * @return bool True when the file changed.
 	 */
-	private function write_json_file( string $file, array $data ): void {
-		$this->write_file( $file, wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . "\n" );
+	private function write_json_file( string $file, array $data ): bool {
+		return $this->write_file( $file, wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . "\n" );
 	}
 
 	/**
@@ -1929,12 +1930,21 @@ class Content_Sync {
 	 * @param string $file    File path.
 	 * @param string $content Content.
 	 *
-	 * @return void
+	 * @return bool True when the file changed.
 	 */
-	private function write_file( string $file, string $content ): void {
+	private function write_file( string $file, string $content ): bool {
+		if ( file_exists( $file ) ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local content sync file before deciding whether to rewrite it.
+			$existing = file_get_contents( $file );
+			if ( $content === $existing ) {
+				return false;
+			}
+		}
+
 		wp_mkdir_p( dirname( $file ) );
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writing local content sync file.
 		file_put_contents( $file, $content );
+		return true;
 	}
 
 	/**
@@ -1975,8 +1985,9 @@ class Content_Sync {
 		}
 
 		ksort( $manifest );
-		$this->write_json_file( $this->root_path() . '/media/manifest.json', $manifest );
-		$rows[] = $this->row( 'written', 'media', 'manifest', '', $this->relative_path( $this->root_path() . '/media/manifest.json' ) );
+		$manifest_path = $this->root_path() . '/media/manifest.json';
+		$changed       = $this->write_json_file( $manifest_path, $manifest );
+		$rows[]        = $this->row( $changed ? 'written' : 'unchanged', 'media', 'manifest', '', $this->relative_path( $manifest_path ) );
 	}
 
 	/**

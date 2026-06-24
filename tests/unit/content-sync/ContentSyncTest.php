@@ -138,6 +138,43 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Pull does not rewrite unchanged files.
+	 *
+	 * @return void
+	 */
+	public function test_pull_does_not_rewrite_unchanged_files(): void {
+		$this->insert_post(
+			array(
+				'post_title'   => 'Stable Source',
+				'post_name'    => 'stable-source',
+				'post_content' => '<p>Stable body</p>',
+			)
+		);
+
+		$sync = new Content_Sync( $this->config() );
+		$sync->pull();
+
+		$json_file = $this->find_post_json_file();
+		$body_file = preg_replace( '/\.json$/', '.html', $json_file );
+		$this->assertFileExists( $body_file );
+
+		$old_time = time() - 3600;
+		touch( $json_file, $old_time );
+		touch( $body_file, $old_time );
+		clearstatcache( true, $json_file );
+		clearstatcache( true, $body_file );
+
+		$rows = $sync->pull();
+
+		clearstatcache( true, $json_file );
+		clearstatcache( true, $body_file );
+
+		$this->assertSame( array( 'unchanged' ), wp_list_pluck( $rows, 'action' ) );
+		$this->assertSame( $old_time, filemtime( $json_file ) );
+		$this->assertSame( $old_time, filemtime( $body_file ) );
+	}
+
+	/**
 	 * Push creates posts and rewrites declared post references.
 	 *
 	 * @return void
