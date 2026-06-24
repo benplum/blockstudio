@@ -472,6 +472,19 @@ add_action(
 			);
 		}
 
+		if ( ! post_type_exists( 'bs_content_sync' ) ) {
+			register_post_type(
+				'bs_content_sync',
+				array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'hierarchical' => true,
+					'label'        => 'Content Sync',
+					'supports'     => array( 'title', 'editor', 'custom-fields', 'page-attributes' ),
+				)
+			);
+		}
+
 		// Use blockstudio_theme instead of wp_theme to avoid conflict with WP core
 		if ( ! taxonomy_exists( 'blockstudio_theme' ) ) {
 			register_taxonomy(

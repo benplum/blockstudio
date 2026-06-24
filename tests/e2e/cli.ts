@@ -1,5 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
+import { join, relative } from 'path';
 
 const wp = (cmd: string) => {
   const result = execSync(
@@ -16,6 +25,61 @@ const wp = (cmd: string) => {
   );
   return output.join('\n').trim();
 };
+
+const themeJsonPath = 'tests/theme/blockstudio.json';
+const contentPath = 'tests/theme/content-sync-e2e';
+
+function readFilesRecursive(dir: string): Record<string, string> {
+  if (!existsSync(dir)) return {};
+
+  const files: Record<string, string> = {};
+  const visit = (current: string) => {
+    for (const entry of readdirSync(current)) {
+      const path = join(current, entry);
+      if (statSync(path).isDirectory()) {
+        visit(path);
+      } else {
+        files[relative(dir, path)] = readFileSync(path, 'utf8');
+      }
+    }
+  };
+
+  visit(dir);
+  return files;
+}
+
+function cleanContentSyncState() {
+  wp(
+    "eval 'foreach (get_posts(array(\"post_type\"=>\"bs_content_sync\",\"post_status\"=>\"any\",\"numberposts\"=>-1)) as $post) { wp_delete_post($post->ID, true); }'"
+  );
+
+  if (existsSync(contentPath)) {
+    rmSync(contentPath, { recursive: true, force: true });
+  }
+}
+
+function writeContentSyncSettings(original: string) {
+  const settings = JSON.parse(original);
+  settings.content = {
+    enabled: true,
+    id: 'e2e',
+    path: 'content-sync-e2e',
+    includePageSyncManaged: false,
+    authors: 'ignore',
+    postTypes: ['bs_content_sync'],
+    meta: {
+      include: ['_my_*', '_related_posts'],
+      exclude: ['_edit_lock', '_edit_last', '_wp_old_slug'],
+      references: {
+        _related_posts: { kind: 'post', path: '*' },
+      },
+    },
+    taxonomies: [],
+    media: 'manifest',
+  };
+
+  writeFileSync(themeJsonPath, `${JSON.stringify(settings, null, 2)}\n`);
+}
 
 test.describe('CLI - blocks', () => {
   test('lists blocks', () => {
@@ -129,5 +193,96 @@ test.describe('CLI - settings', () => {
   test('gets a setting', () => {
     const out = wp('bs settings get assets/enqueue');
     expect(out).toBeDefined();
+  });
+});
+
+test.describe.serial('CLI - content sync', () => {
+  let originalSettings: string;
+
+  test.beforeAll(() => {
+    originalSettings = readFileSync(themeJsonPath, 'utf8');
+    writeContentSyncSettings(originalSettings);
+    cleanContentSyncState();
+  });
+
+  test.afterAll(() => {
+    cleanContentSyncState();
+    writeFileSync(themeJsonPath, originalSettings);
+  });
+
+  test('pulls files, pushes into an empty database, and remains stable', () => {
+    const parentId = wp(
+      'post create --post_type=bs_content_sync --post_status=publish --post_title="Content Sync Parent" --post_name=content-sync-parent --post_content="<p>Parent Body</p>" --porcelain'
+    );
+    const childId = wp(
+      `post create --post_type=bs_content_sync --post_status=publish --post_title="Content Sync Child" --post_name=content-sync-child --post_parent=${parentId} --post_content="<p>Child Body</p>" --porcelain`
+    );
+
+    wp(`post meta update ${parentId} _my_subtitle "Parent Subtitle"`);
+    wp(`post meta update ${childId} _my_subtitle "Child Subtitle"`);
+    wp(`post meta update ${childId} _related_posts '[${parentId}]'`);
+
+    const pullRows = JSON.parse(wp('bs content pull --format=json'));
+    expect(pullRows.some((row: any) => row.action === 'written')).toBe(true);
+
+    const pulledFiles = readFilesRecursive(contentPath);
+    expect(Object.keys(pulledFiles)).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(
+          /^posts\/bs_content_sync\/content-sync-parent\.[a-f0-9-]+\.json$/
+        ),
+        expect.stringMatching(
+          /^posts\/bs_content_sync\/content-sync-child\.[a-f0-9-]+\.json$/
+        ),
+        expect.stringMatching(
+          /^posts\/bs_content_sync\/content-sync-parent\.[a-f0-9-]+\.html$/
+        ),
+        expect.stringMatching(
+          /^posts\/bs_content_sync\/content-sync-child\.[a-f0-9-]+\.html$/
+        ),
+      ])
+    );
+
+    wp(`post delete ${childId} ${parentId} --force`);
+
+    const pushRows = JSON.parse(wp('bs content push --format=json'));
+    expect(pushRows.filter((row: any) => row.action === 'created')).toHaveLength(
+      2
+    );
+
+    const posts = JSON.parse(
+      wp(
+        'post list --post_type=bs_content_sync --post_status=any --fields=ID,post_name,post_parent --format=json'
+      )
+    );
+    const parent = posts.find(
+      (post: any) => post.post_name === 'content-sync-parent'
+    );
+    const child = posts.find(
+      (post: any) => post.post_name === 'content-sync-child'
+    );
+
+    expect(parent).toBeDefined();
+    expect(child).toBeDefined();
+    expect(Number(child.post_parent)).toBe(Number(parent.ID));
+    expect(wp(`post meta get ${child.ID} _my_subtitle`)).toBe('Child Subtitle');
+    expect(JSON.parse(wp(`post meta get ${child.ID} _related_posts`))).toEqual([
+      Number(parent.ID),
+    ]);
+
+    const statusRows = JSON.parse(wp('bs content status --format=json'));
+    expect(statusRows.map((row: any) => row.action)).toEqual([
+      'unchanged',
+      'unchanged',
+    ]);
+
+    const secondPushRows = JSON.parse(wp('bs content push --format=json'));
+    expect(secondPushRows.map((row: any) => row.action)).toEqual([
+      'unchanged',
+      'unchanged',
+    ]);
+
+    wp('bs content pull --format=json');
+    expect(readFilesRecursive(contentPath)).toEqual(pulledFiles);
   });
 });
