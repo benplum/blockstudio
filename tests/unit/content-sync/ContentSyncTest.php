@@ -767,6 +767,48 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Status warns when allowlisted meta keys look sensitive.
+	 *
+	 * @return void
+	 */
+	public function test_status_warns_about_sensitive_allowlisted_meta_keys(): void {
+		$post_uid = wp_generate_uuid4();
+
+		$this->write_post_file(
+			'sensitive-meta',
+			array(
+				'uid'          => $post_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'sensitive-meta',
+				'title'        => 'Sensitive Meta',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(
+					'_my_api_key' => 'should-not-be-committed',
+				),
+				'metaEncoding' => array(
+					'_my_api_key' => 'scalar',
+				),
+			),
+			''
+		);
+
+		$sync = new Content_Sync( $this->config() );
+		$rows = $sync->status();
+
+		$warnings = array_values(
+			array_filter(
+				$rows,
+				static fn( array $row ): bool => 'warning' === $row['action'] && '_my_api_key' === $row['id']
+			)
+		);
+
+		$this->assertCount( 1, $warnings );
+		$this->assertSame( 'meta', $warnings[0]['entity'] );
+	}
+
+	/**
 	 * Push creates terms parent-first and assigns post term relationships.
 	 *
 	 * @return void

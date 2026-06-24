@@ -9013,6 +9013,11 @@ post relationships should sync. Blockstudio does not register taxonomy
 definitions from Content Sync files. Postmeta and termmeta are allowlisted
 through `meta.include`; `meta.exclude` always wins.
 
+Treat `meta.include` as a commit boundary. Synced files are meant to live in git,
+so do not include keys that hold secrets, tokens, credentials, or PII. `wp bs
+content status` reports warning rows when an allowlisted meta key looks
+sensitive.
+
 `content.id` is stored on synced entities as `_blockstudio_content_set`. Prune
 and ownership checks are scoped to that value, so one content set cannot delete
 another set's content.
@@ -9037,7 +9042,8 @@ writing and blocks unresolved declared references, slug conflicts, locked
 entities, and missing post types.
 
 `status` compares files with the database and reports missing, changed,
-unchanged, or conflicted entities.
+unchanged, orphaned, or conflicted entities. It also warns about allowlisted meta
+keys that look like secrets before those values are committed.
 
 Use `--dry-run` to inspect a pull or push without writing. Use `push --prune
 --yes` to remove content-set owned database entities that no longer exist in the

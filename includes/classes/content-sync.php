@@ -182,7 +182,7 @@ class Content_Sync {
 			$rows[] = $this->status_term_file( $item, false );
 		}
 
-		return array_merge( $rows, $this->preview_prune_missing( $plan, 'orphaned' ), $plan['errors'] );
+		return array_merge( $rows, $this->preview_prune_missing( $plan, 'orphaned' ), $this->status_meta_secret_warnings( $plan ), $plan['errors'] );
 	}
 
 	/**
@@ -462,6 +462,56 @@ class Content_Sync {
 		}
 
 		return $rows;
+	}
+
+	/**
+	 * Build status warnings for allowlisted meta keys that look sensitive.
+	 *
+	 * @param array $plan Push plan.
+	 *
+	 * @return array
+	 */
+	private function status_meta_secret_warnings( array $plan ): array {
+		$keys = array();
+
+		foreach ( $this->config['meta']['include'] as $pattern ) {
+			$keys[ (string) $pattern ] = true;
+		}
+
+		foreach ( array_merge( $plan['posts'], $plan['terms'] ) as $item ) {
+			foreach ( array_keys( (array) ( $item['data']['meta'] ?? array() ) ) as $key ) {
+				if ( $this->meta_key_allowed( (string) $key ) ) {
+					$keys[ (string) $key ] = true;
+				}
+			}
+		}
+
+		$warnings = array();
+		foreach ( array_keys( $keys ) as $key ) {
+			if ( ! $this->meta_key_looks_sensitive( $key ) ) {
+				continue;
+			}
+
+			$warnings[] = $this->row( 'warning', 'meta', $key, '', 'Allowlisted meta key may contain secrets or PII; review before committing synced files.' );
+		}
+
+		usort(
+			$warnings,
+			static fn( array $a, array $b ): int => strcmp( (string) $a['id'], (string) $b['id'] )
+		);
+
+		return $warnings;
+	}
+
+	/**
+	 * Check whether a meta key or pattern looks sensitive.
+	 *
+	 * @param string $key Meta key or glob pattern.
+	 *
+	 * @return bool
+	 */
+	private function meta_key_looks_sensitive( string $key ): bool {
+		return 1 === preg_match( '/(?:secret|token|password|passwd|pwd|api[\W_]*key|private[\W_]*key|client[\W_]*secret|access[\W_]*key|credential)/i', $key );
 	}
 
 	/**
