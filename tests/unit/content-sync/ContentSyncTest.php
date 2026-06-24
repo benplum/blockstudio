@@ -107,6 +107,7 @@ class ContentSyncTest extends TestCase {
 		$this->assertFileExists( $json_file );
 		$this->assertFileExists( preg_replace( '/\.json$/', '.html', $json_file ) );
 
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local content sync fixture.
 		$data = json_decode( (string) file_get_contents( $json_file ), true );
 		$this->assertSame( $uid, $data['uid'] );
 		$this->assertSame( $this->post_type, $data['type'] );
@@ -294,12 +295,289 @@ class ContentSyncTest extends TestCase {
 	}
 
 	/**
+	 * Pull rewrites only declared structured reference paths.
+	 *
+	 * @return void
+	 */
+	public function test_pull_rewrites_only_declared_structured_reference_paths(): void {
+		$attachment_id = $this->insert_attachment( 'structured-reference.jpg' );
+		$post_id       = $this->insert_post(
+			array(
+				'post_title' => 'Structured Source',
+				'post_name'  => 'structured-source',
+			)
+		);
+
+		update_post_meta(
+			$post_id,
+			'_hero',
+			wp_json_encode(
+				array(
+					'image' => array( 'id' => $attachment_id ),
+					'copy'  => 'Hero',
+				)
+			)
+		);
+		update_post_meta(
+			$post_id,
+			'_my_payload',
+			wp_json_encode(
+				array(
+					'image' => array( 'id' => 123 ),
+				)
+			)
+		);
+
+		$sync = new Content_Sync(
+			$this->config(
+				array(
+					'meta' => array(
+						'include'    => array( '_hero', '_my_payload' ),
+						'references' => array(
+							'_hero' => array(
+								'kind' => 'attachment',
+								'path' => 'image.id',
+							),
+						),
+					),
+				)
+			)
+		);
+		$sync->pull();
+
+		$attachment_uid = get_post_meta( $attachment_id, Content_Sync::META_UID, true );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local content sync fixture.
+		$data = json_decode( (string) file_get_contents( $this->find_post_json_file() ), true );
+
+		$this->assertSame( $attachment_uid, $data['meta']['_hero']['image']['id'] );
+		$this->assertSame( 123, $data['meta']['_my_payload']['image']['id'] );
+		$this->assertSame( 'json', $data['metaEncoding']['_hero'] );
+	}
+
+	/**
+	 * Push rewrites declared structured references back to local IDs.
+	 *
+	 * @return void
+	 */
+	public function test_push_rewrites_declared_structured_reference_paths(): void {
+		$attachment_id  = $this->insert_attachment( 'structured-push.jpg' );
+		$attachment_uid = wp_generate_uuid4();
+		$post_uid       = wp_generate_uuid4();
+
+		update_post_meta( $attachment_id, Content_Sync::META_UID, $attachment_uid );
+		update_post_meta( $attachment_id, Content_Sync::META_SET, 'unit' );
+
+		$this->write_post_file(
+			'structured-push',
+			array(
+				'uid'          => $post_uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'structured-push',
+				'title'        => 'Structured Push',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(
+					'_hero' => array(
+						'image' => array( 'id' => $attachment_uid ),
+						'copy'  => 'Hero',
+					),
+				),
+				'metaEncoding' => array(
+					'_hero' => 'json',
+				),
+			),
+			''
+		);
+
+		$sync = new Content_Sync(
+			$this->config(
+				array(
+					'meta' => array(
+						'include'    => array( '_hero' ),
+						'references' => array(
+							'_hero' => array(
+								'kind' => 'attachment',
+								'path' => 'image.id',
+							),
+						),
+					),
+				)
+			)
+		);
+		$rows = $sync->push();
+
+		$this->assertNotContains( 'error', wp_list_pluck( $rows, 'action' ) );
+
+		$post = $this->get_post_by_uid( $post_uid );
+		$this->assertInstanceOf( WP_Post::class, $post );
+
+		$hero = json_decode( (string) get_post_meta( $post->ID, '_hero', true ), true );
+		$this->assertSame( $attachment_id, $hero['image']['id'] );
+	}
+
+	/**
+	 * Pull honors meta include and exclude patterns.
+	 *
+	 * @return void
+	 */
+	public function test_pull_honors_meta_include_and_exclude_patterns(): void {
+		$post_id = $this->insert_post(
+			array(
+				'post_title' => 'Meta Source',
+				'post_name'  => 'meta-source',
+			)
+		);
+
+		update_post_meta( $post_id, '_my_allowed', 'yes' );
+		update_post_meta( $post_id, '_my_secret', 'no' );
+		update_post_meta( $post_id, '_outside', 'no' );
+
+		$sync = new Content_Sync(
+			$this->config(
+				array(
+					'meta' => array(
+						'include' => array( '_my_*' ),
+						'exclude' => array( '_my_secret' ),
+					),
+				)
+			)
+		);
+		$sync->pull();
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local content sync fixture.
+		$data = json_decode( (string) file_get_contents( $this->find_post_json_file() ), true );
+
+		$this->assertSame( array( '_my_allowed' => 'yes' ), $data['meta'] );
+	}
+
+	/**
+	 * Push skips locked content-owned posts.
+	 *
+	 * @return void
+	 */
+	public function test_push_skips_locked_posts(): void {
+		$uid     = wp_generate_uuid4();
+		$post_id = $this->insert_post(
+			array(
+				'post_title' => 'Locked Original',
+				'post_name'  => 'locked-original',
+			)
+		);
+
+		update_post_meta( $post_id, Content_Sync::META_UID, $uid );
+		update_post_meta( $post_id, Content_Sync::META_SET, 'unit' );
+		update_post_meta( $post_id, Content_Sync::META_LOCKED, '1' );
+
+		$this->write_post_file(
+			'locked-original',
+			array(
+				'uid'          => $uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'locked-original',
+				'title'        => 'Locked Updated',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(),
+				'metaEncoding' => array(),
+			),
+			'<p>Updated</p>'
+		);
+
+		$sync = new Content_Sync( $this->config() );
+		$rows = $sync->push();
+
+		$this->assertContains( 'locked', wp_list_pluck( $rows, 'action' ) );
+		$this->assertSame( 'Locked Original', get_post( $post_id )->post_title );
+	}
+
+	/**
+	 * Prune is scoped to the configured content set.
+	 *
+	 * @return void
+	 */
+	public function test_push_prune_deletes_only_current_content_set(): void {
+		$owned_uid = wp_generate_uuid4();
+		$other_uid = wp_generate_uuid4();
+
+		$owned_id = $this->insert_post(
+			array(
+				'post_title' => 'Owned Orphan',
+				'post_name'  => 'owned-orphan',
+			)
+		);
+		$other_id = $this->insert_post(
+			array(
+				'post_title' => 'Other Set',
+				'post_name'  => 'other-set',
+			)
+		);
+
+		update_post_meta( $owned_id, Content_Sync::META_UID, $owned_uid );
+		update_post_meta( $owned_id, Content_Sync::META_SET, 'unit' );
+		update_post_meta( $other_id, Content_Sync::META_UID, $other_uid );
+		update_post_meta( $other_id, Content_Sync::META_SET, 'other' );
+
+		$filter = static fn() => 'delete';
+		add_filter( 'blockstudio/content/orphan_action', $filter );
+
+		try {
+			$sync = new Content_Sync( $this->config() );
+			$rows = $sync->push( array( 'prune' => true ) );
+		} finally {
+			remove_filter( 'blockstudio/content/orphan_action', $filter );
+		}
+
+		$this->assertContains( 'pruned-delete', wp_list_pluck( $rows, 'action' ) );
+		$this->assertNull( get_post( $owned_id ) );
+		$this->assertInstanceOf( WP_Post::class, get_post( $other_id ) );
+	}
+
+	/**
+	 * Status reports unchanged after a successful push.
+	 *
+	 * @return void
+	 */
+	public function test_status_reports_unchanged_after_push(): void {
+		$uid = wp_generate_uuid4();
+
+		$this->write_post_file(
+			'status-source',
+			array(
+				'uid'          => $uid,
+				'type'         => $this->post_type,
+				'status'       => 'publish',
+				'slug'         => 'status-source',
+				'title'        => 'Status Source',
+				'parent'       => null,
+				'menuOrder'    => 0,
+				'meta'         => array(
+					'_my_subtitle' => 'Stable',
+				),
+				'metaEncoding' => array(
+					'_my_subtitle' => 'scalar',
+				),
+			),
+			'<p>Status body</p>'
+		);
+
+		$sync = new Content_Sync( $this->config() );
+		$sync->push();
+		$rows = $sync->status();
+
+		$this->assertSame( array( 'unchanged' ), wp_list_pluck( $rows, 'action' ) );
+	}
+
+	/**
 	 * Get test config.
+	 *
+	 * @param array $overrides Config overrides.
 	 *
 	 * @return array
 	 */
-	private function config(): array {
-		return array(
+	private function config( array $overrides = array() ): array {
+		$config = array(
 			'enabled'                => true,
 			'id'                     => 'unit',
 			'path'                   => $this->content_path,
@@ -311,12 +589,17 @@ class ContentSyncTest extends TestCase {
 				'exclude'    => array( '_edit_lock', '_edit_last', '_wp_old_slug' ),
 				'references' => array(
 					'_thumbnail_id'  => array( 'kind' => 'attachment' ),
-					'_related_posts' => array( 'kind' => 'post', 'path' => '*' ),
+					'_related_posts' => array(
+						'kind' => 'post',
+						'path' => '*',
+					),
 				),
 			),
 			'taxonomies'             => array(),
 			'media'                  => 'manifest',
 		);
+
+		return array_replace_recursive( $config, $overrides );
 	}
 
 	/**
@@ -375,18 +658,22 @@ class ContentSyncTest extends TestCase {
 	 * @param array  $data Data.
 	 * @param string $body Body.
 	 *
-	 * @return void
+	 * @return string
 	 */
-	private function write_post_file( string $slug, array $data, string $body ): void {
+	private function write_post_file( string $slug, array $data, string $body ): string {
 		$dir  = $this->content_root() . '/posts/' . $this->post_type;
 		$file = $dir . '/' . $slug . '.' . substr( (string) $data['uid'], 0, 8 ) . '.json';
 
 		wp_mkdir_p( $dir );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writing local content sync fixture.
 		file_put_contents( $file, wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . "\n" );
 
 		if ( '' !== $body ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Writing local content sync fixture.
 			file_put_contents( preg_replace( '/\.json$/', '.html', $file ), $body );
 		}
+
+		return $file;
 	}
 
 	/**

@@ -1,3 +1,12 @@
+// To parse this data:
+//
+//   import { Convert, Blockstudio } from "./file";
+//
+//   const blockstudio = Convert.toBlockstudio(json);
+//
+// These functions will throw an error if the JSON doesn't
+// match the expected interface, even if the JSON is valid.
+
 export interface Blockstudio {
   /**
    * Settings related to AI-powered context generation.
@@ -12,6 +21,24 @@ export interface Blockstudio {
    */
   blockEditor?: BlockEditor;
   /**
+   * Settings for bs: tag rendering. Controls page-level replacement of <bs:block-name> tags
+   * with rendered block output. Template-level rendering is always active.
+   */
+  blockTags?: BlockTags;
+  /**
+   * Settings related to Blockstudio runtime caching.
+   */
+  cache?: Cache;
+  /**
+   * Settings for Content Sync, the WP-CLI driven projection of allowlisted WordPress content
+   * to portable files.
+   */
+  content?: Content;
+  /**
+   * Settings related to developer tools.
+   */
+  dev?: Dev;
+  /**
    * Settings related to the editor.
    */
   editor?: Editor;
@@ -23,10 +50,6 @@ export interface Blockstudio {
    * Settings related to bundled UI components.
    */
   ui?: UI;
-  /**
-   * Settings related to developer tools.
-   */
-  dev?: Dev;
   /**
    * Settings related to allowed users with access to the settings and editor.
    */
@@ -58,10 +81,6 @@ export interface Assets {
    */
   enqueue?: boolean;
   /**
-   * Control removal of WordPress core block styles.
-   */
-  reset?: Reset;
-  /**
    * Settings related to asset minification.
    */
   minify?: Minify;
@@ -69,21 +88,10 @@ export interface Assets {
    * Settings related to asset processing.
    */
   process?: Process;
-  [property: string]: any;
-}
-
-/**
- * Control removal of WordPress core block styles.
- */
-export interface Reset {
   /**
-   * Remove all WordPress core block styles on the frontend and in the editor.
+   * Control removal of WordPress core block styles.
    */
-  enabled?: boolean;
-  /**
-   * Post types where the editor uses full-width layout by removing classic editor constraints.
-   */
-  fullWidth?: string[];
+  reset?: Reset;
   [property: string]: any;
 }
 
@@ -118,9 +126,28 @@ export interface Process {
 }
 
 /**
+ * Control removal of WordPress core block styles.
+ */
+export interface Reset {
+  /**
+   * Remove all WordPress core block styles on the frontend and in the editor.
+   */
+  enabled?: boolean;
+  /**
+   * Post types where the editor uses full-width layout by removing classic editor constraints.
+   */
+  fullWidth?: string[];
+  [property: string]: any;
+}
+
+/**
  * Settings related to Gutenberg.
  */
 export interface BlockEditor {
+  /**
+   * Global block editor policies that map to WordPress PHP block editor hooks.
+   */
+  blocks?: Blocks;
   /**
    * Stylesheets whose CSS classes should be available for choice in the class field.
    */
@@ -134,9 +161,366 @@ export interface BlockEditor {
    */
   disableLoading?: boolean;
   /**
-   * Enable Blockstudio editor affordances such as cleaner focus styles and hover/selection outlines.
+   * Enable Blockstudio editor affordances such as cleaner focus styles and hover/selection
+   * outlines.
    */
   enhance?: boolean;
+  /**
+   * Global media policies for the block editor.
+   */
+  media?: MediaObject;
+  /**
+   * Global pattern inserter policies that map to WordPress PHP pattern hooks.
+   */
+  patterns?: Patterns;
+  [property: string]: any;
+}
+
+/**
+ * Global block editor policies that map to WordPress PHP block editor hooks.
+ */
+export interface Blocks {
+  /**
+   * Block names that are allowed in the inserter. Supports wildcards such as core/*.
+   */
+  allow?: string[];
+  /**
+   * Filter, rename, and order block inserter categories by slug.
+   */
+  categories?: BlocksCategories;
+  /**
+   * Block names that are removed from the inserter. Supports wildcards such as core/embed.
+   */
+  deny?: string[];
+  /**
+   * Enable the WordPress block directory assets in the editor.
+   */
+  directory?: boolean;
+  /**
+   * Policies for the legacy widget block.
+   */
+  legacyWidgets?: LegacyWidgets;
+  /**
+   * Policies for PHP-registered block styles.
+   */
+  styles?: Styles;
+  [property: string]: any;
+}
+
+/**
+ * Filter, rename, and order block inserter categories by slug.
+ */
+export interface BlocksCategories {
+  /**
+   * Block category slugs that should remain available. Empty means all categories are allowed.
+   */
+  allow?: string[];
+  /**
+   * Block category slugs that should be removed from the inserter.
+   */
+  deny?: string[];
+  /**
+   * Block category slugs that should be moved to the beginning of the inserter in the
+   * provided order.
+   */
+  order?: string[];
+  /**
+   * Map block category slugs to replacement labels.
+   */
+  rename?: { [key: string]: string };
+  [property: string]: any;
+}
+
+/**
+ * Policies for the legacy widget block.
+ */
+export interface LegacyWidgets {
+  /**
+   * Legacy widget IDs that should be hidden from the legacy widget block.
+   */
+  hide?: string[];
+  [property: string]: any;
+}
+
+/**
+ * Policies for PHP-registered block styles.
+ */
+export interface Styles {
+  /**
+   * Map block names to PHP-registered block style names that should be unregistered. Use * as
+   * a style name to remove all registered styles for a block.
+   */
+  deny?: { [key: string]: string[] };
+  [property: string]: any;
+}
+
+/**
+ * Global media policies for the block editor.
+ */
+export interface MediaObject {
+  /**
+   * Filter image size choices shown in editor media controls.
+   */
+  imageSizes?: ImageSizes;
+  /**
+   * Enable the Openverse media category in the block editor media inserter.
+   */
+  openverse?: boolean;
+  [property: string]: any;
+}
+
+/**
+ * Filter image size choices shown in editor media controls.
+ */
+export interface ImageSizes {
+  /**
+   * Image size names that should remain available. Empty means all image sizes are allowed.
+   */
+  allow?: string[];
+  /**
+   * Image size names that should be removed from editor media controls.
+   */
+  deny?: string[];
+  [property: string]: any;
+}
+
+/**
+ * Global pattern inserter policies that map to WordPress PHP pattern hooks.
+ */
+export interface Patterns {
+  /**
+   * Enable Blockstudio file-based patterns.
+   */
+  blockstudio?: boolean;
+  /**
+   * Filter, rename, and order block pattern categories by slug.
+   */
+  categories?: PatternsCategories;
+  /**
+   * Enable WordPress core block patterns.
+   */
+  core?: boolean;
+  /**
+   * Enable remote patterns from the WordPress pattern directory.
+   */
+  remote?: boolean;
+  /**
+   * Enable theme-provided block patterns.
+   */
+  theme?: boolean;
+  [property: string]: any;
+}
+
+/**
+ * Filter, rename, and order block pattern categories by slug.
+ */
+export interface PatternsCategories {
+  /**
+   * Pattern category slugs that should remain available. Empty means all categories are
+   * allowed.
+   */
+  allow?: string[];
+  /**
+   * Pattern category slugs that should be removed from the pattern inserter.
+   */
+  deny?: string[];
+  /**
+   * Pattern category slugs that should be moved to the beginning of the inserter in the
+   * provided order.
+   */
+  order?: string[];
+  /**
+   * Map pattern category slugs to replacement labels.
+   */
+  rename?: { [key: string]: string };
+  [property: string]: any;
+}
+
+/**
+ * Settings for bs: tag rendering. Controls page-level replacement of <bs:block-name> tags
+ * with rendered block output. Template-level rendering is always active.
+ */
+export interface BlockTags {
+  /**
+   * Allowlist of block name patterns. Supports wildcards via fnmatch(). When set, only
+   * matching blocks render via tags.
+   */
+  allow?: string[];
+  /**
+   * Denylist of block name patterns. Supports wildcards via fnmatch(). Matching blocks are
+   * excluded from tag rendering. Takes precedence over allow.
+   */
+  deny?: string[];
+  /**
+   * Enable page-level bs: tag rendering in post content and widget areas.
+   */
+  enabled?: boolean;
+  /**
+   * Prefix to namespace shorthands for block tags. Each key is a lowercase prefix without
+   * dashes, and each value is a namespace string or ordered namespace array.
+   */
+  prefixes?: { [key: string]: any };
+  [property: string]: any;
+}
+
+/**
+ * Settings related to Blockstudio runtime caching.
+ */
+export interface Cache {
+  /**
+   * Enable Blockstudio file-backed runtime, block registration, and editor asset caches.
+   */
+  enabled?: boolean;
+  [property: string]: any;
+}
+
+/**
+ * Settings for Content Sync, the WP-CLI driven projection of allowlisted WordPress content
+ * to portable files.
+ */
+export interface Content {
+  /**
+   * Author portability mode. The v1 default ignores authors because users are not synced.
+   */
+  authors?: Authors;
+  /**
+   * Enable Content Sync configuration for this theme.
+   */
+  enabled?: boolean;
+  /**
+   * Content-set identity stored on synced entities. Prune and ownership checks are scoped to
+   * this value.
+   */
+  id?: string;
+  /**
+   * Include Page Sync managed posts. Their post_content remains owned by Page Sync.
+   */
+  includePageSyncManaged?: boolean;
+  /**
+   * Attachment reference behavior. manifest records referenced attachments and validates them
+   * on push; none drops attachment references.
+   */
+  media?: MediaEnum;
+  /**
+   * Postmeta allowlist, exclude list, and declared reference rewriting rules.
+   */
+  meta?: Meta;
+  /**
+   * Theme-relative directory where Content Sync reads and writes files.
+   */
+  path?: string;
+  /**
+   * Allowlisted post types to sync. Empty means no post types are synced.
+   */
+  postTypes?: string[];
+  /**
+   * Allowlisted taxonomies for later term and relationship sync phases.
+   */
+  taxonomies?: string[];
+  [property: string]: any;
+}
+
+/**
+ * Author portability mode. The v1 default ignores authors because users are not synced.
+ */
+export enum Authors {
+  Ignore = 'ignore',
+  Login = 'login',
+}
+
+/**
+ * Attachment reference behavior. manifest records referenced attachments and validates them
+ * on push; none drops attachment references.
+ */
+export enum MediaEnum {
+  Manifest = 'manifest',
+  None = 'none',
+}
+
+/**
+ * Postmeta allowlist, exclude list, and declared reference rewriting rules.
+ */
+export interface Meta {
+  /**
+   * Glob patterns for meta keys that must never be projected, even if included.
+   */
+  exclude?: string[];
+  /**
+   * Glob patterns for meta keys that may be projected to files.
+   */
+  include?: string[];
+  /**
+   * Declared meta references. Only these keys and paths are rewritten between local IDs and
+   * portable UIDs.
+   */
+  references?: { [key: string]: Reference };
+  [property: string]: any;
+}
+
+export interface Reference {
+  /**
+   * Referenced entity type.
+   */
+  kind: Kind;
+  /**
+   * Optional dot path inside structured meta. Use * to map every array item.
+   */
+  path?: string;
+  [property: string]: any;
+}
+
+/**
+ * Referenced entity type.
+ */
+export enum Kind {
+  Attachment = 'attachment',
+  Post = 'post',
+  Term = 'term',
+}
+
+/**
+ * Settings related to developer tools.
+ */
+export interface Dev {
+  /**
+   * Settings related to the canvas.
+   */
+  canvas?: Canvas;
+  /**
+   * Settings related to the element grabber.
+   */
+  grab?: Grab;
+  /**
+   * Enable the performance profiler. Shows Server-Timing headers and a debug panel on every
+   * page load.
+   */
+  perf?: boolean;
+  [property: string]: any;
+}
+
+/**
+ * Settings related to the canvas.
+ */
+export interface Canvas {
+  /**
+   * Show the WordPress admin bar when viewing the canvas.
+   */
+  adminBar?: boolean;
+  /**
+   * Enable the canvas.
+   */
+  enabled?: boolean;
+  [property: string]: any;
+}
+
+/**
+ * Settings related to the element grabber.
+ */
+export interface Grab {
+  /**
+   * Enable the element grabber.
+   */
+  enabled?: boolean;
   [property: string]: any;
 }
 
@@ -186,43 +570,6 @@ export interface UI {
 }
 
 /**
- * Settings related to developer tools.
- */
-export interface Dev {
-  /**
-   * Settings related to the canvas.
-   */
-  canvas?: DevCanvas;
-  /**
-   * Settings related to the element grabber.
-   */
-  grab?: DevGrab;
-  [property: string]: any;
-}
-
-/**
- * Settings related to the canvas.
- */
-export interface DevCanvas {
-  /**
-   * Enable the canvas.
-   */
-  enabled?: boolean;
-  [property: string]: any;
-}
-
-/**
- * Settings related to the element grabber.
- */
-export interface DevGrab {
-  /**
-   * Enable the element grabber.
-   */
-  enabled?: boolean;
-  [property: string]: any;
-}
-
-/**
  * Settings related to allowed users with access to the settings and editor.
  */
 export interface Users {
@@ -236,6 +583,9 @@ export interface Users {
   roles?: string[];
   [property: string]: any;
 }
+
+// Converts JSON strings to/from your types
+// and asserts the results of JSON.parse at runtime
 export class Convert {
   public static toBlockstudio(json: string): Blockstudio {
     return cast(JSON.parse(json), r('Blockstudio'));
@@ -304,12 +654,13 @@ function transform(
   }
 
   function transformUnion(typs: any[], val: any): any {
+    // val must validate against one typ in typs
     const l = typs.length;
     for (let i = 0; i < l; i++) {
       const typ = typs[i];
       try {
         return transform(val, typ, getProps);
-      } catch {}
+    } catch {}
     }
     return invalidValue(typs, val, key, parent);
   }
@@ -327,6 +678,7 @@ function transform(
   }
 
   function transformArray(typ: any, val: any): any {
+    // val must be an array with no invalid elements
     if (!Array.isArray(val)) return invalidValue(l('array'), val, key, parent);
     return val.map((el) => transform(el, typ, getProps));
   }
@@ -387,6 +739,7 @@ function transform(
           ? transformObject(getProps(typ), typ.additional, val)
           : invalidValue(typ, val, key, parent);
   }
+  // Numbers can be parsed by Date but shouldn't be.
   if (typ === Date && typeof val !== 'number') return transformDate(val);
   return transformPrimitive(typ, val);
 }
@@ -415,6 +768,10 @@ function o(props: any[], additional: any) {
   return { props, additional };
 }
 
+function m(additional: any) {
+  return { props: [], additional };
+}
+
 function r(name: string) {
   return { ref: name };
 }
@@ -429,10 +786,13 @@ const typeMap: any = {
         js: 'blockEditor',
         typ: u(undefined, r('BlockEditor')),
       },
+      { json: 'blockTags', js: 'blockTags', typ: u(undefined, r('BlockTags')) },
+      { json: 'cache', js: 'cache', typ: u(undefined, r('Cache')) },
+      { json: 'content', js: 'content', typ: u(undefined, r('Content')) },
+      { json: 'dev', js: 'dev', typ: u(undefined, r('Dev')) },
       { json: 'editor', js: 'editor', typ: u(undefined, r('Editor')) },
       { json: 'tailwind', js: 'tailwind', typ: u(undefined, r('Tailwind')) },
       { json: 'ui', js: 'ui', typ: u(undefined, r('UI')) },
-      { json: 'dev', js: 'dev', typ: u(undefined, r('Dev')) },
       { json: 'users', js: 'users', typ: u(undefined, r('Users')) },
     ],
     'any',
@@ -450,16 +810,9 @@ const typeMap: any = {
   Assets: o(
     [
       { json: 'enqueue', js: 'enqueue', typ: u(undefined, true) },
-      { json: 'reset', js: 'reset', typ: u(undefined, r('Reset')) },
       { json: 'minify', js: 'minify', typ: u(undefined, r('Minify')) },
       { json: 'process', js: 'process', typ: u(undefined, r('Process')) },
-    ],
-    'any',
-  ),
-  Reset: o(
-    [
-      { json: 'enabled', js: 'enabled', typ: u(undefined, true) },
-      { json: 'fullWidth', js: 'fullWidth', typ: u(undefined, a('')) },
+      { json: 'reset', js: 'reset', typ: u(undefined, r('Reset')) },
     ],
     'any',
   ),
@@ -477,15 +830,165 @@ const typeMap: any = {
     ],
     'any',
   ),
+  Reset: o(
+    [
+      { json: 'enabled', js: 'enabled', typ: u(undefined, true) },
+      { json: 'fullWidth', js: 'fullWidth', typ: u(undefined, a('')) },
+    ],
+    'any',
+  ),
   BlockEditor: o(
     [
+      { json: 'blocks', js: 'blocks', typ: u(undefined, r('Blocks')) },
       { json: 'cssClasses', js: 'cssClasses', typ: u(undefined, a('any')) },
       { json: 'cssVariables', js: 'cssVariables', typ: u(undefined, a('any')) },
       { json: 'disableLoading', js: 'disableLoading', typ: u(undefined, true) },
       { json: 'enhance', js: 'enhance', typ: u(undefined, true) },
+      { json: 'media', js: 'media', typ: u(undefined, r('MediaObject')) },
+      { json: 'patterns', js: 'patterns', typ: u(undefined, r('Patterns')) },
     ],
     'any',
   ),
+  Blocks: o(
+    [
+      { json: 'allow', js: 'allow', typ: u(undefined, a('')) },
+      {
+        json: 'categories',
+        js: 'categories',
+        typ: u(undefined, r('BlocksCategories')),
+      },
+      { json: 'deny', js: 'deny', typ: u(undefined, a('')) },
+      { json: 'directory', js: 'directory', typ: u(undefined, true) },
+      {
+        json: 'legacyWidgets',
+        js: 'legacyWidgets',
+        typ: u(undefined, r('LegacyWidgets')),
+      },
+      { json: 'styles', js: 'styles', typ: u(undefined, r('Styles')) },
+    ],
+    'any',
+  ),
+  BlocksCategories: o(
+    [
+      { json: 'allow', js: 'allow', typ: u(undefined, a('')) },
+      { json: 'deny', js: 'deny', typ: u(undefined, a('')) },
+      { json: 'order', js: 'order', typ: u(undefined, a('')) },
+      { json: 'rename', js: 'rename', typ: u(undefined, m('')) },
+    ],
+    'any',
+  ),
+  LegacyWidgets: o(
+    [{ json: 'hide', js: 'hide', typ: u(undefined, a('')) }],
+    'any',
+  ),
+  Styles: o([{ json: 'deny', js: 'deny', typ: u(undefined, m(a(''))) }], 'any'),
+  MediaObject: o(
+    [
+      {
+        json: 'imageSizes',
+        js: 'imageSizes',
+        typ: u(undefined, r('ImageSizes')),
+      },
+      { json: 'openverse', js: 'openverse', typ: u(undefined, true) },
+    ],
+    'any',
+  ),
+  ImageSizes: o(
+    [
+      { json: 'allow', js: 'allow', typ: u(undefined, a('')) },
+      { json: 'deny', js: 'deny', typ: u(undefined, a('')) },
+    ],
+    'any',
+  ),
+  Patterns: o(
+    [
+      { json: 'blockstudio', js: 'blockstudio', typ: u(undefined, true) },
+      {
+        json: 'categories',
+        js: 'categories',
+        typ: u(undefined, r('PatternsCategories')),
+      },
+      { json: 'core', js: 'core', typ: u(undefined, true) },
+      { json: 'remote', js: 'remote', typ: u(undefined, true) },
+      { json: 'theme', js: 'theme', typ: u(undefined, true) },
+    ],
+    'any',
+  ),
+  PatternsCategories: o(
+    [
+      { json: 'allow', js: 'allow', typ: u(undefined, a('')) },
+      { json: 'deny', js: 'deny', typ: u(undefined, a('')) },
+      { json: 'order', js: 'order', typ: u(undefined, a('')) },
+      { json: 'rename', js: 'rename', typ: u(undefined, m('')) },
+    ],
+    'any',
+  ),
+  BlockTags: o(
+    [
+      { json: 'allow', js: 'allow', typ: u(undefined, a('')) },
+      { json: 'deny', js: 'deny', typ: u(undefined, a('')) },
+      { json: 'enabled', js: 'enabled', typ: u(undefined, true) },
+      { json: 'prefixes', js: 'prefixes', typ: u(undefined, m('any')) },
+    ],
+    'any',
+  ),
+  Cache: o(
+    [{ json: 'enabled', js: 'enabled', typ: u(undefined, true) }],
+    'any',
+  ),
+  Content: o(
+    [
+      { json: 'authors', js: 'authors', typ: u(undefined, r('Authors')) },
+      { json: 'enabled', js: 'enabled', typ: u(undefined, true) },
+      { json: 'id', js: 'id', typ: u(undefined, '') },
+      {
+        json: 'includePageSyncManaged',
+        js: 'includePageSyncManaged',
+        typ: u(undefined, true),
+      },
+      { json: 'media', js: 'media', typ: u(undefined, r('MediaEnum')) },
+      { json: 'meta', js: 'meta', typ: u(undefined, r('Meta')) },
+      { json: 'path', js: 'path', typ: u(undefined, '') },
+      { json: 'postTypes', js: 'postTypes', typ: u(undefined, a('')) },
+      { json: 'taxonomies', js: 'taxonomies', typ: u(undefined, a('')) },
+    ],
+    'any',
+  ),
+  Meta: o(
+    [
+      { json: 'exclude', js: 'exclude', typ: u(undefined, a('')) },
+      { json: 'include', js: 'include', typ: u(undefined, a('')) },
+      {
+        json: 'references',
+        js: 'references',
+        typ: u(undefined, m(r('Reference'))),
+      },
+    ],
+    'any',
+  ),
+  Reference: o(
+    [
+      { json: 'kind', js: 'kind', typ: r('Kind') },
+      { json: 'path', js: 'path', typ: u(undefined, '') },
+    ],
+    'any',
+  ),
+  Dev: o(
+    [
+      { json: 'canvas', js: 'canvas', typ: u(undefined, r('Canvas')) },
+      { json: 'grab', js: 'grab', typ: u(undefined, r('Grab')) },
+      { json: 'perf', js: 'perf', typ: u(undefined, true) },
+    ],
+    'any',
+  ),
+  Canvas: o(
+    [
+      { json: 'adminBar', js: 'adminBar', typ: u(undefined, true) },
+      { json: 'enabled', js: 'enabled', typ: u(undefined, true) },
+    ],
+    'any',
+  ),
+  Grab: o([{ json: 'enabled', js: 'enabled', typ: u(undefined, true) }], 'any'),
   Editor: o(
     [
       { json: 'assets', js: 'assets', typ: u(undefined, a('any')) },
@@ -502,25 +1005,6 @@ const typeMap: any = {
     'any',
   ),
   UI: o([{ json: 'enabled', js: 'enabled', typ: u(undefined, true) }], 'any'),
-  Dev: o(
-    [
-      { json: 'canvas', js: 'canvas', typ: u(undefined, r('DevCanvas')) },
-      {
-        json: 'grab',
-        js: 'grab',
-        typ: u(undefined, r('DevGrab')),
-      },
-    ],
-    'any',
-  ),
-  DevCanvas: o(
-    [{ json: 'enabled', js: 'enabled', typ: u(undefined, true) }],
-    'any',
-  ),
-  DevGrab: o(
-    [{ json: 'enabled', js: 'enabled', typ: u(undefined, true) }],
-    'any',
-  ),
   Users: o(
     [
       { json: 'ids', js: 'ids', typ: u(undefined, a(0)) },
@@ -528,4 +1012,7 @@ const typeMap: any = {
     ],
     'any',
   ),
+  Authors: ['ignore', 'login'],
+  MediaEnum: ['manifest', 'none'],
+  Kind: ['attachment', 'post', 'term'],
 };

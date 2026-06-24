@@ -35,6 +35,21 @@ The following properties are available:
   "cache": {
     "enabled": true
   },
+  "content": {
+    "enabled": false,
+    "id": "default",
+    "path": "content",
+    "includePageSyncManaged": false,
+    "authors": "ignore",
+    "postTypes": [],
+    "meta": {
+      "include": [],
+      "exclude": ["_edit_lock", "_edit_last", "_wp_old_slug"],
+      "references": {}
+    },
+    "taxonomies": [],
+    "media": "manifest"
+  },
   "editor": {
     "formatOnSave": false,
     "assets": [],
@@ -131,6 +146,27 @@ When enabled, Blockstudio caches runtime build payloads, prebuilt block
 registration data, and resolved editor assets. Runtime cache entries are
 invalidated when watched block files, field files, asset files, settings, active
 plugins, WordPress, PHP, or Blockstudio versions change.
+
+### content
+
+| Option                   | Type    | Default                                  | Description                                               |
+| ------------------------ | ------- | ---------------------------------------- | --------------------------------------------------------- |
+| `enabled`                | boolean | `false`                                  | Enable Content Sync configuration                         |
+| `id`                     | string  | `"default"`                              | Content-set namespace stored on synced entities           |
+| `path`                   | string  | `"content"`                              | Theme-relative content file directory                     |
+| `includePageSyncManaged` | boolean | `false`                                  | Include Page Sync managed posts without owning their body |
+| `authors`                | string  | `"ignore"`                               | Author portability mode                                   |
+| `postTypes`              | array   | `[]`                                     | Allowlisted post types                                    |
+| `meta.include`           | array   | `[]`                                     | Glob patterns for meta keys to sync                       |
+| `meta.exclude`           | array   | `["_edit_lock", "_edit_last", "_wp_old_slug"]` | Glob patterns for meta keys to exclude                    |
+| `meta.references`        | object  | `{}`                                     | Declared meta references rewritten between IDs and UIDs   |
+| `taxonomies`             | array   | `[]`                                     | Reserved allowlist for term and relationship sync phases  |
+| `media`                  | string  | `"manifest"`                             | Attachment reference behavior (`manifest` or `none`)      |
+
+Content Sync is managed through `wp bs content` and projects allowlisted posts,
+postmeta, and declared references to portable files. See
+[Content Sync](/docs/pages-and-patterns/content-sync) for the workflow and file
+format.
 
 ### editor
 

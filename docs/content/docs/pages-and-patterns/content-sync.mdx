@@ -1,0 +1,173 @@
+---
+title: Content Sync
+description: Project allowlisted WordPress content to portable files and apply it across environments with WP-CLI.
+---
+
+# Content Sync
+
+Content Sync is a WP-CLI workflow for versioning selected WordPress content in
+your theme. It projects allowlisted posts and postmeta to files, stores portable
+UIDs in WordPress meta, and rewrites only the references you explicitly declare.
+
+Content Sync is on-demand. It does not run on every admin request.
+
+## Configuration
+
+Enable Content Sync in `blockstudio.json`:
+
+```json title="blockstudio.json"
+{
+  "$schema": "https://blockstudio.dev/schema/blockstudio",
+  "content": {
+    "enabled": true,
+    "id": "default",
+    "path": "content",
+    "includePageSyncManaged": false,
+    "authors": "ignore",
+    "postTypes": ["team_member"],
+    "meta": {
+      "include": ["_my_*"],
+      "exclude": ["_edit_lock", "_edit_last", "_wp_old_slug"],
+      "references": {
+        "_thumbnail_id": { "kind": "attachment" },
+        "_related_posts": { "kind": "post", "path": "*" },
+        "_hero": { "kind": "attachment", "path": "image.id" }
+      }
+    },
+    "taxonomies": [],
+    "media": "manifest"
+  }
+}
+```
+
+`postTypes` is an allowlist. Empty means Content Sync does not touch posts.
+Postmeta is also allowlisted through `meta.include`; `meta.exclude` always wins.
+
+`content.id` is stored on synced entities as `_blockstudio_content_set`. Prune
+and ownership checks are scoped to that value, so one content set cannot delete
+another set's content.
+
+Page Sync managed posts are excluded by default. If
+`includePageSyncManaged` is enabled, Content Sync can sync their configured meta
+but Page Sync still owns their `post_content`.
+
+## Commands
+
+```bash
+wp bs content pull [--post-type=<type>] [--dry-run]
+wp bs content push [--dry-run] [--prune] [--yes]
+wp bs content status
+```
+
+`pull` captures database content into files. It assigns
+`_blockstudio_content_uid` to in-scope posts that do not have one yet.
+
+`push` applies files to the current database. It validates the plan before
+writing and blocks unresolved declared references, slug conflicts, locked
+entities, and missing post types.
+
+`status` compares files with the database and reports missing, changed,
+unchanged, or conflicted entities.
+
+Use `--dry-run` to inspect a pull or push without writing. Use `push --prune
+--yes` to remove content-set owned database entities that no longer exist in the
+files.
+
+## Files
+
+Content Sync writes files under the configured `content.path`:
+
+```text
+content/
+  posts/
+    team_member/
+      jane.9b1c0e6e.json
+      jane.9b1c0e6e.html
+  media/
+    manifest.json
+```
+
+The `.json` file stores identity, post fields, declared meta, and meta encoding.
+The sibling `.html` file stores `post_content` as raw block markup and is omitted
+when the content is empty.
+
+```json title="content/posts/team_member/jane.9b1c0e6e.json"
+{
+  "uid": "9b1c0e6e-0000-4000-9000-000000000000",
+  "type": "team_member",
+  "status": "publish",
+  "slug": "jane",
+  "title": "Jane",
+  "parent": null,
+  "menuOrder": 0,
+  "meta": {
+    "_my_subtitle": "Creative Director",
+    "_thumbnail_id": "5e900000-0000-4000-9000-000000000000"
+  },
+  "metaEncoding": {
+    "_my_subtitle": "scalar",
+    "_thumbnail_id": "scalar"
+  }
+}
+```
+
+The stored sync state is:
+
+| Meta key | Purpose |
+| -------- | ------- |
+| `_blockstudio_content_uid` | Portable content identity |
+| `_blockstudio_content_set` | Content-set namespace from `content.id` |
+| `_blockstudio_content_source` | Theme-relative source file path |
+| `_blockstudio_content_fingerprint` | Last synced file/database fingerprint |
+| `_blockstudio_content_locked` | Truthy value prevents push from overwriting the entity |
+
+## References
+
+Content Sync never guesses that an integer is an ID. References are rewritten
+only when configured in `meta.references`.
+
+```json
+{
+  "meta": {
+    "references": {
+      "_related_posts": { "kind": "post", "path": "*" },
+      "_hero": { "kind": "attachment", "path": "image.id" }
+    }
+  }
+}
+```
+
+On pull, local IDs at those paths become portable UIDs. On push, the UIDs are
+resolved back to local IDs in the current database.
+
+Attachment references are validated, not imported. With `media: "manifest"`,
+referenced attachments are listed in `content/media/manifest.json`; push requires
+the referenced attachment UID to exist locally. With `media: "none"`, declared
+attachment references are dropped.
+
+## Portability Workflow
+
+1. Register the target post type in every environment.
+2. Configure `content.postTypes`, `meta.include`, and any declared references.
+3. Run `wp bs content pull` in the source environment.
+4. Commit the generated files.
+5. Run `wp bs content push` in the target environment.
+6. Run `wp bs content status` to verify the database matches the files.
+
+Files are the source of truth for `push`. The database is captured back to files
+with `pull`.
+
+## V1 Scope
+
+The 7.4.0 Content Sync surface is intentionally conservative:
+
+- posts from allowlisted post types
+- allowlisted postmeta
+- declared `post` and `attachment` references
+- portable post UIDs and content-set ownership
+- Page Sync exclusion by default
+- attachment manifest and preflight validation
+- `pull`, `push`, `status`, `--dry-run`, `--prune`, and locked-entity handling
+
+Term files, termmeta, term relationships, taxonomy definition capture, media
+binary copying, and block-markup ID rewriting are later phases.

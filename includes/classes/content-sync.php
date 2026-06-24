@@ -75,12 +75,13 @@ class Content_Sync {
 					$uid = 'dry-run';
 				}
 
-				$projection = $this->project_post( $post, $uid );
-				$source     = $this->post_source_path( $post, $uid );
-				$body_path  = $this->body_path_for_source( $source );
+				$projection  = $this->project_post( $post, $uid );
+				$source      = $this->post_source_path( $post, $uid );
+				$body_path   = $this->body_path_for_source( $source );
+				$body        = $this->is_page_sync_managed( $post->ID ) ? '' : (string) $post->post_content;
 				$fingerprint = $this->fingerprint_projection(
 					$projection,
-					(string) $post->post_content
+					$body
 				);
 
 				if ( $this->dry_run ) {
@@ -89,8 +90,8 @@ class Content_Sync {
 				}
 
 				$this->write_json_file( $source, $projection );
-				if ( '' !== (string) $post->post_content ) {
-					$this->write_file( $body_path, (string) $post->post_content );
+				if ( '' !== $body ) {
+					$this->write_file( $body_path, $body );
 				} elseif ( file_exists( $body_path ) ) {
 					wp_delete_file( $body_path );
 				}
@@ -124,9 +125,9 @@ class Content_Sync {
 			return array_merge( $plan['rows'], $plan['errors'] );
 		}
 
-		$rows      = $plan['rows'];
-		$post_ids  = array();
-		$term_ids  = array();
+		$rows     = $plan['rows'];
+		$post_ids = array();
+		$term_ids = array();
 
 		foreach ( $this->sort_terms_by_parent( $plan['terms'] ) as $item ) {
 			$result = $this->apply_term_file( $item, $term_ids );
@@ -174,7 +175,7 @@ class Content_Sync {
 
 			$file_fingerprint = $this->fingerprint_projection( $item['data'], $item['body'] );
 			$stored           = (string) get_post_meta( $post->ID, self::META_FINGERPRINT, true );
-			$live             = $this->fingerprint_post( $post );
+			$live             = $this->fingerprint_post( $post, $item['data'] );
 
 			if ( '' !== $stored && ! hash_equals( $stored, $live ) ) {
 				$rows[] = $this->row( 'conflict', 'post', (string) $post->ID, (string) $item['data']['uid'], 'Database changed since last sync.' );
@@ -234,7 +235,8 @@ class Content_Sync {
 		);
 
 		$config         = array_replace_recursive( $defaults, $config );
-		$config['id']   = sanitize_key( (string) $config['id'] ) ?: 'default';
+		$content_id     = sanitize_key( (string) $config['id'] );
+		$config['id']   = '' !== $content_id ? $content_id : 'default';
 		$config['path'] = trim( (string) $config['path'], "/ \t\n\r\0\x0B" );
 
 		if ( '' === $config['path'] ) {
@@ -255,8 +257,8 @@ class Content_Sync {
 		);
 
 		$config['meta']['references'] = $this->normalize_reference_config( (array) ( $config['meta']['references'] ?? array() ) );
-		$config['media']             = 'none' === $config['media'] ? 'none' : 'manifest';
-		$config['authors']           = 'login' === $config['authors'] ? 'login' : 'ignore';
+		$config['media']              = 'none' === $config['media'] ? 'none' : 'manifest';
+		$config['authors']            = 'login' === $config['authors'] ? 'login' : 'ignore';
 
 		return $config;
 	}
@@ -417,6 +419,8 @@ class Content_Sync {
 	 * @param array  $meta          Meta values.
 	 * @param array  $meta_encoding Meta encodings.
 	 * @param string $owner_uid     Owner UID.
+	 * @param array  $post_uids     Post UIDs in the current push plan.
+	 * @param array  $term_uids     Term UIDs in the current push plan.
 	 *
 	 * @return array Error rows.
 	 */
@@ -543,13 +547,16 @@ class Content_Sync {
 		}
 
 		$post_data = array(
-			'post_type'    => (string) $data['type'],
-			'post_status'  => (string) ( $data['status'] ?? 'publish' ),
-			'post_name'    => (string) $data['slug'],
-			'post_title'   => (string) ( $data['title'] ?? '' ),
-			'post_content' => $item['body'],
-			'menu_order'   => (int) ( $data['menuOrder'] ?? 0 ),
+			'post_type'   => (string) $data['type'],
+			'post_status' => (string) ( $data['status'] ?? 'publish' ),
+			'post_name'   => (string) $data['slug'],
+			'post_title'  => (string) ( $data['title'] ?? '' ),
+			'menu_order'  => (int) ( $data['menuOrder'] ?? 0 ),
 		);
+
+		if ( ! $existing || ! $this->is_page_sync_managed( $existing->ID ) ) {
+			$post_data['post_content'] = $item['body'];
+		}
 
 		if ( ! empty( $data['date'] ) ) {
 			$post_data['post_date_gmt'] = gmdate( 'Y-m-d H:i:s', strtotime( (string) $data['date'] ) );
@@ -745,14 +752,16 @@ class Content_Sync {
 				continue;
 			}
 
-			foreach ( glob( $dir . '/*.json' ) ?: array() as $file ) {
+			$files = glob( $dir . '/*.json' );
+			foreach ( false !== $files ? $files : array() as $file ) {
 				$data = $this->read_json_file( $file );
 				if ( ! is_array( $data ) ) {
 					continue;
 				}
 
 				$body_file = $this->body_path_for_source( $file );
-				$body      = file_exists( $body_file ) ? (string) file_get_contents( $body_file ) : '';
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reading local content sync body file.
+				$body = file_exists( $body_file ) ? (string) file_get_contents( $body_file ) : '';
 
 				$items[] = array(
 					'source' => $file,
@@ -781,7 +790,8 @@ class Content_Sync {
 				continue;
 			}
 
-			foreach ( glob( $dir . '/*.json' ) ?: array() as $file ) {
+			$files = glob( $dir . '/*.json' );
+			foreach ( false !== $files ? $files : array() as $file ) {
 				$data = $this->read_json_file( $file );
 				if ( ! is_array( $data ) ) {
 					continue;
@@ -878,7 +888,7 @@ class Content_Sync {
 				continue;
 			}
 
-			$projected_values  = array();
+			$projected_values   = array();
 			$projected_encoding = array();
 
 			foreach ( $values as $raw ) {
@@ -1083,6 +1093,7 @@ class Content_Sync {
 		if ( ! $this->is_utf8( $raw ) ) {
 			return array(
 				'encoding' => 'base64',
+				// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Preserving opaque non-UTF8 meta values for byte-exact round-trip.
 				'value'    => base64_encode( $raw ),
 			);
 		}
@@ -1141,11 +1152,13 @@ class Content_Sync {
 	 */
 	private function encode_single_meta_value( mixed $value, string $encoding ): string {
 		if ( 'base64' === $encoding ) {
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Restoring opaque non-UTF8 meta values from the file projection.
 			$decoded = base64_decode( (string) $value, true );
 			return false === $decoded ? '' : $decoded;
 		}
 
 		if ( 'php-serialized' === $encoding ) {
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- Preserving the original WordPress meta storage encoding.
 			return serialize( $value );
 		}
 
@@ -1386,7 +1399,7 @@ class Content_Sync {
 		}
 
 		foreach ( $items as $item ) {
-			if ( $uid === (string) ( $item['data']['uid'] ?? '' ) ) {
+			if ( (string) ( $item['data']['uid'] ?? '' ) === $uid ) {
 				return true;
 			}
 		}
@@ -1456,10 +1469,10 @@ class Content_Sync {
 	private function get_raw_meta( string $type, int $id ): array {
 		global $wpdb;
 
-		$table = 'term' === $type ? $wpdb->termmeta : $wpdb->postmeta;
+		$table     = 'term' === $type ? $wpdb->termmeta : $wpdb->postmeta;
 		$id_column = 'term' === $type ? 'term_id' : 'post_id';
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table and column are controlled internally.
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Table and column are controlled internally and raw meta order is required.
 		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT meta_key, meta_value FROM {$table} WHERE {$id_column} = %d ORDER BY meta_id ASC", $id ) );
 
 		$meta = array();
@@ -1566,7 +1579,8 @@ class Content_Sync {
 		$seen   = array();
 		$count  = count( $items );
 
-		while ( count( $sorted ) < $count ) {
+		$sorted_count = 0;
+		while ( $sorted_count < $count ) {
 			$progress = false;
 
 			foreach ( $items as $item ) {
@@ -1582,7 +1596,8 @@ class Content_Sync {
 
 				$seen[ $uid ] = true;
 				$sorted[]     = $item;
-				$progress     = true;
+				++$sorted_count;
+				$progress = true;
 			}
 
 			if ( ! $progress ) {
@@ -1591,6 +1606,7 @@ class Content_Sync {
 					if ( ! isset( $seen[ $uid ] ) ) {
 						$seen[ $uid ] = true;
 						$sorted[]     = $item;
+						++$sorted_count;
 					}
 				}
 			}
@@ -1609,7 +1625,7 @@ class Content_Sync {
 	 */
 	private function item_uid_exists( string $uid, array $items ): bool {
 		foreach ( $items as $item ) {
-			if ( $uid === (string) ( $item['data']['uid'] ?? '' ) ) {
+			if ( (string) ( $item['data']['uid'] ?? '' ) === $uid ) {
 				return true;
 			}
 		}
@@ -1774,13 +1790,38 @@ class Content_Sync {
 	/**
 	 * Fingerprint a live post.
 	 *
-	 * @param WP_Post $post Post.
+	 * @param WP_Post    $post       Post.
+	 * @param array|null $file_shape Optional file projection shape.
 	 *
 	 * @return string
 	 */
-	private function fingerprint_post( WP_Post $post ): string {
-		$uid = (string) get_post_meta( $post->ID, self::META_UID, true );
-		return $this->fingerprint_projection( $this->project_post( $post, $uid ), (string) $post->post_content );
+	private function fingerprint_post( WP_Post $post, ?array $file_shape = null ): string {
+		$uid        = (string) get_post_meta( $post->ID, self::META_UID, true );
+		$projection = $this->project_post( $post, $uid );
+
+		if ( null !== $file_shape ) {
+			$projection = $this->shape_live_projection_for_file( $projection, $file_shape );
+		}
+
+		return $this->fingerprint_projection( $projection, (string) $post->post_content );
+	}
+
+	/**
+	 * Remove volatile live-only fields when a file did not own them.
+	 *
+	 * @param array $live Live projection.
+	 * @param array $file File projection.
+	 *
+	 * @return array
+	 */
+	private function shape_live_projection_for_file( array $live, array $file ): array {
+		foreach ( array( 'date', 'modified', 'author', 'terms' ) as $optional_key ) {
+			if ( ! array_key_exists( $optional_key, $file ) ) {
+				unset( $live[ $optional_key ] );
+			}
+		}
+
+		return $live;
 	}
 
 	/**
@@ -1813,7 +1854,12 @@ class Content_Sync {
 	 * @return string
 	 */
 	private function post_source_path( WP_Post $post, string $uid ): string {
-		$filename = sanitize_title( $post->post_name ?: $post->post_title ?: $post->ID ) . '.' . substr( $uid, 0, 8 ) . '.json';
+		$source = '' !== (string) $post->post_name ? $post->post_name : $post->post_title;
+		if ( '' === (string) $source ) {
+			$source = (string) $post->ID;
+		}
+
+		$filename = sanitize_title( $source ) . '.' . substr( $uid, 0, 8 ) . '.json';
 		return $this->root_path() . '/posts/' . $post->post_type . '/' . $filename;
 	}
 
@@ -1826,7 +1872,12 @@ class Content_Sync {
 	 * @return string
 	 */
 	private function term_source_path( WP_Term $term, string $uid ): string {
-		$filename = sanitize_title( $term->slug ?: $term->name ?: $term->term_id ) . '.' . substr( $uid, 0, 8 ) . '.json';
+		$source = '' !== (string) $term->slug ? $term->slug : $term->name;
+		if ( '' === (string) $source ) {
+			$source = (string) $term->term_id;
+		}
+
+		$filename = sanitize_title( $source ) . '.' . substr( $uid, 0, 8 ) . '.json';
 		return $this->root_path() . '/terms/' . $term->taxonomy . '/' . $filename;
 	}
 
@@ -1838,7 +1889,8 @@ class Content_Sync {
 	 * @return string
 	 */
 	private function body_path_for_source( string $source ): string {
-		return preg_replace( '/\.json$/', '.html', $source ) ?: $source . '.html';
+		$body_path = preg_replace( '/\.json$/', '.html', $source );
+		return null !== $body_path ? $body_path : $source . '.html';
 	}
 
 	/**
@@ -1909,7 +1961,7 @@ class Content_Sync {
 				continue;
 			}
 
-			$file = get_attached_file( $post->ID );
+			$file             = get_attached_file( $post->ID );
 			$manifest[ $uid ] = array(
 				'path' => $file ? wp_basename( $file ) : '',
 				'hash' => $file && file_exists( $file ) ? hash_file( 'sha256', $file ) : '',
