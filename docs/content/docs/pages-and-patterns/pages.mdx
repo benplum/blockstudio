@@ -54,14 +54,23 @@ Recognized `page.json`, frontmatter, and loader page keys are
 `templateFor`, `templateLock`, `title`, and `trusted`. Unknown keys are
 stored under the page `meta` array.
 
-Blockstudio looks for these source files next to `page.json`, in order:
+## Content Sources
 
-- `index.php`
-- `index.blade.php`
-- `index.twig`
-- `index.md`
+A page definition decides which WordPress post should exist. The content source
+decides which block markup is written to that post.
 
-`page.json` can also provide inline content:
+When a page folder has a `page.json`, Blockstudio looks for a sibling source
+file in this order:
+
+| File | Use |
+| ---- | --- |
+| `index.php` | PHP or HTML-like block markup |
+| `index.blade.php` | Blade template content |
+| `index.twig` | Twig template content |
+| `index.md` | Markdown content |
+
+`page.json` can also provide inline `markdown` or `html` instead of a sibling
+file:
 
 ```json title="page.json"
 {
@@ -79,17 +88,37 @@ Blockstudio looks for these source files next to `page.json`, in order:
 }
 ```
 
+Collections add two more source modes:
+
+- Markdown files discovered directly from the collection tree.
+- Loader entries returned from `loader.php`.
+
+Loader entries can use `markdown`, `html`, or `content` with `contentType`.
+They can also point at a local `file` or `template`. File and template sources
+infer their type from the extension unless `contentType` is set explicitly.
+
+Supported `contentType` values are `php`, `blade`, `twig`, `markdown`, `html`,
+and `generated`. Markdown is converted to HTML first, then parsed into native
+WordPress blocks. PHP, Blade, Twig, and HTML sources go through the normal
+Blockstudio page parser.
+
 ## Markdown Pages
 
-Markdown pages are converted to block content during sync. Headings receive
-stable IDs, frontmatter can define the same page properties as `page.json`,
-and the page can also expose the original Markdown when raw Markdown output is
-enabled.
+Use Markdown when prose should live in files but still become editable
+WordPress block content after sync. Markdown source is converted to block
+markup during sync. The synced post stores blocks, not the raw Markdown body.
 
-Standalone Markdown pages need frontmatter. A standalone `index.md` without
-frontmatter is skipped because Blockstudio has no page name to sync. Markdown
-inside a collection does not need frontmatter because the collection can infer
-the page name and logical path from the file location.
+Markdown can be used in three ways:
+
+| Source | Frontmatter required? | Notes |
+| ------ | --------------------- | ----- |
+| Standalone `pages/example/index.md` | Yes | Frontmatter provides the page identity. |
+| `page.json` plus `index.md` | No | `page.json` defines the page and Markdown provides content. |
+| Markdown inside a collection | No | The collection infers `name` and `path` from the file location. |
+
+A standalone `index.md` without frontmatter is skipped because Blockstudio has
+no page identity to sync. Collection Markdown does not need frontmatter because
+the collection manifest and file path provide that identity.
 
 ```md title="pages/about/index.md"
 ---
@@ -128,19 +157,32 @@ order: 20
 This page uses `page.json` with Markdown content.
 ```
 
+For collection Markdown, the file path becomes the logical page path unless
+frontmatter overrides it:
+
+| File | Default path |
+| ---- | ------------ |
+| `pages/docs/index.md` | `.` |
+| `pages/docs/getting-started.md` | `getting-started` |
+| `pages/docs/guide/install/index.md` | `guide/install` |
+| `pages/docs/guide/install.md` | `guide/install` |
+
 Unknown frontmatter keys are preserved in the page's `meta` array. This lets
 you attach data such as `section` or `description` and read it from the PHP
 API.
 
 Markdown is rendered with the bundled League CommonMark GitHub Flavored
-Markdown converter when available. If Symfony YAML is unavailable,
-frontmatter falls back to a simple scalar parser, so nested YAML structures
-require the bundled parser.
+Markdown converter when available. GitHub Flavored Markdown is enabled, raw
+HTML is allowed, unsafe links are blocked, and headings receive stable IDs when
+they do not already have one. If Symfony YAML is unavailable, frontmatter falls
+back to a simple scalar parser, so nested YAML structures require the bundled
+parser.
 
 ### Raw Markdown
 
-Markdown page sources can expose their source Markdown for external tools and
-documentation consumers.
+Markdown file sources can expose their original source Markdown for external
+tools and documentation consumers. Inline Markdown does not have a source file,
+so it syncs to blocks but does not produce a raw `.md` response.
 
 Request the page with a `.md` suffix:
 
@@ -148,11 +190,26 @@ Request the page with a `.md` suffix:
 https://example.com/docs/reference.md
 ```
 
-Or send an `Accept: text/markdown` header to the page URL. Frontmatter is
-removed from the response. Successful raw Markdown responses send
-`X-Robots-Tag: noindex` and a canonical `Link` header back to the HTML page.
+Or send an `Accept: text/markdown` header to the normal page URL:
 
-Disable this behavior with the `blockstudio/pages/serve_markdown` filter:
+```bash
+curl -H "Accept: text/markdown" https://example.com/docs/reference/
+```
+
+Frontmatter is removed from the response. Successful raw Markdown responses
+send `Content-Type: text/markdown`, `X-Robots-Tag: noindex`, and a canonical
+`Link` header back to the HTML page. Missing `.md` routes return a real 404.
+
+Collection Markdown keeps the same URL shape for raw Markdown:
+
+| Page URL | Raw Markdown URL |
+| -------- | ---------------- |
+| `/docs/` | `/docs.md` |
+| `/docs/getting-started/` | `/docs/getting-started.md` |
+| `/docs/guide/install/` | `/docs/guide/install.md` |
+
+Disable raw Markdown responses with the `blockstudio/pages/serve_markdown`
+filter:
 
 ```php title="functions.php"
 add_filter('blockstudio/pages/serve_markdown', '__return_false');
@@ -246,7 +303,7 @@ This URL model works for both hierarchical and non-hierarchical collection
 post types. Blockstudio also redirects the older doubled form, such as
 `/docs/docs/` or `/docs/docs/getting-started/`, to the canonical URL.
 
-Markdown-backed collection pages keep the same URL shape for raw Markdown:
+Markdown collection pages keep the same URL shape for raw Markdown:
 
 | Page URL                 | Raw Markdown URL           |
 | ------------------------ | -------------------------- |
@@ -263,9 +320,13 @@ cleaned up across all post statuses according to the
 
 ## Collection Loaders
 
-Collections can include a trusted local `loader.php`. Use it when page
-definitions come from another local source, such as an external docs folder,
-a generated manifest, or a package.
+Collections can include a trusted local `loader.php`. Use it when collection
+pages come from another local source, such as an external docs folder, a
+package, or a generated manifest.
+
+The loader runs during page discovery and sync. It should be deterministic and
+local. Avoid fetching remote content from `loader.php`, because admin requests
+can trigger page sync.
 
 ```php title="pages/docs/loader.php"
 <?php
@@ -273,6 +334,9 @@ a generated manifest, or a package.
 return array(
   'meta' => array(
     'source' => 'loader',
+  ),
+  'paths' => array(
+    __DIR__ . '/external-docs',
   ),
   'pages' => array(
     array(
@@ -282,39 +346,71 @@ return array(
       'content' => "# API\n\nGenerated markdown content.",
       'contentType' => 'markdown',
     ),
+    array(
+      'name' => 'docs-template',
+      'title' => 'Template',
+      'path' => 'template',
+      'file' => __DIR__ . '/template.md',
+    ),
   ),
 );
 ```
 
-Loader pages support:
-
-- `markdown`, `html`, or `content` inline content
-- `contentType` values of `markdown` or `html`
-- `file` or `template` references to local files
-- `meta` for per-page metadata
-
 A loader can return an array with `pages`, `meta`, and `paths` keys:
 
-- `pages` is a list of page arrays.
-- `meta` is merged into every loader-generated page's `meta`.
-- `paths` is a list of extra local directories to discover.
+| Key | Description |
+| --- | ----------- |
+| `pages` | A list of page arrays. Each page supports the same recognized keys as `page.json` and Markdown frontmatter. |
+| `meta` | Metadata merged into every loader-generated page's `meta` array. |
+| `paths` | Extra local directories to discover as part of this collection. |
 
-As a shorthand, the loader may return a bare list of page arrays. Loader pages
-default to `generated: true`, which means disappearing loader output is treated
-as an orphaned generated page on the next sync. Paths outside the collection
-root are allowed only when the `blockstudio/pages/allow_external_loader_path`
-filter permits them.
+As a shorthand, the loader may return a bare list of page arrays.
+
+Loader page entries can provide content in these ways:
+
+| Shape | Description |
+| ----- | ----------- |
+| `markdown` | Inline Markdown content. |
+| `html` | Inline HTML content. |
+| `content` + `contentType` | Generic inline content. `contentType` must resolve to `markdown` or `html`. |
+| `file` | Local file source. Type is inferred from the extension unless `contentType` is set. |
+| `template` | Alias for `file`. |
+
+Loader file references can point to PHP, Blade, Twig, Markdown, or HTML
+sources. Relative paths resolve from the collection root. Absolute paths and
+paths outside the collection root are allowed only when the
+`blockstudio/pages/allow_external_loader_path` filter permits them.
+
+Loader pages default to `generated: true`. When a generated loader page
+disappears from loader output, Blockstudio treats the synced post as an orphan
+on the next sync. The cleanup behavior is controlled by
+`blockstudio/pages/orphan_action`, which can return `trash`, `delete`, or
+`keep`.
+
+Directories listed in `paths` are discovered like normal collection folders.
+They can contain Markdown files or `page.json` folders. If those paths are
+outside the collection root, the same external path filter applies.
 
 ## Layouts
 
-A collection can wrap every frontend page in a `layout.php` file. The synced
-WordPress post content is available through `blockstudio_page_content()`.
+A `layout.php` file wraps the frontend rendering of a file-based page. It does
+not replace the synced `post_content` stored in WordPress, and it does not wrap
+the editor canvas. The layout only runs on singular frontend requests.
+
+For collections, put `layout.php` next to `pages.json` to wrap every frontend
+page in that collection:
 
 ```php title="pages/docs/layout.php"
+<?php $current = blockstudio_current_page(); ?>
+
 <main class="docs-layout">
   <aside>
     <?php foreach (blockstudio_page_tree('docs') as $item) : ?>
-      <a href="<?php echo esc_url($item['permalink'] ?? '#'); ?>">
+      <?php $is_current = ($item['post_id'] ?? null) === ($current['post_id'] ?? null); ?>
+      <a
+        href="<?php echo esc_url($item['permalink'] ?? '#'); ?>"
+        <?php echo $is_current ? 'aria-current="page"' : ''; ?>
+      >
         <?php echo esc_html($item['title']); ?>
       </a>
     <?php endforeach; ?>
@@ -326,8 +422,29 @@ WordPress post content is available through `blockstudio_page_content()`.
 </main>
 ```
 
+`blockstudio_page_content()` prints the page body that WordPress would normally
+render through `the_content`. If a layout does not output
+`blockstudio_page_content()`, the page content is intentionally hidden.
+
+Layouts can use the page helper functions:
+
+```php
+blockstudio_current_page();
+blockstudio_page_collection('docs');
+blockstudio_pages('docs');
+blockstudio_page_tree('docs');
+blockstudio_page_children('docs-guide', 'docs');
+blockstudio_page_content();
+```
+
 Nested non-collection pages can also inherit the nearest ancestor `layout.php`
-inside the `pages` tree.
+inside the `pages` tree. For collection pages, the collection root layout is
+stored on each synced post and watched as part of the page fingerprint, so
+layout changes are picked up on the next sync.
+
+On frontend requests, Blockstudio hydrates the page registry from synced
+published posts. Draft and private pages are available during admin discovery
+and sync, but frontend layout helpers only include published pages.
 
 ## Block Editing Mode
 
