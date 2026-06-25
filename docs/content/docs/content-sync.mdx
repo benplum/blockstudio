@@ -1,17 +1,47 @@
 ---
 title: Content Sync
-description: Project allowlisted WordPress content to portable files and apply it across environments with WP-CLI.
+description: Add database content to Blockstudio's file-first workflow by projecting allowlisted WordPress records to portable files.
 ---
 
 # Content Sync
 
-Content Sync is a WP-CLI workflow for versioning selected WordPress content in
-your theme. It projects allowlisted posts, postmeta, terms, termmeta, and
-post-term relationships to files, stores portable UIDs in WordPress meta, and
-rewrites only the references you explicitly declare.
+Blockstudio is built around a file-first workflow: blocks, fields, templates,
+assets, patterns, and file-based pages can all live in your project. Content
+Sync extends that model to selected WordPress database content for teams that
+also want curated posts, terms, relationships, and declared metadata in git.
+
+It is a WP-CLI workflow, not live database replication. On pull, Content Sync
+projects allowlisted posts, postmeta, terms, termmeta, and post-term
+relationships to portable files in your theme. On push, it applies those files
+to another environment, using stable UIDs and only rewriting references you
+explicitly declare.
 
 Content Sync is on-demand. It does not run on every admin request.
 Commands return a skipped row until `content.enabled` is `true`.
+
+## When to use Content Sync
+
+Use Content Sync for content sets that are important to version, review, and
+move between environments:
+
+- structured content such as team members, locations, case studies, products,
+  documentation entries, or campaign pages
+- taxonomies and relationships that belong with those content sets
+- allowlisted metadata that is safe to commit and needs stable references
+- small to medium content sets where reviewing files in git is still practical
+
+As a rule of thumb, Content Sync is comfortable for dozens or hundreds of rows,
+and can work into the low thousands when the data is structured, low-churn, and
+split into focused post types. It is not meant to mirror an entire production
+database, high-traffic editorial content, logs, orders, analytics, form
+submissions, sessions, or other high-volume/high-churn data. If the generated
+files become noisy to review, pushes take too long to reason about, or most rows
+change outside your deployment workflow, use a database backup, migration, or
+import/export tool instead.
+
+Media binaries are not copied in 7.4. Attachment references can be recorded in a
+manifest and validated, but the files themselves need to exist in the target
+environment.
 
 ## Configuration
 
@@ -191,7 +221,7 @@ attachment references are dropped.
 Files are the source of truth for `push`. The database is captured back to files
 with `pull`.
 
-## V1 Scope
+## Scope
 
 The 7.4.0 Content Sync surface is intentionally conservative:
 

@@ -202,8 +202,8 @@ for collection post types too, including URLs such as `/docs.md` and
 
 ## Content Sync
 
-7.4 also introduces Content Sync, a WP-CLI workflow for moving selected
-WordPress content through files.
+7.4 also introduces Content Sync, a WP-CLI workflow for teams that want more of
+their WordPress project represented as files.
 
 ```bash
 wp bs content pull
@@ -211,9 +211,14 @@ wp bs content push --dry-run
 wp bs content status
 ```
 
-Content Sync is intentionally explicit. You enable it in `blockstudio.json`,
-allowlist the post types and taxonomies you want to manage, and declare the
-meta references that should be rewritten between environments.
+Blockstudio already keeps blocks, fields, templates, patterns, and file-based
+pages in your project. Content Sync adds selected database content to that
+file-first workflow: allowlisted posts, terms, relationships, and declared meta
+can be pulled into files, reviewed in git, and pushed into another environment.
+
+It is intentionally explicit. You enable it in `blockstudio.json`, allowlist the
+post types and taxonomies you want to manage, and declare the meta references
+that should be rewritten between environments.
 
 On pull, Blockstudio writes portable posts, terms, relationships, and
 allowlisted meta into files in your theme. On push, it validates the plan before
@@ -226,11 +231,15 @@ locked entities, and status reporting. Taxonomy definition capture, media binary
 copying, and block-markup ID rewriting are intentionally left out of this first
 version.
 
-That gives teams a clean way to version things like team members, case studies,
-documentation entries, or other structured content without turning every
-database row into a migration.
+That gives teams a clean way to version curated content such as team members,
+case studies, locations, documentation entries, or other structured records
+without turning the whole production database into a migration. It is meant for
+content sets you can still review as files: dozens or hundreds of rows, and in
+some projects low thousands when the content is structured and low-churn. It is
+not a replacement for database backups, ecommerce/order sync, analytics, logs,
+form submissions, or other high-volume data.
 
-[Read the Content Sync docs](/docs/pages-and-patterns/content-sync)
+[Read the Content Sync docs](/docs/content-sync)
 
 ## More reliable syncing
 
@@ -311,7 +320,7 @@ layouts, loaders, raw Markdown, and the new helper functions:
 The Content Sync and Block Tags docs cover the new CLI workflow and prefix
 resolution behavior:
 
-[Read the Content Sync docs](/docs/pages-and-patterns/content-sync)
+[Read the Content Sync docs](/docs/content-sync)
 
 [Read the Block Tags docs](/docs/blocks/rendering#prefix-shorthands)
 

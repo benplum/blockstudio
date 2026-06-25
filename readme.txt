@@ -60,7 +60,7 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * New: collection loaders can import page definitions from trusted local sources
 * New: collection post types can be registered from `pages.json`, inherit the manifest `postType`, and use clean slug-based URLs including raw Markdown routes
 * New: block tag prefixes can map concise custom tags to one or more block namespaces without per-block aliases
-* New: Content Sync CLI can project allowlisted posts, terms, relationships, and declared meta references to portable files and apply them across environments with stable UIDs
+* New: Content Sync CLI adds selected database content to Blockstudio's file-first workflow by projecting allowlisted posts, terms, relationships, and declared meta references to portable files with stable UIDs
 * Enhancement: collection post type rewrites flush automatically when collection routing changes
 * Enhancement: changing a collection from pages to a custom post type now migrates synced posts in place and removes duplicate old-typed posts
 * Enhancement: page sync now tracks manifests, loaders, layouts, metadata, related source paths, and source files for reliable resyncs
