@@ -23,13 +23,13 @@ export async function HeroLeft() {
     <>
       <Link
         href="/blog/blockstudio-7-4"
-        className="inline-flex items-center gap-1.5 rounded-full border border-fd-border bg-fd-secondary/50 pl-1 pr-1 py-1 text-xs text-fd-muted-foreground transition-colors hover:bg-fd-secondary hover:text-fd-foreground w-fit mb-4"
+        className="inline-flex max-w-full items-center gap-1 rounded-full border border-fd-border bg-fd-secondary/50 py-0.5 pl-1 pr-2 text-xs text-fd-muted-foreground transition-colors hover:bg-fd-secondary hover:text-fd-foreground w-fit mb-4"
       >
-        <span className="rounded-full bg-fd-primary px-1.5 py-0.5 text-xs font-medium text-fd-primary-foreground">
+        <span className="rounded-full bg-fd-primary px-1.5 py-px text-xs font-medium text-fd-primary-foreground">
           New
         </span>
-        <span className="px-3">
-          Blockstudio 7.4: page collections, Content Sync, and block tag prefixes
+        <span className="whitespace-nowrap px-2">
+          7.4: Pages, Content Sync, tag prefixes
         </span>
       </Link>
       <h1 className="text-left text-4xl font-medium leading-tight text-fd-foreground sm:text-5xl">
