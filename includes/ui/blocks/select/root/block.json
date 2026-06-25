@@ -44,6 +44,12 @@
 			{
 				"id": "value",
 				"type": "text"
+			},
+			{
+				"id": "options",
+				"type": "text",
+				"label": "Options (JSON)",
+				"hidden": true
 			}
 		]
 	}

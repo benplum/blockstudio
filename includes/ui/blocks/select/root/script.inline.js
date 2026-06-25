@@ -17,8 +17,8 @@ function focusOption( options, index, ctx ) {
 	return result;
 }
 
-function positionPopup( trigger, popup ) {
-	const selectedOption = popup.querySelector( '[aria-selected="true"]' );
+function positionPopup( trigger, popup, isMulti ) {
+	const selectedOption = isMulti ? null : popup.querySelector( '[aria-selected="true"]' );
 
 	if ( selectedOption ) {
 		const rem = parseFloat( getComputedStyle( document.documentElement ).fontSize );
@@ -46,11 +46,18 @@ function positionPopup( trigger, popup ) {
 			minWidth: ( triggerRect.width + popupPadding * 2 + popupBorder * 2 + checkmarkSpace ) + 'px',
 		} );
 	} else {
+		const triggerRect = trigger.getBoundingClientRect();
+		Object.assign( popup.style, {
+			position: 'fixed',
+			left: triggerRect.left + 'px',
+			top: ( triggerRect.bottom + 4 ) + 'px',
+		} );
 		computePosition( window.__bsui.getAnchor( trigger ), popup, {
 			placement: 'bottom-start',
+			strategy: 'fixed',
 			middleware: [ offset( 4 ), flip(), shift( { padding: 8 } ) ],
 		} ).then( ( { x, y } ) => {
-			Object.assign( popup.style, { left: x + 'px', top: y + 'px' } );
+			Object.assign( popup.style, { left: x + 'px', top: y + 'px', position: 'fixed' } );
 		} );
 	}
 }
@@ -110,7 +117,7 @@ store( 'bsui/select', {
 				requestAnimationFrame( () => {
 					if ( ! listbox ) return;
 
-					if ( trigger ) positionPopup( trigger, listbox );
+					if ( trigger ) positionPopup( trigger, listbox, ctx.multiple );
 					listbox.focus();
 					const options = getOptions( root );
 					const currentValue = ctx.multiple
@@ -155,6 +162,10 @@ store( 'bsui/select', {
 
 				ctx.value = values;
 				ctx.labels = labels;
+
+				const { ref } = getElement();
+				const root = ref.closest( '[data-bsui-select-root]' );
+				root?.dispatchEvent( new CustomEvent( 'change', { bubbles: true, detail: { value: ctx.value } } ) );
 				// Keep open in multiple mode
 				return;
 			}

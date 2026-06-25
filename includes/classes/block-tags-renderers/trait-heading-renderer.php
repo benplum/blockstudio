@@ -26,8 +26,16 @@ trait Heading_Renderer {
 			$level = 2;
 		}
 
-		$tag  = 'h' . $level;
-		$html = "<{$tag} class=\"wp-block-heading\">{$inner_content}</{$tag}>";
+		$anchor = $attrs['anchor'] ?? $attrs['id'] ?? '';
+
+		if ( '' !== $anchor ) {
+			$attrs['anchor'] = $anchor;
+			unset( $attrs['id'] );
+		}
+
+		$tag     = 'h' . $level;
+		$id_attr = '' !== $anchor ? ' id="' . esc_attr( $anchor ) . '"' : '';
+		$html    = "<{$tag}{$id_attr} class=\"wp-block-heading\">{$inner_content}</{$tag}>";
 
 		$attrs['level'] = $level;
 

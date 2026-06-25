@@ -27,6 +27,7 @@ class Cli {
 		\WP_CLI::add_command( 'bs rpc', array( __CLASS__, 'rpc' ) );
 		\WP_CLI::add_command( 'bs cron', array( __CLASS__, 'cron' ) );
 		\WP_CLI::add_command( 'bs settings', array( __CLASS__, 'settings' ) );
+		\WP_CLI::add_command( 'bs content', array( __CLASS__, 'content' ) );
 		\WP_CLI::add_command( 'bs tailwind', array( __CLASS__, 'tailwind' ) );
 		\WP_CLI::add_command( 'bs scss', array( __CLASS__, 'scss' ) );
 		\WP_CLI::add_command( 'bs fields', array( __CLASS__, 'fields' ) );
@@ -219,6 +220,82 @@ class Cli {
 		}
 
 		\WP_CLI\Utils\format_items( $format, $rows, array( 'block', 'schema', 'storage', 'fields' ) );
+	}
+
+	// Content Sync.
+
+	/**
+	 * Manage synced content files.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <command>
+	 * : Subcommand. One of: pull, push, status.
+	 *
+	 * [--post-type=<type>]
+	 * : Limit to a configured post type.
+	 *
+	 * [--taxonomy=<taxonomy>]
+	 * : Limit to a configured taxonomy.
+	 *
+	 * [--dry-run]
+	 * : Show the plan without writing.
+	 *
+	 * [--prune]
+	 * : Prune content-set owned database entities missing from files.
+	 *
+	 * [--yes]
+	 * : Confirm destructive operations.
+	 *
+	 * [--format=<format>]
+	 * : Output format. Default: table.
+	 *
+	 * @param array $args       Positional arguments.
+	 * @param array $assoc_args Associative arguments.
+	 *
+	 * @return void
+	 */
+	public static function content( $args, $assoc_args ) {
+		$subcommand = $args[0] ?? 'status';
+		$sync       = new Content_Sync();
+
+		if ( 'push' === $subcommand && ! empty( $assoc_args['prune'] ) && empty( $assoc_args['yes'] ) && empty( $assoc_args['dry-run'] ) ) {
+			\WP_CLI::error( 'Refusing to prune without --yes. Re-run with --dry-run to inspect the plan or --yes to confirm.' );
+			return;
+		}
+
+		switch ( $subcommand ) {
+			case 'pull':
+				$rows = $sync->pull( $assoc_args );
+				break;
+
+			case 'push':
+				$rows = $sync->push( $assoc_args );
+				break;
+
+			case 'status':
+				$rows = $sync->status( $assoc_args );
+				break;
+
+			default:
+				\WP_CLI::error( "Unknown subcommand: $subcommand. Use: pull, push, status" );
+				return;
+		}
+
+		$format = $assoc_args['format'] ?? 'table';
+
+		if ( empty( $rows ) ) {
+			\WP_CLI::log( 'No content changes found.' );
+			return;
+		}
+
+		\WP_CLI\Utils\format_items( $format, $rows, array( 'action', 'entity', 'id', 'uid', 'message' ) );
+
+		foreach ( $rows as $row ) {
+			if ( 'error' === ( $row['action'] ?? '' ) ) {
+				\WP_CLI::halt( 1 );
+			}
+		}
 	}
 
 	// RPC.

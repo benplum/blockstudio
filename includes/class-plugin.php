@@ -149,10 +149,12 @@ class Plugin {
 		require_once $classes_dir . 'database.php';
 		require_once $classes_dir . 'db.php';
 		require_once $classes_dir . 'cron.php';
+		require_once $classes_dir . 'content-sync.php';
 		require_once $classes_dir . 'cli.php';
 		require_once $classes_dir . 'github-updater.php';
 
 		// File-based pages system.
+		require_once $classes_dir . 'page-markdown.php';
 		require_once $classes_dir . 'page-discovery.php';
 		require_once $classes_dir . 'page-registry.php';
 
@@ -211,6 +213,10 @@ class Plugin {
 			Block_Editor_Policy::init();
 		}
 
+		if ( class_exists( 'Blockstudio\Build_Cache' ) ) {
+			Build_Cache::init();
+		}
+
 		add_action(
 			'init',
 			function () {
@@ -223,6 +229,16 @@ class Plugin {
 				}
 			},
 			PHP_INT_MAX - 1
+		);
+
+		add_action(
+			'init',
+			function () {
+				if ( class_exists( 'Blockstudio\Pages' ) ) {
+					Pages::register_collection_post_types();
+				}
+			},
+			1
 		);
 
 		add_action(

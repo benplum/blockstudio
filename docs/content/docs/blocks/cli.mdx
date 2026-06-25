@@ -257,3 +257,58 @@ wp bs db list my-theme/app logs --format=json | \
   jq -r '.[].id' | \
   xargs -I {} wp bs db delete my-theme/app logs {}
 ```
+
+## Content Sync
+
+Content Sync projects allowlisted WordPress content to files and applies those
+files back to the database. It is explicit and CLI-driven; it does not sync on
+page load or admin initialization.
+
+### Pull database content to files
+
+```bash
+wp bs content pull
+```
+
+Limit the pull to one configured post type or taxonomy:
+
+```bash
+wp bs content pull --post-type=team_member
+wp bs content pull --taxonomy=category
+```
+
+Preview without writing UIDs or files:
+
+```bash
+wp bs content pull --dry-run
+```
+
+### Push files to the database
+
+```bash
+wp bs content push
+```
+
+Preview the apply plan without writing:
+
+```bash
+wp bs content push --dry-run
+```
+
+Prune content-set owned database posts and terms that no longer exist in files:
+
+```bash
+wp bs content push --prune --yes
+```
+
+`--prune` is additive-apply first, cleanup second. The command refuses a
+destructive prune unless `--yes` is present.
+
+### Check status
+
+```bash
+wp bs content status
+```
+
+The table reports whether each file-backed entity is missing from the database,
+unchanged, would update, conflicted, locked, or invalid.

@@ -184,6 +184,8 @@ Your block is now ready to use in the WordPress editor. Continue exploring the d
 
 ### Settings
 
+# Settings
+
 Blockstudio includes a powerful settings API, that allows setting options via a `blockstudio.json` file inside your theme folder and/or filters. Additionally, allowed users are able to change the settings visually inside the admin area.
 
 ## Via JSON
@@ -211,6 +213,21 @@ The following properties are available:
   },
   "cache": {
     "enabled": true
+  },
+  "content": {
+    "enabled": false,
+    "id": "default",
+    "path": "content",
+    "includePageSyncManaged": false,
+    "authors": "ignore",
+    "postTypes": [],
+    "meta": {
+      "include": [],
+      "exclude": ["_edit_lock", "_edit_last", "_wp_old_slug"],
+      "references": {}
+    },
+    "taxonomies": [],
+    "media": "manifest"
   },
   "editor": {
     "formatOnSave": false,
@@ -308,6 +325,27 @@ When enabled, Blockstudio caches runtime build payloads, prebuilt block
 registration data, and resolved editor assets. Runtime cache entries are
 invalidated when watched block files, field files, asset files, settings, active
 plugins, WordPress, PHP, or Blockstudio versions change.
+
+### content
+
+| Option                   | Type    | Default                                  | Description                                               |
+| ------------------------ | ------- | ---------------------------------------- | --------------------------------------------------------- |
+| `enabled`                | boolean | `false`                                  | Enable Content Sync configuration                         |
+| `id`                     | string  | `"default"`                              | Content-set namespace stored on synced entities           |
+| `path`                   | string  | `"content"`                              | Theme-relative content file directory                     |
+| `includePageSyncManaged` | boolean | `false`                                  | Include Page Sync managed posts without owning their body |
+| `authors`                | string  | `"ignore"`                               | Author handling (`ignore` or existing-user `login`)       |
+| `postTypes`              | array   | `[]`                                     | Allowlisted post types                                    |
+| `meta.include`           | array   | `[]`                                     | Glob patterns for meta keys to sync                       |
+| `meta.exclude`           | array   | `["_edit_lock", "_edit_last", "_wp_old_slug"]` | Glob patterns for meta keys to exclude                    |
+| `meta.references`        | object  | `{}`                                     | Declared meta references rewritten between IDs and UIDs   |
+| `taxonomies`             | array   | `[]`                                     | Allowlisted registered taxonomies for terms and relationships |
+| `media`                  | string  | `"manifest"`                             | Attachment reference behavior (`manifest` or `none`)      |
+
+Content Sync is managed through `wp bs content` and projects allowlisted posts,
+postmeta, and declared references to portable files. See
+Content Sync for the workflow and file
+format.
 
 ### editor
 
@@ -4659,9 +4697,37 @@ Instead of replacing the whole template, we can use Twig's extends feature to ov
 
 ### Loading
 
-Blockstudio blocks are dynamic, meaning that they must be rendered on the server to be displayed in Gutenberg. This rendering is facilitated by a `fetch` call to the Blockstudio block renderer. Upon first opening the editor, each block fetches its respective template, which results in multiple requests depending on the number of blocks present on the page.
+Blockstudio blocks are dynamic, meaning that they are rendered on the server to
+be displayed in Gutenberg. Blockstudio preloads the rendered output for blocks
+that already exist in the editor payload and reuses it for the first editor
+paint when possible.
 
-On some hosts, this can cause timeouts and errors while loading other essential assets needed for the editor to function properly.
+This avoids a separate renderer request for each saved block on initial editor
+load. Nested Blockstudio blocks inside synced patterns and reusable
+`core/block` references are included in the preload payload.
+
+## Fallback renders
+
+The editor still calls the Blockstudio renderer when a block is inserted,
+edited, or cannot be matched to preloaded output. This can happen when the
+attributes, context, or inner block tree no longer match the preloaded entry.
+The fallback keeps the preview accurate while allowing most initial renders to
+come from preloaded data.
+
+On slower hosts, many fallback renderer requests can still cause timeouts or
+delay other editor assets. For blocks that do not need an immediate preview,
+loading can be disabled.
+
+## Media hydration
+
+File fields and media-enabled attributes are hydrated from the initial editor
+payload where possible. Blockstudio follows nested groups, tabs, repeaters, and
+field ID prefixes when preparing the media data.
+
+When a field stores a URL return format, Blockstudio treats it as a URL and does
+not try to resolve it through the WordPress media endpoint. If attachment data
+is not available in the preload payload, the editor may still request
+`/wp/v2/media` as a fallback.
 
 ## Disabling
 
@@ -4887,6 +4953,49 @@ Mix and match freely. Both syntaxes can nest inside each other:
   <block name="core/paragraph">Description text.</block>
 </bs:mytheme-section>
 ```
+
+### Prefix shorthands
+
+Block tags can also use project-specific prefix shorthands. Register a prefix
+with one or more namespaces and Blockstudio resolves `<prefix-slug>` to the
+first registered block in that namespace order:
+
+```php
+add_filter('blockstudio/block_tags/prefixes', function($prefixes) {
+  $prefixes['dv'] = ['divine-homepage', 'bsui'];
+
+  return $prefixes;
+});
+```
+
+```html
+<dv-card title="Homepage" />
+<dv-button label="Get started" />
+<dv-onumia-feature-matrix />
+```
+
+With the example above, `<dv-card>` resolves to
+`divine-homepage/card`, `<dv-button>` falls back to `bsui/button` when
+`divine-homepage/button` is not registered, and
+`<dv-onumia-feature-matrix>` resolves to
+`divine-homepage/onumia-feature-matrix`.
+
+You can also configure prefixes in `blockstudio.json`:
+
+```json
+{
+  "blockTags": {
+    "prefixes": {
+      "dv": ["divine-homepage", "bsui"]
+    }
+  }
+}
+```
+
+Prefixes must be lowercase letters or numbers, start with a letter, and cannot
+contain dashes. Explicit aliases from
+`blockstudio/block_tags/tag_aliases` take precedence over prefix resolution.
+Unknown prefixed tags are left untouched.
 
 ### Core blocks
 
@@ -6849,6 +6958,61 @@ wp bs db list my-theme/app logs --format=json | \
   xargs -I {} wp bs db delete my-theme/app logs {}
 ```
 
+## Content Sync
+
+Content Sync projects allowlisted WordPress content to files and applies those
+files back to the database. It is explicit and CLI-driven; it does not sync on
+page load or admin initialization.
+
+### Pull database content to files
+
+```bash
+wp bs content pull
+```
+
+Limit the pull to one configured post type or taxonomy:
+
+```bash
+wp bs content pull --post-type=team_member
+wp bs content pull --taxonomy=category
+```
+
+Preview without writing UIDs or files:
+
+```bash
+wp bs content pull --dry-run
+```
+
+### Push files to the database
+
+```bash
+wp bs content push
+```
+
+Preview the apply plan without writing:
+
+```bash
+wp bs content push --dry-run
+```
+
+Prune content-set owned database posts and terms that no longer exist in files:
+
+```bash
+wp bs content push --prune --yes
+```
+
+`--prune` is additive-apply first, cleanup second. The command refuses a
+destructive prune unless `--yes` is present.
+
+### Check status
+
+```bash
+wp bs content status
+```
+
+The table reports whether each file-backed entity is missing from the database,
+unchanged, would update, conflicted, locked, or invalid.
+
 #### PHP Hooks
 
 Below you'll find a list of all available PHP hooks that can be used to extend
@@ -7064,6 +7228,31 @@ add_filter('blockstudio/block_tags/tag_aliases', function($aliases) {
   <p>Children are parsed as nested blocks.</p>
 </theme-card>
 ```
+
+### blockstudio/block_tags/prefixes
+
+This filter lets you register prefix to namespace shorthands for block tags.
+Each key is a lowercase prefix without dashes. Each value can be a namespace
+string or an ordered list of namespaces.
+
+```php
+add_filter('blockstudio/block_tags/prefixes', function($prefixes) {
+  $prefixes['dv'] = ['divine-homepage', 'bsui'];
+
+  return $prefixes;
+});
+```
+
+```html
+<dv-card title="Homepage" />
+<dv-button label="Get started" />
+<dv-onumia-feature-matrix />
+```
+
+`<dv-card>` resolves to `divine-homepage/card`. `<dv-button>` tries
+`divine-homepage/button` first, then falls back to `bsui/button`. Explicit
+`blockstudio/block_tags/tag_aliases` entries take precedence for the same tag,
+and unresolved prefixed tags are left unchanged.
 
 ## Settings
 
@@ -8055,11 +8244,18 @@ A full page template combining multiple block types:
 
 ### Pages
 
-Pages are file-based templates that sync to the WordPress database as posts. When you update a template file, Blockstudio detects the change and updates the corresponding page.
+Pages are file-based templates that sync to the WordPress database as posts.
+When you update a template file, Blockstudio detects the change and updates
+the corresponding page.
+
+Pages can be defined as a single `page.json` folder, as standalone Markdown,
+or as a collection with a `pages.json` manifest. Collections are useful for
+documentation, knowledge bases, landing page libraries, or any set of nested
+pages that should be generated from files.
 
 ## page.json
 
-Each page folder needs a `page.json` configuration file:
+For a JSON-defined page, add a `page.json` configuration file:
 
 ```json
 {
@@ -8074,18 +8270,303 @@ Each page folder needs a `page.json` configuration file:
 
 ### Properties
 
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `name` | `string` | required | Unique identifier for the page |
-| `title` | `string` | Auto from name | The page title |
-| `slug` | `string` | Same as name | URL slug for the page |
-| `postType` | `string` | `"page"` | WordPress post type |
-| `postStatus` | `string` | `"draft"` | Status for new posts (`publish`, `draft`, `pending`, `private`) |
-| `postId` | `integer` | - | Pin the page to a specific WordPress post ID |
-| `blockEditingMode` | `string` | - | Block editing mode: `"default"`, `"contentOnly"`, or `"disabled"` |
-| `templateLock` | `string\|false` | `"all"` | Lock mode: `"all"`, `"insert"`, `"contentOnly"`, or `false` |
-| `templateFor` | `string\|null` | `null` | Set as default template for a post type |
-| `sync` | `boolean` | `true` | Whether to sync content when template changes |
+| Property           | Type            | Default        | Description                                                       |
+| ------------------ | --------------- | -------------- | ----------------------------------------------------------------- |
+| `name`             | `string`        | _required_     | Unique identifier for the page                                    |
+| `title`            | `string`        | Auto from name | The page title                                                    |
+| `slug`             | `string`        | Same as name   | URL slug for the page                                             |
+| `path`             | `string`        | `"."`          | Logical path inside a collection                                  |
+| `order`            | `integer`       | `0`            | Menu order for the synced post                                    |
+| `postType`         | `string`        | `"page"`       | WordPress post type                                               |
+| `postStatus`       | `string`        | `"draft"`      | Status for new posts (`publish`, `draft`, `pending`, `private`)   |
+| `postId`           | `integer`       | -              | Pin the page to a specific WordPress post ID                      |
+| `blockEditingMode` | `string`        | -              | Block editing mode: `"default"`, `"contentOnly"`, or `"disabled"` |
+| `templateLock`     | `string\|false` | `"all"`        | Lock mode: `"all"`, `"insert"`, `"contentOnly"`, or `false`       |
+| `templateFor`      | `string\|null`  | `null`         | Set as default template for a post type                           |
+| `sync`             | `boolean`       | `true`         | Whether to sync content when template changes                     |
+
+Recognized `page.json`, frontmatter, and loader page keys are
+`blockEditingMode`, `collection`, `content`, `contentSource`,
+`contentType`, `defaults`, `file`, `generated`, `html`, `markdown`, `meta`,
+`name`, `order`, `path`, `postId`, `postStatus`, `postType`,
+`postTypeArgs`, `slug`, `source`, `source_fingerprint`, `sync`, `template`,
+`templateFor`, `templateLock`, `title`, and `trusted`. Unknown keys are
+stored under the page `meta` array.
+
+Blockstudio looks for these source files next to `page.json`, in order:
+
+- `index.php`
+- `index.blade.php`
+- `index.twig`
+- `index.md`
+
+`page.json` can also provide inline content:
+
+```json
+{
+  "name": "intro",
+  "title": "Intro",
+  "markdown": "# Intro\n\nThis page is generated from inline markdown."
+}
+```
+
+```json
+{
+  "name": "notice",
+  "title": "Notice",
+  "html": "<h1>Notice</h1><p>This page is generated from inline HTML.</p>"
+}
+```
+
+## Markdown Pages
+
+Markdown pages are converted to block content during sync. Headings receive
+stable IDs, frontmatter can define the same page properties as `page.json`,
+and the page can also expose the original Markdown when raw Markdown output is
+enabled.
+
+Standalone Markdown pages need frontmatter. A standalone `index.md` without
+frontmatter is skipped because Blockstudio has no page name to sync. Markdown
+inside a collection does not need frontmatter because the collection can infer
+the page name and logical path from the file location.
+
+```md
+---
+name: about
+title: About
+slug: about
+postStatus: publish
+---
+
+# About
+
+This Markdown content is synced as native WordPress blocks.
+```
+
+You can also pair `page.json` with `index.md`. In that case, `page.json`
+defines the page and `index.md` provides the content. Frontmatter in
+`index.md` overrides matching `page.json` values.
+
+```json
+{
+  "name": "docs-reference",
+  "title": "Reference",
+  "path": "reference",
+  "sync": true
+}
+```
+
+```md
+---
+title: API Reference
+order: 20
+---
+
+# Reference
+
+This page uses `page.json` with Markdown content.
+```
+
+Unknown frontmatter keys are preserved in the page's `meta` array. This lets
+you attach data such as `section` or `description` and read it from the PHP
+API.
+
+Markdown is rendered with the bundled League CommonMark GitHub Flavored
+Markdown converter when available. If Symfony YAML is unavailable,
+frontmatter falls back to a simple scalar parser, so nested YAML structures
+require the bundled parser.
+
+### Raw Markdown
+
+Markdown-backed pages can expose their source Markdown for external tools and
+documentation consumers.
+
+Request the page with a `.md` suffix:
+
+```txt
+https://example.com/docs/reference.md
+```
+
+Or send an `Accept: text/markdown` header to the page URL. Frontmatter is
+removed from the response. Successful raw Markdown responses send
+`X-Robots-Tag: noindex` and a canonical `Link` header back to the HTML page.
+
+Disable this behavior with the `blockstudio/pages/serve_markdown` filter:
+
+```php
+add_filter('blockstudio/pages/serve_markdown', '__return_false');
+```
+
+## Page Collections
+
+A collection is a folder with a `pages.json` manifest. It groups many page
+sources under one collection slug, applies defaults, supports nested paths,
+and can register a dedicated post type automatically.
+
+```txt
+docs/
+  pages.json
+  layout.php
+  index.md
+  guide/
+    install/
+      index.md
+  reference/
+    page.json
+    index.md
+  loader.php
+```
+
+```json
+{
+  "collection": "docs",
+  "title": "Documentation",
+  "postType": "bs_docs",
+  "postTypeArgs": {
+    "label": "Docs",
+    "rewrite": {
+      "slug": "docs"
+    },
+    "supports": ["title", "editor", "page-attributes"]
+  },
+  "defaults": {
+    "postStatus": "publish",
+    "templateLock": "contentOnly"
+  },
+  "navigation": "primary"
+}
+```
+
+| Property                       | Type      | Description                                                                                        |
+| ------------------------------ | --------- | -------------------------------------------------------------------------------------------------- |
+| `collection` / `slug` / `name` | `string`  | Collection slug. `collection` is the clearest form and becomes the public URL base.                |
+| `title`                        | `string`  | Human-readable collection title.                                                                   |
+| `postType`                     | `string`  | Post type for generated pages. Defaults to `page`. If it does not exist, Blockstudio registers it. |
+| `postTypeArgs`                 | `object`  | Arguments passed to `register_post_type()` when Blockstudio registers the collection post type.    |
+| `defaults`                     | `object`  | Default page properties applied to every page in the collection.                                   |
+| `source`                       | `object`  | Source metadata for the collection.                                                                |
+| `order`                        | `integer` | Optional collection ordering metadata.                                                             |
+| `meta`                         | `object`  | Custom collection metadata. Unknown manifest keys are also stored in `meta`.                       |
+
+Collection page paths are logical paths. A page with `path: "guide/install"`
+is synced as a child of `guide`, and `guide` is synced as a child of the
+collection root when those parent pages exist.
+
+If a hierarchical collection has a nested page but an intermediate parent
+source does not exist, Blockstudio generates an empty container page for that
+path. This keeps the WordPress hierarchy complete. Non-hierarchical
+collection post types do not generate empty containers; their routing is based
+on the stored collection path, so nested paths such as `guide/install` and
+`setup/install` can coexist even though both end in `install`.
+
+### Collection Post Types and URLs
+
+Set `postType` on the collection manifest to sync every page in the collection
+to that post type. You do not need to repeat the same value inside
+`defaults`. Individual pages can still override `postType` in frontmatter or
+`page.json`.
+
+When the post type does not exist, Blockstudio registers it with
+`show_in_rest: true`, a page-like editor setup, and the collection slug as the
+public URL base. `postTypeArgs` can override the registration arguments.
+Collection post type rewrite rules are flushed automatically when the
+registered collection post types or rewrite args change, so you do not need to
+resave WordPress permalinks.
+
+Collection URLs use the collection slug plus each page's logical `path`:
+
+| Source path               | Public URL               |
+| ------------------------- | ------------------------ |
+| `path: "."`               | `/docs/`                 |
+| `path: "getting-started"` | `/docs/getting-started/` |
+| `path: "guide/install"`   | `/docs/guide/install/`   |
+
+This URL model works for both hierarchical and non-hierarchical collection
+post types. Blockstudio also redirects the older doubled form, such as
+`/docs/docs/` or `/docs/docs/getting-started/`, to the canonical URL.
+
+Markdown-backed collection pages keep the same URL shape for raw Markdown:
+
+| Page URL                 | Raw Markdown URL           |
+| ------------------------ | -------------------------- |
+| `/docs/`                 | `/docs.md`                 |
+| `/docs/getting-started/` | `/docs/getting-started.md` |
+| `/docs/guide/install/`   | `/docs/guide/install.md`   |
+
+If you change a collection from `postType: "page"` to a custom post type,
+Blockstudio migrates already synced collection posts in place when their
+stored page identity matches. That preserves post IDs, metadata, and existing
+content while avoiding duplicate old-typed posts. Stale collection posts are
+cleaned up across all post statuses according to the
+`blockstudio/pages/orphan_action` filter.
+
+## Collection Loaders
+
+Collections can include a trusted local `loader.php`. Use it when page
+definitions come from another local source, such as an external docs folder,
+a generated manifest, or a package.
+
+```php
+<?php
+
+return array(
+  'meta' => array(
+    'source' => 'loader',
+  ),
+  'pages' => array(
+    array(
+      'name' => 'docs-api',
+      'title' => 'API',
+      'path' => 'api',
+      'content' => "# API\n\nGenerated markdown content.",
+      'contentType' => 'markdown',
+    ),
+  ),
+);
+```
+
+Loader pages support:
+
+- `markdown`, `html`, or `content` inline content
+- `contentType` values of `markdown` or `html`
+- `file` or `template` references to local files
+- `meta` for per-page metadata
+
+A loader can return an array with `pages`, `meta`, and `paths` keys:
+
+- `pages` is a list of page arrays.
+- `meta` is merged into every loader-generated page's `meta`.
+- `paths` is a list of extra local directories to discover.
+
+As a shorthand, the loader may return a bare list of page arrays. Loader pages
+default to `generated: true`, which means disappearing loader output is treated
+as an orphaned generated page on the next sync. Paths outside the collection
+root are allowed only when the `blockstudio/pages/allow_external_loader_path`
+filter permits them.
+
+## Layouts
+
+A collection can wrap every frontend page in a `layout.php` file. The synced
+WordPress post content is available through `blockstudio_page_content()`.
+
+```php
+<main class="docs-layout">
+  <aside>
+    <?php foreach (blockstudio_page_tree('docs') as $item) : ?>
+      <a href="<?php echo esc_url($item['permalink'] ?? '#'); ?>">
+        <?php echo esc_html($item['title']); ?>
+      </a>
+    <?php endforeach; ?>
+  </aside>
+
+  <article>
+    <?php echo blockstudio_page_content(); ?>
+  </article>
+</main>
+```
+
+Nested non-collection pages can also inherit the nearest ancestor `layout.php`
+inside the `pages` tree.
 
 ## Block Editing Mode
 
@@ -8108,11 +8589,11 @@ The `blockEditingMode` property controls how blocks can be edited in the editor.
 </block>
 ```
 
-| Value | Description |
-|-------|-------------|
-| `"default"` | Full editing. Blocks can be selected, moved, and edited |
+| Value           | Description                                                                     |
+| --------------- | ------------------------------------------------------------------------------- |
+| `"default"`     | Full editing. Blocks can be selected, moved, and edited                         |
 | `"contentOnly"` | Text editing only. Block text is editable but settings and structure are locked |
-| `"disabled"` | No editing. Blocks are completely non-interactive |
+| `"disabled"`    | No editing. Blocks are completely non-interactive                               |
 
 Per-element overrides are set as HTML attributes on any element (`<h1>`, `<p>`, `<div>`, etc.) or on `<block>` elements. Ancestor container blocks of overridden elements are automatically set to `contentOnly` so their children remain accessible. This cascade walks up from the overridden element to the page root, so you only need to set `blockEditingMode` on the elements you want to make editable.
 
@@ -8120,20 +8601,34 @@ Per-element overrides are set as HTML attributes on any element (`<h1>`, `<p>`, 
 
 The `templateLock` property controls how users can edit the page in the editor:
 
-| Value | Add/Remove | Move | Edit Content |
-|-------|------------|------|--------------|
-| `"all"` | No | No | No |
-| `"insert"` | No | Yes | Yes |
-| `"contentOnly"` | No | No | Yes |
-| `false` | Yes | Yes | Yes |
+| Value           | Add/Remove | Move | Edit Content |
+| --------------- | ---------- | ---- | ------------ |
+| `"all"`         | No         | No   | No           |
+| `"insert"`      | No         | Yes  | Yes          |
+| `"contentOnly"` | No         | No   | Yes          |
+| `false`         | Yes        | Yes  | Yes          |
 
 When a `templateLock` is set, Blockstudio disables the ability to unlock blocks via the editor UI.
 
 ## Sync Behavior
 
-Pages are synced when you visit the WordPress admin. The sync checks the file's modification time and only updates if the file has changed since the last sync.
+Pages are synced when you visit the WordPress admin. Blockstudio only updates
+WordPress when the relevant page source files or settings change.
 
 To prevent a page from being overwritten after manual edits, set `"sync": false` in `page.json`.
+
+For collection pages, Blockstudio watches the manifest, loader, page source,
+layout file, metadata, and related source paths. When any of those inputs
+change, the generated WordPress pages are synced again.
+
+When a collection source is removed, Blockstudio removes the generated page so
+old collection pages do not linger after the source file is gone.
+By default, orphaned collection pages are moved to trash. Use
+`blockstudio/pages/orphan_action` to return `trash`, `delete`, or `keep`.
+
+On frontend requests, Blockstudio hydrates the page registry from already
+synced published posts. Draft and private pages are available in admin and
+sync contexts, but frontend helpers only hydrate published pages.
 
 ## Post ID Pinning
 
@@ -8184,10 +8679,10 @@ Keys must be globally unique across the entire template. A key protects the enti
 
 When a template file changes and the page re-syncs:
 
-| Block | Behavior |
-|-------|----------|
-| Keyed block | User's content is preserved (innerHTML, innerContent, innerBlocks). Template's attributes are applied. |
-| Unkeyed block | Replaced entirely with the template version (same as without keys) |
+| Block             | Behavior                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| Keyed block   | User's content is preserved (innerHTML, innerContent, innerBlocks). Template's attributes are applied. |
+| Unkeyed block | Replaced entirely with the template version (same as without keys)                                     |
 
 ### Examples
 
@@ -8206,15 +8701,15 @@ Attributes from the template still apply:
 
 ### Edge Cases
 
-| Scenario | Behavior |
-|----------|----------|
-| New keyed block added to template | Appears with the template's default content |
-| Keyed block removed from template | Deleted from the post |
-| Block type changes (same key) | Template wins entirely, no content merge |
-| Duplicate keys | Second occurrence is treated as unkeyed |
-| No keys in template | Full replacement (same behavior as without keys) |
-| Force sync | Full replacement, keys are ignored |
-| Locked post | No sync at all |
+| Scenario                          | Behavior                                         |
+| --------------------------------- | ------------------------------------------------ |
+| New keyed block added to template | Appears with the template's default content      |
+| Keyed block removed from template | Deleted from the post                            |
+| Block type changes (same key)     | Template wins entirely, no content merge         |
+| Duplicate keys                    | Second occurrence is treated as unkeyed          |
+| No keys in template               | Full replacement (same behavior as without keys) |
+| Force sync                        | Full replacement, keys are ignored               |
+| Locked post                       | No sync at all                                   |
 
 ### Combining with Editing Controls
 
@@ -8328,15 +8823,21 @@ An alternative to keyed merging is using WordPress core's Block Bindings API to 
 Pass the `metadata` attribute on any HTML element or `<block>` element:
 
 ```html
-<h1 metadata='{"bindings":{"content":{"source":"core/post-meta","args":{"key":"hero_title"}}}}'>
+<h1
+  metadata='{"bindings":{"content":{"source":"core/post-meta","args":{"key":"hero_title"}}}}'
+>
   Default Title
 </h1>
 
-<p metadata='{"bindings":{"content":{"source":"core/post-meta","args":{"key":"hero_description"}}}}'>
+<p
+  metadata='{"bindings":{"content":{"source":"core/post-meta","args":{"key":"hero_description"}}}}'
+>
   Default description text.
 </p>
 
-<img metadata='{"bindings":{"url":{"source":"core/post-meta","args":{"key":"hero_image"}},"alt":{"source":"core/post-meta","args":{"key":"hero_image_alt"}}}}' />
+<img
+  metadata='{"bindings":{"url":{"source":"core/post-meta","args":{"key":"hero_image"}},"alt":{"source":"core/post-meta","args":{"key":"hero_image_alt"}}}}'
+/>
 ```
 
 The meta keys must be registered with `show_in_rest` enabled:
@@ -8352,14 +8853,14 @@ register_post_meta( 'page', 'hero_title', array(
 
 ### Keys vs. bindings
 
-| | Keys | Bindings |
-|---|---|---|
-| Content stored in | Block markup (`post_content`) | Post meta (`wp_postmeta`) |
-| Survives template sync | Yes (merged by key) | Yes (data lives in meta) |
-| Queryable via `WP_Query` | No | Yes (`meta_query`) |
-| Available in REST API | No | Yes |
-| Requires registration | No | Yes (`register_post_meta`) |
-| User can move blocks | No (template re-imposes structure) | No (template re-imposes structure) |
+|                          | Keys                               | Bindings                           |
+| ------------------------ | ---------------------------------- | ---------------------------------- |
+| Content stored in        | Block markup (`post_content`)      | Post meta (`wp_postmeta`)          |
+| Survives template sync   | Yes (merged by key)                | Yes (data lives in meta)           |
+| Queryable via `WP_Query` | No                                 | Yes (`meta_query`)                 |
+| Available in REST API    | No                                 | Yes                                |
+| Requires registration    | No                                 | Yes (`register_post_meta`)         |
+| User can move blocks     | No (template re-imposes structure) | No (template re-imposes structure) |
 
 Both approaches can be used in the same template. Use keys for sections where the block structure matters (e.g., a group with multiple children). Use bindings for individual fields where you also want the data accessible outside the block editor.
 
@@ -8390,36 +8891,289 @@ add_filter( 'blockstudio/pages/paths', function( $paths ) {
 } );
 ```
 
+## Filters and Actions
+
+Page discovery, sync, and collection routing expose these extension points:
+
+| Hook | Type | Description |
+| ---- | ---- | ----------- |
+| `blockstudio/pages/paths` | Filter | Add directories that Blockstudio scans for page sources. |
+| `blockstudio/pages/collection_post_type_args` | Filter | Adjust `register_post_type()` args for a collection CPT. |
+| `blockstudio/pages/template_candidates` | Filter | Adjust template filenames considered for a page source. |
+| `blockstudio/pages/serve_markdown` | Filter | Enable or disable raw Markdown responses. |
+| `blockstudio/pages/orphan_action` | Filter | Return `trash`, `delete`, or `keep` for orphan cleanup. |
+| `blockstudio/pages/docs_allowed_html` | Filter | Adjust allowed HTML for generated Markdown docs content. |
+| `blockstudio/pages/allow_external_loader_path` | Filter | Allow loader `paths` outside the collection root. |
+| `blockstudio/pages/create_post_data` | Filter | Modify post data before a synced page is created. |
+| `blockstudio/pages/update_post_data` | Filter | Modify post data before a synced page is updated. |
+| `blockstudio/pages/post_created` | Action | Runs after a synced page post is created. |
+| `blockstudio/pages/post_updated` | Action | Runs after a synced page post is updated. |
+| `blockstudio/pages/synced` | Action | Runs after the page registry has finished syncing. |
+
 ## PHP API
 
 ```php
-// Get all registered pages
+// Get all registered pages.
 $pages = Blockstudio\Pages::pages();
 
-// Get a specific page
+// Get pages from one collection.
+$docs = Blockstudio\Pages::pages('docs');
+
+// Get a nested page tree.
+$tree = Blockstudio\Pages::tree('docs');
+
+// Get direct children for a page.
+$children = Blockstudio\Pages::children('docs-guide', 'docs');
+
+// Get collection metadata.
+$collection = Blockstudio\Pages::collection('docs');
+
+// Get a specific page.
 $page = Blockstudio\Pages::get_page('about');
 
-// Get the WordPress post ID for a page
+// Get the WordPress post ID for a page.
 $postId = Blockstudio\Pages::get_post_id('about');
 
-// Force sync a page (ignores modification time)
+// Force sync a page (ignores modification time).
 Blockstudio\Pages::force_sync('about');
 
-// Force sync all pages
+// Force sync all pages.
 Blockstudio\Pages::force_sync_all();
 
-// Lock a page to prevent automatic updates
+// Lock a page to prevent automatic updates.
 Blockstudio\Pages::lock('about');
 
-// Unlock a page
+// Unlock a page.
 Blockstudio\Pages::unlock('about');
 ```
+
+Global helper functions are available for templates and layouts:
+
+```php
+blockstudio_pages('docs');
+blockstudio_page_tree('docs');
+blockstudio_page_children('docs-guide', 'docs');
+blockstudio_page_collection('docs');
+blockstudio_page_content();
+blockstudio_current_page();
+```
+
+Page arrays returned by `Blockstudio\Pages::pages()`,
+`Blockstudio\Pages::tree()`, `Blockstudio\Pages::children()`, and the global
+helpers include a `permalink` key after sync. There is no separate
+`Pages::permalink()` method.
 
 <GuideBanner
   href="/guides/file-based-pages"
   title="Building File-Based Pages"
   description="Template locking, block editing modes, keyed merging, and controlling what clients can edit."
 />
+
+### Content Sync
+
+Content Sync is a WP-CLI workflow for versioning selected WordPress content in
+your theme. It projects allowlisted posts, postmeta, terms, termmeta, and
+post-term relationships to files, stores portable UIDs in WordPress meta, and
+rewrites only the references you explicitly declare.
+
+Content Sync is on-demand. It does not run on every admin request.
+Commands return a skipped row until `content.enabled` is `true`.
+
+## Configuration
+
+Enable Content Sync in `blockstudio.json`:
+
+```json
+{
+  "$schema": "https://blockstudio.dev/schema/blockstudio",
+  "content": {
+    "enabled": true,
+    "id": "default",
+    "path": "content",
+    "includePageSyncManaged": false,
+    "authors": "ignore",
+    "postTypes": ["team_member"],
+    "meta": {
+      "include": ["_my_"],
+      "exclude": ["_edit_lock", "_edit_last", "_wp_old_slug"],
+      "references": {
+        "_thumbnail_id": { "kind": "attachment" },
+        "_related_posts": { "kind": "post", "path": "" },
+        "_hero": { "kind": "attachment", "path": "image.id" }
+      }
+    },
+    "taxonomies": [],
+    "media": "manifest"
+  }
+}
+```
+
+`postTypes` is an allowlist. Empty means Content Sync does not touch posts.
+`taxonomies` is an allowlist of already registered taxonomies whose terms and
+post relationships should sync. Blockstudio does not register taxonomy
+definitions from Content Sync files. Postmeta and termmeta are allowlisted
+through `meta.include`; `meta.exclude` always wins.
+
+Treat `meta.include` as a commit boundary. Synced files are meant to live in git,
+so do not include keys that hold secrets, tokens, credentials, or PII. `wp bs
+content status` reports warning rows when an allowlisted meta key looks
+sensitive.
+
+`content.id` is stored on synced entities as `_blockstudio_content_set`. Prune
+and ownership checks are scoped to that value, so one content set cannot delete
+another set's content.
+
+Page Sync managed posts are excluded by default. If
+`includePageSyncManaged` is enabled, Content Sync can sync their configured meta
+but Page Sync still owns their `post_content`.
+
+Authors are ignored by default because users are not synced. Set
+`authors: "login"` to store the author's login in post files and resolve that
+login to an existing user on push. Missing users are a preflight error; Content
+Sync does not create users.
+
+## Commands
+
+```bash
+wp bs content pull [--post-type=<type>] [--taxonomy=<taxonomy>] [--dry-run]
+wp bs content push [--dry-run] [--prune] [--yes]
+wp bs content status
+```
+
+`pull` captures database content into files. It assigns
+`_blockstudio_content_uid` to in-scope posts that do not have one yet and reports
+stale files whose database source no longer exists. Stale files are not deleted
+by pull.
+
+`push` applies files to the current database. It validates the plan before
+writing and blocks unresolved declared references, slug conflicts, locked
+entities, and missing post types.
+
+`status` compares files with the database and reports missing, changed,
+unchanged, orphaned, or conflicted entities. It also warns about allowlisted meta
+keys that look like secrets before those values are committed, and about numeric
+IDs inside block markup bodies because Content Sync does not rewrite IDs in
+`.html` files.
+
+Use `--dry-run` to inspect a pull or push without writing. Use `push --prune
+--yes` to remove content-set owned database entities that no longer exist in the
+files.
+
+## Files
+
+Content Sync writes files under the configured `content.path`:
+
+```text
+content/
+  posts/
+    team_member/
+      jane.9b1c0e6e.json
+      jane.9b1c0e6e.html
+  terms/
+    category/
+      leadership.5e900000.json
+  media/
+    manifest.json
+```
+
+Post `.json` files store identity, post fields, term relationships, declared
+meta, and meta encoding. The sibling `.html` file stores `post_content` as raw
+block markup and is omitted when the content is empty. Term `.json` files store
+identity, taxonomy, slug, name, description, parent UID, declared termmeta, and
+meta encoding.
+
+```json
+{
+  "uid": "9b1c0e6e-0000-4000-9000-000000000000",
+  "type": "team_member",
+  "status": "publish",
+  "slug": "jane",
+  "title": "Jane",
+  "parent": null,
+  "menuOrder": 0,
+  "terms": {
+    "category": ["11110000-0000-4000-9000-000000000000"]
+  },
+  "meta": {
+    "_my_subtitle": "Creative Director",
+    "_thumbnail_id": "5e900000-0000-4000-9000-000000000000"
+  },
+  "metaEncoding": {
+    "_my_subtitle": "scalar",
+    "_thumbnail_id": "scalar"
+  }
+}
+```
+
+The stored sync state is:
+
+| Meta key | Purpose |
+| -------- | ------- |
+| `_blockstudio_content_uid` | Portable content identity |
+| `_blockstudio_content_set` | Content-set namespace from `content.id` |
+| `_blockstudio_content_source` | Theme-relative source file path |
+| `_blockstudio_content_fingerprint` | Last synced file/database fingerprint |
+| `_blockstudio_content_locked` | Truthy value prevents push from overwriting the entity |
+
+## References
+
+Content Sync never guesses that an integer is an ID. References are rewritten
+only when configured in `meta.references`.
+
+```json
+{
+  "meta": {
+    "references": {
+      "_related_posts": { "kind": "post", "path": "*" },
+      "_topic": { "kind": "term" },
+      "_hero": { "kind": "attachment", "path": "image.id" }
+    }
+  }
+}
+```
+
+On pull, local IDs at those paths become portable UIDs. On push, the UIDs are
+resolved back to local IDs in the current database.
+
+Post parents, term parents, and post-term relationships are structural
+references owned by Content Sync and are stored as UIDs automatically.
+Configured taxonomies are written to post files even when empty; an empty array
+clears that taxonomy's relationships on push.
+
+Attachment references are validated, not imported. With `media: "manifest"`,
+referenced attachments are listed in `content/media/manifest.json`; push requires
+the referenced attachment UID to exist locally. With `media: "none"`, declared
+attachment references are dropped.
+
+## Portability Workflow
+
+1. Register the target post type in every environment.
+2. Configure `content.postTypes`, `meta.include`, and any declared references.
+3. Run `wp bs content pull` in the source environment.
+4. Commit the generated files.
+5. Run `wp bs content push` in the target environment.
+6. Run `wp bs content status` to verify the database matches the files.
+
+Files are the source of truth for `push`. The database is captured back to files
+with `pull`.
+
+## V1 Scope
+
+The 7.4.0 Content Sync surface is intentionally conservative:
+
+- posts from allowlisted post types
+- allowlisted postmeta
+- terms from allowlisted registered taxonomies
+- allowlisted termmeta
+- post-term relationships
+- declared `post`, `attachment`, and `term` references
+- portable post and term UIDs and content-set ownership
+- Page Sync exclusion by default
+- attachment manifest and preflight validation
+- `pull`, `push`, `status`, `--dry-run`, `--prune`, and locked-entity handling
+
+Taxonomy definition capture, media binary copying, and block-markup ID rewriting
+are later phases.
 
 ### Patterns
 
@@ -8768,6 +9522,10 @@ To define reusable class aliases, use `@layer utilities` with Tailwind's `@apply
 ```
 
 This compiles these classes alongside all standard Tailwind utilities. They work both on the frontend (server-side compilation) and in the editor (CDN preview).
+
+Blockstudio preserves Tailwind's canonical cascade layer order:
+`theme`, `base`, `components`, then `utilities`. This matches Tailwind CSS, so
+rules in later layers can override earlier layers as expected.
 
 ## Classes Field Type
 
@@ -9465,6 +10223,43 @@ if the page HTML is cached by a CDN.
 | `phase:components` | Component replacement: InnerBlocks, RichText, useBlockProps (per block render) |
 | `block:{name}` | Individual block type render time with call count |
 
+## File-backed caches
+
+Blockstudio also includes persistent file-backed caches. They are enabled by
+default through the `cache.enabled` setting and are written to:
+
+```
+wp-content/uploads/blockstudio/cache/
+```
+
+These caches store runtime build payloads, prebuilt block registration data,
+and resolved editor asset payloads. This avoids repeating block discovery,
+field parsing, asset dependency resolution, and editor asset assembly work on
+every request.
+
+Cache entries are invalidated when their inputs change, including watched block
+files, field files, asset files and dependencies, settings, active plugins,
+WordPress, PHP, and Blockstudio versions.
+
+Disable the persistent caches in `blockstudio.json`:
+
+```json
+{
+  "cache": {
+    "enabled": false
+  }
+}
+```
+
+Or via filter:
+
+```php
+add_filter('blockstudio/settings/cache/enabled', '__return_false');
+```
+
+This cache is separate from the per-request render cache below and from the
+Tailwind CSS cache.
+
 ## Render cache
 
 Self-closing block tags (no inner content) are cached in memory during
@@ -9591,12 +10386,20 @@ Activate Blockstudio through the WordPress admin or WP-CLI:
 wp plugin activate blockstudio
 ```
 
-Your project's Composer autoloader must be loaded before WordPress initializes. In Bedrock this is handled automatically. In other setups, use a must-use plugin:
+Your project's Composer autoloader must be loaded by the WordPress app so
+Composer can register Blockstudio. In Bedrock this is handled automatically. In
+other setups, use a must-use plugin:
 
 ```php
 <?php
 require_once dirname( __DIR__, 2 ) . '/vendor/autoload.php';
 ```
+
+When Blockstudio is included through Composer's autoloader before WordPress has
+started loading plugins, the Composer bootstrap defers initialization until the
+plugin loading environment is available. This lets Bedrock and other
+site-level Composer setups include the package early without booting
+Blockstudio before WordPress plugin APIs are ready.
 
 ## As a Must-Use Plugin
 
@@ -9644,7 +10447,10 @@ Load it in your theme's `functions.php`:
 require_once __DIR__ . '/vendor/autoload.php';
 ```
 
-Blockstudio bootstraps automatically through Composer's autoloader. Asset URLs resolve to the correct theme directory. Blocks defined in your theme's `blockstudio/` folder work exactly as they would with a plugin install.
+Blockstudio bootstraps automatically through Composer's autoloader when it is
+loaded by WordPress. Asset URLs resolve to the correct theme directory. Blocks
+defined in your theme's `blockstudio/` folder work exactly as they would with a
+plugin install.
 
 ## Bundled in a Plugin
 
@@ -9929,13 +10735,19 @@ plugin source on your machine.
 ### Settings Schema (blockstudio.json)
 
 ```json
-{"title":"JSON schema for Blockstudio settings","$schema":"http://json-schema.org/draft-04/schema#","type":"object","properties":{"users":{"type":"object","description":"Settings related to allowed users with access to the settings and editor.","properties":{"ids":{"id":"userIds","type":"array","default":[],"items":{"type":"integer"},"description":"List of user IDs with access to the settings and editor.","descriptionFilter":"This filter allows you to enable the editor for specific user IDs.","help":"Comma separated list of user IDs. Example: 1,2,3","example":[1]},"roles":{"id":"userRoles","type":"array","default":[],"items":{"type":"string"},"description":"List of user roles with access to the settings and editor.","descriptionFilter":"This filter allows you to enable the editor for specific user roles.","help":"Comma separated list of user roles. Example: administrator,editor","example":["administrator","editor"]}}},"assets":{"type":"object","description":"Settings related to asset management.","properties":{"enqueue":{"type":"boolean","default":true,"description":"Enqueue assets in frontend and editor.","descriptionFilter":"This filter allows you to enable/disable the enqueueing of assets in frontend and editor.","example":false},"reset":{"type":"object","default":{"enabled":false,"fullWidth":[]},"description":"Control removal of WordPress core block styles.","properties":{"enabled":{"type":"boolean","default":false,"description":"Remove all WordPress core block styles on the frontend and in the editor.","descriptionFilter":"This filter allows you to enable/disable the removal of WordPress core block styles.","example":true},"fullWidth":{"type":"array","default":[],"items":{"type":"string"},"description":"Post types where the editor uses full-width layout by removing classic editor constraints.","descriptionFilter":"This filter allows you to control which post types use full-width editing.","example":["page"]}}},"minify":{"type":"object","description":"Settings related to asset minification.","properties":{"css":{"type":"boolean","default":false,"description":"Minify CSS.","descriptionFilter":"This filter allows you to enable/disable the minification of CSS.","example":true},"js":{"type":"boolean","default":false,"description":"Minify JS.","descriptionFilter":"This filter allows you to enable/disable the minification of JS.","example":true}}},"process":{"type":"object","description":"Settings related to asset processing.","properties":{"scss":{"type":"boolean","default":false,"description":"Process SCSS in .css files.","descriptionFilter":"This filter allows you to enable/disable the processing of SCSS in .css files.","example":true},"scssFiles":{"type":"boolean","default":true,"description":"Process .scss files to CSS.","descriptionFilter":"This filter allows you to enable/disable the processing of .scss files to CSS.","example":true}}}},"additionalProperties":true},"cache":{"type":"object","description":"Settings related to Blockstudio runtime caching.","properties":{"enabled":{"type":"boolean","default":true,"description":"Enable Blockstudio file-backed runtime, block registration, and editor asset caches.","descriptionFilter":"This filter allows you to enable/disable all Blockstudio file-backed runtime and editor asset caches.","example":false}},"additionalProperties":true},"tailwind":{"type":"object","description":"Settings related to Tailwind.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable Tailwind.","descriptionFilter":"This filter allows you to enable/disable Tailwind.","example":true},"config":{"type":"string","default":"","description":"Tailwind CSS configuration using v4 CSS-first syntax.","descriptionFilter":"This filter allows you to add a custom Tailwind CSS configuration.","element":"textarea","example":"@theme { --color-primary: pink; }"}},"additionalProperties":true},"ui":{"type":"object","description":"Settings related to bundled UI components.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable bundled UI components.","descriptionFilter":"This filter allows you to enable/disable bundled UI components.","example":true}},"additionalProperties":true},"editor":{"type":"object","description":"Settings related to the editor.","properties":{"formatOnSave":{"type":"boolean","default":false,"description":"Format code upon saving.","descriptionFilter":"This filter allows you to enable/disable the formatting of code upon saving.","example":true},"assets":{"id":"editorAssets","type":"array","default":[],"description":"Additional asset IDs to be enqueued.","descriptionFilter":"This filter allows you to enqueue additional assets in the editor.","example":["my-stylesheet","another-stylesheet"]},"markup":{"type":["string","boolean"],"element":"textarea","default":"","description":"Additional markup to be added to the end of the editor.","descriptionFilter":"This filter allows you to add additional markup to the end of the editor.","example":"<style>body { background: black; }</style>"}},"additionalProperties":true},"blockEditor":{"type":"object","description":"Settings related to Gutenberg.","properties":{"disableLoading":{"type":"boolean","default":false,"description":"Disable loading of blocks inside the Block Editor.","descriptionFilter":"This filter allows you to disable the loading of blocks inside the Block Editor.","example":true},"enhance":{"type":"boolean","default":false,"description":"Enable Blockstudio editor affordances such as cleaner focus styles and hover/selection outlines.","descriptionFilter":"This filter allows you to enable Blockstudio editor affordances such as cleaner focus styles and hover/selection outlines.","example":true},"cssClasses":{"id":"blockEditorCssClasses","type":"array","default":[],"description":"Stylesheets whose CSS classes should be available for choice in the class field.","descriptionFilter":"This filter allows you to add stylesheets whose classes should be available for choice in the class field.","example":["my-stylesheet","another-stylesheet"]},"cssVariables":{"id":"blockEditorCssVariables","type":"array","default":[],"description":"Stylesheets whose CSS variables should be available for autocompletion in the code field.","descriptionFilter":"This filter allows you to add stylesheets whose CSS variables should be available for autocompletion in the code field.","example":["my-stylesheet","another-stylesheet"]},"blocks":{"type":"object","description":"Global block editor policies that map to WordPress PHP block editor hooks.","properties":{"allow":{"type":"array","default":[],"items":{"type":"string"},"description":"Block names that are allowed in the inserter. Supports wildcards such as core/*.","descriptionFilter":"This filter allows you to control the block names that are allowed in the inserter.","example":["core/*","acf/*","my-theme/*"]},"deny":{"type":"array","default":[],"items":{"type":"string"},"description":"Block names that are removed from the inserter. Supports wildcards such as core/embed.","descriptionFilter":"This filter allows you to remove block names from the inserter.","example":["core/embed","core/freeform"]},"directory":{"type":"boolean","default":true,"description":"Enable the WordPress block directory assets in the editor.","descriptionFilter":"This filter allows you to enable or disable the WordPress block directory assets in the editor.","example":false},"categories":{"type":"object","description":"Filter, rename, and order block inserter categories by slug.","properties":{"allow":{"type":"array","default":[],"items":{"type":"string"},"description":"Block category slugs that should remain available. Empty means all categories are allowed.","descriptionFilter":"This filter allows you to control which block category slugs remain available.","example":["text","media","design"]},"deny":{"type":"array","default":[],"items":{"type":"string"},"description":"Block category slugs that should be removed from the inserter.","descriptionFilter":"This filter allows you to remove block category slugs from the inserter.","example":["embed"]},"rename":{"type":"object","default":{},"description":"Map block category slugs to replacement labels.","descriptionFilter":"This filter allows you to rename block category labels by slug.","additionalProperties":{"type":"string"},"example":{"text":"Writing","design":"Layout"}},"order":{"type":"array","default":[],"items":{"type":"string"},"description":"Block category slugs that should be moved to the beginning of the inserter in the provided order.","descriptionFilter":"This filter allows you to order block category slugs in the inserter.","example":["my-theme","text","media"]}},"additionalProperties":true},"styles":{"type":"object","description":"Policies for PHP-registered block styles.","properties":{"deny":{"type":"object","default":{},"description":"Map block names to PHP-registered block style names that should be unregistered. Use * as a style name to remove all registered styles for a block.","descriptionFilter":"This filter allows you to unregister PHP-registered block styles by block name.","additionalProperties":{"type":"array","items":{"type":"string"}},"example":{"my-theme/card":["outline"],"my-theme/media":["framed"]}}},"additionalProperties":true},"legacyWidgets":{"type":"object","description":"Policies for the legacy widget block.","properties":{"hide":{"type":"array","default":[],"items":{"type":"string"},"description":"Legacy widget IDs that should be hidden from the legacy widget block.","descriptionFilter":"This filter allows you to hide additional legacy widgets from the legacy widget block.","example":["archives","calendar"]}},"additionalProperties":true}},"additionalProperties":true},"patterns":{"type":"object","description":"Global pattern inserter policies that map to WordPress PHP pattern hooks.","properties":{"core":{"type":"boolean","default":true,"description":"Enable WordPress core block patterns.","descriptionFilter":"This filter allows you to enable or disable WordPress core block patterns.","example":false},"remote":{"type":"boolean","default":true,"description":"Enable remote patterns from the WordPress pattern directory.","descriptionFilter":"This filter allows you to enable or disable remote patterns from the WordPress pattern directory.","example":false},"theme":{"type":"boolean","default":true,"description":"Enable theme-provided block patterns.","descriptionFilter":"This filter allows you to enable or disable theme-provided block patterns.","example":false},"blockstudio":{"type":"boolean","default":true,"description":"Enable Blockstudio file-based patterns.","descriptionFilter":"This filter allows you to enable or disable Blockstudio file-based patterns.","example":false},"categories":{"type":"object","description":"Filter, rename, and order block pattern categories by slug.","properties":{"allow":{"type":"array","default":[],"items":{"type":"string"},"description":"Pattern category slugs that should remain available. Empty means all categories are allowed.","descriptionFilter":"This filter allows you to control which pattern category slugs remain available.","example":["featured","buttons","columns"]},"deny":{"type":"array","default":[],"items":{"type":"string"},"description":"Pattern category slugs that should be removed from the pattern inserter.","descriptionFilter":"This filter allows you to remove pattern category slugs from the pattern inserter.","example":["gallery"]},"rename":{"type":"object","default":{},"description":"Map pattern category slugs to replacement labels.","descriptionFilter":"This filter allows you to rename pattern category labels by slug.","additionalProperties":{"type":"string"},"example":{"featured":"Featured Layouts"}},"order":{"type":"array","default":[],"items":{"type":"string"},"description":"Pattern category slugs that should be moved to the beginning of the inserter in the provided order.","descriptionFilter":"This filter allows you to order pattern category slugs in the inserter.","example":["featured","buttons"]}},"additionalProperties":true}},"additionalProperties":true},"media":{"type":"object","description":"Global media policies for the block editor.","properties":{"openverse":{"type":"boolean","default":true,"description":"Enable the Openverse media category in the block editor media inserter.","descriptionFilter":"This filter allows you to enable or disable the Openverse media category in the block editor media inserter.","example":false},"imageSizes":{"type":"object","description":"Filter image size choices shown in editor media controls.","properties":{"allow":{"type":"array","default":[],"items":{"type":"string"},"description":"Image size names that should remain available. Empty means all image sizes are allowed.","descriptionFilter":"This filter allows you to control which image size names remain available in editor media controls.","example":["thumbnail","large"]},"deny":{"type":"array","default":[],"items":{"type":"string"},"description":"Image size names that should be removed from editor media controls.","descriptionFilter":"This filter allows you to remove image size names from editor media controls.","example":["medium_large"]}},"additionalProperties":true}},"additionalProperties":true}},"additionalProperties":true},"ai":{"id":"aiLlmMd","type":"object","description":"Settings related to AI-powered context generation.","properties":{"enableContextGeneration":{"type":"boolean","default":false,"description":"Enables the automatic creation of a comprehensive context file for use with large language model (LLM) tools (e.g., Cursor). This file compiles current installation data: all available block definitions and paths, Blockstudio-specific settings, relevant block schemas, and combined Blockstudio documentation, providing a ready-to-use resource for prompt engineering and AI code development.","descriptionFilter":"This filter allows you to enable or disable context file generation for LLM tool integration. When enabled, the context file assembles up-to-date block data, Blockstudio settings of the current install, all relevant schemas, and Blockstudio documentation into a single source for use with AI development tools.","example":true}},"additionalProperties":true},"blockTags":{"type":"object","description":"Settings for bs: tag rendering. Controls page-level replacement of <bs:block-name> tags with rendered block output. Template-level rendering is always active.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable page-level bs: tag rendering in post content and widget areas.","descriptionFilter":"This filter allows you to enable/disable page-level block tag rendering.","example":true},"allow":{"type":"array","items":{"type":"string"},"default":[],"description":"Allowlist of block name patterns. Supports wildcards via fnmatch(). When set, only matching blocks render via tags.","example":["mytheme/*","bsui/*"]},"deny":{"type":"array","items":{"type":"string"},"default":[],"description":"Denylist of block name patterns. Supports wildcards via fnmatch(). Matching blocks are excluded from tag rendering. Takes precedence over allow.","example":["mytheme/internal-*"]}},"additionalProperties":true},"dev":{"type":"object","description":"Settings related to developer tools.","properties":{"grab":{"type":"object","description":"Settings related to the element grabber.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable the element grabber.","descriptionFilter":"This filter allows you to enable/disable the element grabber.","example":false}}},"perf":{"type":"boolean","default":false,"description":"Enable the performance profiler. Shows Server-Timing headers and a debug panel on every page load.","descriptionFilter":"This filter allows you to enable/disable the performance profiler.","example":false},"canvas":{"type":"object","description":"Settings related to the canvas.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable the canvas.","descriptionFilter":"This filter allows you to enable/disable the canvas.","example":false},"adminBar":{"type":"boolean","default":true,"description":"Show the WordPress admin bar when viewing the canvas.","descriptionFilter":"This filter allows you to show/hide the WordPress admin bar on the canvas.","example":true}}}},"additionalProperties":true}},"additionalProperties":true}
+{"title":"JSON schema for Blockstudio settings","$schema":"http://json-schema.org/draft-04/schema#","type":"object","properties":{"users":{"type":"object","description":"Settings related to allowed users with access to the settings and editor.","properties":{"ids":{"id":"userIds","type":"array","default":[],"items":{"type":"integer"},"description":"List of user IDs with access to the settings and editor.","descriptionFilter":"This filter allows you to enable the editor for specific user IDs.","help":"Comma separated list of user IDs. Example: 1,2,3","example":[1]},"roles":{"id":"userRoles","type":"array","default":[],"items":{"type":"string"},"description":"List of user roles with access to the settings and editor.","descriptionFilter":"This filter allows you to enable the editor for specific user roles.","help":"Comma separated list of user roles. Example: administrator,editor","example":["administrator","editor"]}}},"assets":{"type":"object","description":"Settings related to asset management.","properties":{"enqueue":{"type":"boolean","default":true,"description":"Enqueue assets in frontend and editor.","descriptionFilter":"This filter allows you to enable/disable the enqueueing of assets in frontend and editor.","example":false},"reset":{"type":"object","default":{"enabled":false,"fullWidth":[]},"description":"Control removal of WordPress core block styles.","properties":{"enabled":{"type":"boolean","default":false,"description":"Remove all WordPress core block styles on the frontend and in the editor.","descriptionFilter":"This filter allows you to enable/disable the removal of WordPress core block styles.","example":true},"fullWidth":{"type":"array","default":[],"items":{"type":"string"},"description":"Post types where the editor uses full-width layout by removing classic editor constraints.","descriptionFilter":"This filter allows you to control which post types use full-width editing.","example":["page"]}}},"minify":{"type":"object","description":"Settings related to asset minification.","properties":{"css":{"type":"boolean","default":false,"description":"Minify CSS.","descriptionFilter":"This filter allows you to enable/disable the minification of CSS.","example":true},"js":{"type":"boolean","default":false,"description":"Minify JS.","descriptionFilter":"This filter allows you to enable/disable the minification of JS.","example":true}}},"process":{"type":"object","description":"Settings related to asset processing.","properties":{"scss":{"type":"boolean","default":false,"description":"Process SCSS in .css files.","descriptionFilter":"This filter allows you to enable/disable the processing of SCSS in .css files.","example":true},"scssFiles":{"type":"boolean","default":true,"description":"Process .scss files to CSS.","descriptionFilter":"This filter allows you to enable/disable the processing of .scss files to CSS.","example":true}}}},"additionalProperties":true},"cache":{"type":"object","description":"Settings related to Blockstudio runtime caching.","properties":{"enabled":{"type":"boolean","default":true,"description":"Enable Blockstudio file-backed runtime, block registration, and editor asset caches.","descriptionFilter":"This filter allows you to enable/disable all Blockstudio file-backed runtime and editor asset caches.","example":false}},"additionalProperties":true},"content":{"type":"object","description":"Settings for Content Sync, the WP-CLI driven projection of allowlisted WordPress content to portable files.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable Content Sync configuration for this theme.","descriptionFilter":"This filter allows you to enable/disable Content Sync.","example":true},"id":{"type":"string","default":"default","description":"Content-set identity stored on synced entities. Prune and ownership checks are scoped to this value.","descriptionFilter":"This filter allows you to set the Content Sync ownership namespace.","example":"docs"},"path":{"type":"string","default":"content","description":"Theme-relative directory where Content Sync reads and writes files.","descriptionFilter":"This filter allows you to set the Content Sync file directory.","example":"content"},"includePageSyncManaged":{"type":"boolean","default":false,"description":"Include Page Sync managed posts. Their post_content remains owned by Page Sync.","descriptionFilter":"This filter allows you to include or exclude Page Sync managed posts.","example":false},"authors":{"type":"string","enum":["ignore","login"],"default":"ignore","description":"Author portability mode. Use ignore to omit authors or login to store author logins and resolve existing users on push.","descriptionFilter":"This filter allows you to configure Content Sync author handling.","example":"ignore"},"postTypes":{"type":"array","default":[],"items":{"type":"string"},"description":"Allowlisted post types to sync. Empty means no post types are synced.","descriptionFilter":"This filter allows you to configure Content Sync post type allowlists.","example":["team_member"]},"meta":{"type":"object","description":"Postmeta allowlist, exclude list, and declared reference rewriting rules.","properties":{"include":{"type":"array","default":[],"items":{"type":"string"},"description":"Glob patterns for meta keys that may be projected to files.","example":["_my_*"]},"exclude":{"type":"array","default":["_edit_lock","_edit_last","_wp_old_slug"],"items":{"type":"string"},"description":"Glob patterns for meta keys that must never be projected, even if included.","example":["_edit_lock","_edit_last","_wp_old_slug"]},"references":{"type":"object","default":{},"description":"Declared meta references. Only these keys and paths are rewritten between local IDs and portable UIDs.","additionalProperties":{"type":"object","properties":{"kind":{"type":"string","enum":["post","attachment","term"],"description":"Referenced entity type.","example":"attachment"},"path":{"type":"string","description":"Optional dot path inside structured meta. Use * to map every array item.","example":"image.id"}},"required":["kind"]},"example":{"_thumbnail_id":{"kind":"attachment"},"_related_posts":{"kind":"post","path":"*"},"_hero":{"kind":"attachment","path":"image.id"}}}},"additionalProperties":true},"taxonomies":{"type":"array","default":[],"items":{"type":"string"},"description":"Allowlisted registered taxonomies whose terms and post relationships are synced. Taxonomy definitions are not captured.","descriptionFilter":"This filter allows you to configure Content Sync taxonomy allowlists.","example":["category","post_tag"]},"media":{"type":"string","enum":["manifest","none"],"default":"manifest","description":"Attachment reference behavior. manifest records referenced attachments and validates them on push; none drops attachment references.","descriptionFilter":"This filter allows you to configure Content Sync media handling.","example":"manifest"}},"additionalProperties":true},"tailwind":{"type":"object","description":"Settings related to Tailwind.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable Tailwind.","descriptionFilter":"This filter allows you to enable/disable Tailwind.","example":true},"config":{"type":"string","default":"","description":"Tailwind CSS configuration using v4 CSS-first syntax.","descriptionFilter":"This filter allows you to add a custom Tailwind CSS configuration.","element":"textarea","example":"@theme { --color-primary: pink; }"}},"additionalProperties":true},"ui":{"type":"object","description":"Settings related to bundled UI components.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable bundled UI components.","descriptionFilter":"This filter allows you to enable/disable bundled UI components.","example":true}},"additionalProperties":true},"editor":{"type":"object","description":"Settings related to the editor.","properties":{"formatOnSave":{"type":"boolean","default":false,"description":"Format code upon saving.","descriptionFilter":"This filter allows you to enable/disable the formatting of code upon saving.","example":true},"assets":{"id":"editorAssets","type":"array","default":[],"description":"Additional asset IDs to be enqueued.","descriptionFilter":"This filter allows you to enqueue additional assets in the editor.","example":["my-stylesheet","another-stylesheet"]},"markup":{"type":["string","boolean"],"element":"textarea","default":"","description":"Additional markup to be added to the end of the editor.","descriptionFilter":"This filter allows you to add additional markup to the end of the editor.","example":"<style>body { background: black; }</style>"}},"additionalProperties":true},"blockEditor":{"type":"object","description":"Settings related to Gutenberg.","properties":{"disableLoading":{"type":"boolean","default":false,"description":"Disable loading of blocks inside the Block Editor.","descriptionFilter":"This filter allows you to disable the loading of blocks inside the Block Editor.","example":true},"enhance":{"type":"boolean","default":false,"description":"Enable Blockstudio editor affordances such as cleaner focus styles and hover/selection outlines.","descriptionFilter":"This filter allows you to enable Blockstudio editor affordances such as cleaner focus styles and hover/selection outlines.","example":true},"cssClasses":{"id":"blockEditorCssClasses","type":"array","default":[],"description":"Stylesheets whose CSS classes should be available for choice in the class field.","descriptionFilter":"This filter allows you to add stylesheets whose classes should be available for choice in the class field.","example":["my-stylesheet","another-stylesheet"]},"cssVariables":{"id":"blockEditorCssVariables","type":"array","default":[],"description":"Stylesheets whose CSS variables should be available for autocompletion in the code field.","descriptionFilter":"This filter allows you to add stylesheets whose CSS variables should be available for autocompletion in the code field.","example":["my-stylesheet","another-stylesheet"]},"blocks":{"type":"object","description":"Global block editor policies that map to WordPress PHP block editor hooks.","properties":{"allow":{"type":"array","default":[],"items":{"type":"string"},"description":"Block names that are allowed in the inserter. Supports wildcards such as core/*.","descriptionFilter":"This filter allows you to control the block names that are allowed in the inserter.","example":["core/*","acf/*","my-theme/*"]},"deny":{"type":"array","default":[],"items":{"type":"string"},"description":"Block names that are removed from the inserter. Supports wildcards such as core/embed.","descriptionFilter":"This filter allows you to remove block names from the inserter.","example":["core/embed","core/freeform"]},"directory":{"type":"boolean","default":true,"description":"Enable the WordPress block directory assets in the editor.","descriptionFilter":"This filter allows you to enable or disable the WordPress block directory assets in the editor.","example":false},"categories":{"type":"object","description":"Filter, rename, and order block inserter categories by slug.","properties":{"allow":{"type":"array","default":[],"items":{"type":"string"},"description":"Block category slugs that should remain available. Empty means all categories are allowed.","descriptionFilter":"This filter allows you to control which block category slugs remain available.","example":["text","media","design"]},"deny":{"type":"array","default":[],"items":{"type":"string"},"description":"Block category slugs that should be removed from the inserter.","descriptionFilter":"This filter allows you to remove block category slugs from the inserter.","example":["embed"]},"rename":{"type":"object","default":{},"description":"Map block category slugs to replacement labels.","descriptionFilter":"This filter allows you to rename block category labels by slug.","additionalProperties":{"type":"string"},"example":{"text":"Writing","design":"Layout"}},"order":{"type":"array","default":[],"items":{"type":"string"},"description":"Block category slugs that should be moved to the beginning of the inserter in the provided order.","descriptionFilter":"This filter allows you to order block category slugs in the inserter.","example":["my-theme","text","media"]}},"additionalProperties":true},"styles":{"type":"object","description":"Policies for PHP-registered block styles.","properties":{"deny":{"type":"object","default":{},"description":"Map block names to PHP-registered block style names that should be unregistered. Use * as a style name to remove all registered styles for a block.","descriptionFilter":"This filter allows you to unregister PHP-registered block styles by block name.","additionalProperties":{"type":"array","items":{"type":"string"}},"example":{"my-theme/card":["outline"],"my-theme/media":["framed"]}}},"additionalProperties":true},"legacyWidgets":{"type":"object","description":"Policies for the legacy widget block.","properties":{"hide":{"type":"array","default":[],"items":{"type":"string"},"description":"Legacy widget IDs that should be hidden from the legacy widget block.","descriptionFilter":"This filter allows you to hide additional legacy widgets from the legacy widget block.","example":["archives","calendar"]}},"additionalProperties":true}},"additionalProperties":true},"patterns":{"type":"object","description":"Global pattern inserter policies that map to WordPress PHP pattern hooks.","properties":{"core":{"type":"boolean","default":true,"description":"Enable WordPress core block patterns.","descriptionFilter":"This filter allows you to enable or disable WordPress core block patterns.","example":false},"remote":{"type":"boolean","default":true,"description":"Enable remote patterns from the WordPress pattern directory.","descriptionFilter":"This filter allows you to enable or disable remote patterns from the WordPress pattern directory.","example":false},"theme":{"type":"boolean","default":true,"description":"Enable theme-provided block patterns.","descriptionFilter":"This filter allows you to enable or disable theme-provided block patterns.","example":false},"blockstudio":{"type":"boolean","default":true,"description":"Enable Blockstudio file-based patterns.","descriptionFilter":"This filter allows you to enable or disable Blockstudio file-based patterns.","example":false},"categories":{"type":"object","description":"Filter, rename, and order block pattern categories by slug.","properties":{"allow":{"type":"array","default":[],"items":{"type":"string"},"description":"Pattern category slugs that should remain available. Empty means all categories are allowed.","descriptionFilter":"This filter allows you to control which pattern category slugs remain available.","example":["featured","buttons","columns"]},"deny":{"type":"array","default":[],"items":{"type":"string"},"description":"Pattern category slugs that should be removed from the pattern inserter.","descriptionFilter":"This filter allows you to remove pattern category slugs from the pattern inserter.","example":["gallery"]},"rename":{"type":"object","default":{},"description":"Map pattern category slugs to replacement labels.","descriptionFilter":"This filter allows you to rename pattern category labels by slug.","additionalProperties":{"type":"string"},"example":{"featured":"Featured Layouts"}},"order":{"type":"array","default":[],"items":{"type":"string"},"description":"Pattern category slugs that should be moved to the beginning of the inserter in the provided order.","descriptionFilter":"This filter allows you to order pattern category slugs in the inserter.","example":["featured","buttons"]}},"additionalProperties":true}},"additionalProperties":true},"media":{"type":"object","description":"Global media policies for the block editor.","properties":{"openverse":{"type":"boolean","default":true,"description":"Enable the Openverse media category in the block editor media inserter.","descriptionFilter":"This filter allows you to enable or disable the Openverse media category in the block editor media inserter.","example":false},"imageSizes":{"type":"object","description":"Filter image size choices shown in editor media controls.","properties":{"allow":{"type":"array","default":[],"items":{"type":"string"},"description":"Image size names that should remain available. Empty means all image sizes are allowed.","descriptionFilter":"This filter allows you to control which image size names remain available in editor media controls.","example":["thumbnail","large"]},"deny":{"type":"array","default":[],"items":{"type":"string"},"description":"Image size names that should be removed from editor media controls.","descriptionFilter":"This filter allows you to remove image size names from editor media controls.","example":["medium_large"]}},"additionalProperties":true}},"additionalProperties":true}},"additionalProperties":true},"ai":{"id":"aiLlmMd","type":"object","description":"Settings related to AI-powered context generation.","properties":{"enableContextGeneration":{"type":"boolean","default":false,"description":"Enables the automatic creation of a comprehensive context file for use with large language model (LLM) tools (e.g., Cursor). This file compiles current installation data: all available block definitions and paths, Blockstudio-specific settings, relevant block schemas, and combined Blockstudio documentation, providing a ready-to-use resource for prompt engineering and AI code development.","descriptionFilter":"This filter allows you to enable or disable context file generation for LLM tool integration. When enabled, the context file assembles up-to-date block data, Blockstudio settings of the current install, all relevant schemas, and Blockstudio documentation into a single source for use with AI development tools.","example":true}},"additionalProperties":true},"blockTags":{"type":"object","description":"Settings for bs: tag rendering. Controls page-level replacement of <bs:block-name> tags with rendered block output. Template-level rendering is always active.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable page-level bs: tag rendering in post content and widget areas.","descriptionFilter":"This filter allows you to enable/disable page-level block tag rendering.","example":true},"allow":{"type":"array","items":{"type":"string"},"default":[],"description":"Allowlist of block name patterns. Supports wildcards via fnmatch(). When set, only matching blocks render via tags.","example":["mytheme/*","bsui/*"]},"deny":{"type":"array","items":{"type":"string"},"default":[],"description":"Denylist of block name patterns. Supports wildcards via fnmatch(). Matching blocks are excluded from tag rendering. Takes precedence over allow.","example":["mytheme/internal-*"]},"prefixes":{"type":"object","default":{},"description":"Prefix to namespace shorthands for block tags. Each key is a lowercase prefix without dashes, and each value is a namespace string or ordered namespace array.","descriptionFilter":"This filter allows you to register prefix to namespace shorthands for block tags.","example":{"dv":["divine-homepage","bsui"]}}},"additionalProperties":true},"dev":{"type":"object","description":"Settings related to developer tools.","properties":{"grab":{"type":"object","description":"Settings related to the element grabber.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable the element grabber.","descriptionFilter":"This filter allows you to enable/disable the element grabber.","example":false}}},"perf":{"type":"boolean","default":false,"description":"Enable the performance profiler. Shows Server-Timing headers and a debug panel on every page load.","descriptionFilter":"This filter allows you to enable/disable the performance profiler.","example":false},"canvas":{"type":"object","description":"Settings related to the canvas.","properties":{"enabled":{"type":"boolean","default":false,"description":"Enable the canvas.","descriptionFilter":"This filter allows you to enable/disable the canvas.","example":false},"adminBar":{"type":"boolean","default":true,"description":"Show the WordPress admin bar when viewing the canvas.","descriptionFilter":"This filter allows you to show/hide the WordPress admin bar on the canvas.","example":true}}}},"additionalProperties":true}},"additionalProperties":true}
 ```
 
 ### Page Schema (page.json)
 
 ```json
-{"title":"JSON schema for Blockstudio page definitions","$schema":"http://json-schema.org/draft-04/schema#","type":"object","required":["name"],"properties":{"name":{"type":"string","description":"Unique identifier for the page. Used internally to track and reference the page definition.","example":"about"},"title":{"type":"string","description":"The title of the WordPress page/post. Defaults to a human-readable version of the name if not specified.","example":"About Us"},"slug":{"type":"string","description":"The URL slug for the page. Defaults to the name if not specified.","example":"about-us"},"postType":{"type":"string","default":"page","description":"The WordPress post type to create. Can be any registered post type.","example":"page"},"postStatus":{"type":"string","default":"draft","description":"The initial status for newly created posts. Does not affect existing posts.","enum":["publish","draft","pending","private"],"example":"publish"},"postId":{"type":"integer","description":"Pin the page to a specific WordPress post ID. Uses import_id during creation to request this ID. If the ID is already taken by an unrelated post, WordPress silently auto-assigns a new ID.","example":42},"blockEditingMode":{"type":"string","enum":["default","contentOnly","disabled"],"description":"Controls how blocks can be edited. 'default' allows full editing, 'contentOnly' only allows text editing, 'disabled' prevents all editing.","example":"disabled"},"templateLock":{"type":["string","boolean"],"default":"all","description":"Controls how users can modify the block structure. 'all' prevents all modifications, 'insert' prevents adding/removing blocks, false allows full editing.","enum":["all","insert","contentOnly",false],"example":"all"},"templateFor":{"type":["string","null"],"default":null,"description":"When specified, this page's block structure becomes the default template for the specified post type. Any new posts of that type will start with this template.","example":"product"},"sync":{"type":"boolean","default":true,"description":"Whether to automatically sync the page content when the template file changes. Set to false to create the page once and prevent future automatic updates.","example":true}},"additionalProperties":true}
+{"title":"JSON schema for Blockstudio page definitions and collection page entries","$schema":"http://json-schema.org/draft-04/schema#","type":"object","required":["name"],"properties":{"name":{"type":"string","description":"Unique identifier for the page. Used internally to track and reference the page definition.","example":"about"},"title":{"type":"string","description":"The title of the WordPress page/post. Defaults to a human-readable version of the name if not specified.","example":"About Us"},"slug":{"type":"string","description":"The URL slug for the page. Defaults to the name if not specified.","example":"about-us"},"path":{"type":"string","default":".","description":"Logical path inside a collection. \".\" is the collection root, \"guide/install\" maps under the collection URL base.","example":"guide/install"},"order":{"type":"integer","default":0,"description":"Menu order stored on the synced WordPress post.","example":20},"postType":{"type":"string","default":"page","description":"The WordPress post type to create. Collection pages inherit the top-level pages.json postType by default.","example":"bs_docs"},"postTypeArgs":{"type":"object","description":"register_post_type() arguments used when a collection pages.json registers a custom post type."},"postStatus":{"type":"string","default":"draft","description":"The initial status for newly created posts. Does not affect existing posts.","enum":["publish","draft","pending","private"],"example":"publish"},"postId":{"type":"integer","description":"Pin the page to a specific WordPress post ID. Uses import_id during creation to request this ID. If the ID is already taken by an unrelated post, WordPress silently auto-assigns a new ID.","example":42},"blockEditingMode":{"type":"string","enum":["default","contentOnly","disabled"],"description":"Controls how blocks can be edited. 'default' allows full editing, 'contentOnly' only allows text editing, 'disabled' prevents all editing.","example":"disabled"},"templateLock":{"type":["string","boolean"],"default":"all","description":"Controls how users can modify the block structure. 'all' prevents all modifications, 'insert' prevents adding/removing blocks, false allows full editing.","enum":["all","insert","contentOnly",false],"example":"all"},"templateFor":{"type":["string","null"],"default":null,"description":"When specified, this page's block structure becomes the default template for the specified post type. Any new posts of that type will start with this template.","example":"product"},"sync":{"type":"boolean","default":true,"description":"Whether to automatically sync the page content when the template file changes. Set to false to create the page once and prevent future automatic updates.","example":true},"contentType":{"type":"string","enum":["php","blade","twig","markdown","html","generated"],"description":"Detected or explicit source type. Markdown is converted to block content during sync.","example":"markdown"},"markdown":{"type":"string","description":"Inline Markdown content for a page or loader entry."},"html":{"type":"string","description":"Inline HTML content for a page or loader entry."},"content":{"type":"string","description":"Inline content. Use contentType to force markdown or html when needed."},"file":{"type":"string","description":"Local file path for a loader-generated page source."},"template":{"type":"string","description":"Alias for file in loader-generated page sources."},"generated":{"type":"boolean","default":true,"description":"Marks loader and container pages as generated so missing output can be pruned."},"meta":{"type":"object","description":"Custom page metadata. Unknown page.json or frontmatter keys are also stored here."},"trusted":{"type":"boolean","description":"Marks a local generated source as trusted."}},"additionalProperties":true}
+```
+
+### Page Collection Schema (pages.json)
+
+```json
+{"title":"JSON schema for Blockstudio page collection manifests","$schema":"http://json-schema.org/draft-04/schema#","type":"object","properties":{"collection":{"type":"string","description":"Collection slug. This becomes the public URL base.","example":"docs"},"title":{"type":"string","description":"Human-readable collection title.","example":"Documentation"},"postType":{"type":"string","default":"page","description":"Post type inherited by collection pages. If missing, pages sync as normal WordPress pages.","example":"bs_docs"},"postTypeArgs":{"type":"object","description":"register_post_type() args for custom collection post types. show_in_rest defaults to true."},"defaults":{"type":"object","description":"Default page properties applied to every collection page."},"source":{"type":"object","description":"Source metadata for the collection."},"order":{"type":"integer","description":"Optional collection ordering metadata."},"meta":{"type":"object","description":"Custom collection metadata. Unknown manifest keys are also stored here."}},"additionalProperties":true}
 ```
 
 ### Extension Schema (extensions.json)

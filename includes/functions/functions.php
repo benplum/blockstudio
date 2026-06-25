@@ -8,6 +8,7 @@
 use Blockstudio\Db;
 use Blockstudio\Render;
 use Blockstudio\Build;
+use Blockstudio\Pages;
 
 /**
  * Render block.
@@ -295,4 +296,79 @@ function bs_get_scoped_class( $name ): string {
 	$blocks = Build::data();
 
 	return isset( $blocks[ $name ] ) ? $blocks[ $name ]['scopedClass'] : '';
+}
+
+/**
+ * Get registered file-based pages.
+ *
+ * @since 7.3.4
+ *
+ * @param string|null $collection Optional collection slug.
+ *
+ * @return array Registered pages.
+ */
+function blockstudio_pages( ?string $collection = null ): array {
+	return Pages::pages( $collection );
+}
+
+/**
+ * Get a nested file-based page tree.
+ *
+ * @since 7.3.4
+ *
+ * @param string|null $collection Optional collection slug.
+ *
+ * @return array Page tree.
+ */
+function blockstudio_page_tree( ?string $collection = null ): array {
+	return Pages::tree( $collection );
+}
+
+/**
+ * Get direct child pages.
+ *
+ * @since 7.3.4
+ *
+ * @param string      $name       Page name or registry key.
+ * @param string|null $collection Optional collection slug.
+ *
+ * @return array Child pages.
+ */
+function blockstudio_page_children( string $name, ?string $collection = null ): array {
+	return Pages::children( $name, $collection );
+}
+
+/**
+ * Get collection metadata.
+ *
+ * @since 7.3.4
+ *
+ * @param string $collection Collection slug.
+ *
+ * @return array|null Collection data.
+ */
+function blockstudio_page_collection( string $collection ): ?array {
+	return Pages::collection( $collection );
+}
+
+/**
+ * Get the current layout outlet content.
+ *
+ * @since 7.3.4
+ *
+ * @return string Current page content.
+ */
+function blockstudio_page_content(): string {
+	return Pages::page_content();
+}
+
+/**
+ * Get the current Blockstudio page data.
+ *
+ * @since 7.3.4
+ *
+ * @return array|null Current page data.
+ */
+function blockstudio_current_page(): ?array {
+	return Pages::current_page();
 }

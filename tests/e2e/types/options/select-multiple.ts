@@ -36,6 +36,32 @@ const valuesSelect = [
   { defaultMultiple: ['Test Category 6'], data: `"populateOnlyQueryTerm":[{"term_id":`, skip: true },
 ];
 
+const waitForPopulateFetch = async (page: Page, search: string) =>
+  page.waitForResponse(async (response) => {
+    if (
+      !response.url().includes('/wp-json/blockstudio/v1/attributes/populate') ||
+      response.request().method() !== 'POST'
+    ) {
+      return false;
+    }
+
+    try {
+      const data = response.request().postDataJSON() as {
+        id?: string;
+        populate?: {
+          arguments?: {
+            s?: string;
+          };
+        };
+      };
+
+      return data.id === 'populateOnlyQueryUser' &&
+        data.populate?.arguments?.s === search;
+    } catch {
+      return false;
+    }
+  });
+
 testType('select-multiple', false, () => {
   return [
     ...defaultChecks.map((check, i) => ({
@@ -63,6 +89,32 @@ testType('select-multiple', false, () => {
         await page.click('text=Reset me');
         await count(page, 'text=Reset me', 0);
         await text(canvas, `"defaultValueLabel":["Three"]`);
+      },
+    },
+    {
+      description: 'fetch query populate when search is cleared',
+      testFunction: async (page: Page, _canvas: Frame) => {
+        const input = page.locator(
+          '[data-id="populateOnlyQueryUser"] .components-form-token-field__input'
+        );
+
+        const searchResponse = waitForPopulateFetch(page, 'aaron');
+        await input.fill('aaron');
+        await searchResponse;
+
+        const emptyResponse = waitForPopulateFetch(page, '');
+        await input.fill('');
+        const response = await emptyResponse;
+        const options = await response.json() as Array<{
+          label: string;
+          value: string | number;
+        }>;
+
+        expect(
+          options.some(
+            (option) => option.label === 'admin' || Number(option.value) === 1
+          )
+        ).toBeTruthy();
       },
     },
     ...valuesSelect.flatMap((item, index) =>

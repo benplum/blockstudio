@@ -1,0 +1,24 @@
+{
+  "name": "test/tabs",
+  "blockstudio": {
+    "attributes": [
+      {
+        "type": "tabs",
+        "tabs": [
+          {
+            "title": "Content",
+            "attributes": [
+              { "id": "perPage", "type": "number" }
+            ]
+          },
+          {
+            "title": "Style",
+            "attributes": [
+              { "id": "gap", "type": "text" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

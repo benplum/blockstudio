@@ -43,4 +43,14 @@ test.describe('Block Tags in Templates', () => {
     await expect(coreBlock).toBeVisible();
     await expect(coreBlock).toHaveText('Core paragraph via block tag');
   });
+
+  test('prefix tags render in templates', async () => {
+    const card = page.locator('.btt-prefix-card .dv-card');
+    await expect(card).toBeVisible();
+    await expect(card.locator('.dv-title')).toHaveText('Template Prefix Card');
+
+    const button = page.locator('.btt-prefix-button .dv-button');
+    await expect(button).toBeVisible();
+    await expect(button).toHaveText('Template Prefix Button');
+  });
 });

@@ -386,6 +386,38 @@ class BuildCacheTest extends TestCase {
 	}
 
 	/**
+	 * Runtime cache keys change when database-backed populate sources change.
+	 *
+	 * @return void
+	 */
+	public function test_runtime_cache_key_tracks_populate_source_changes(): void {
+		Build_Cache::init();
+
+		$directory = $this->create_temporary_directory();
+		$instance  = 'populate-source-change';
+		$before    = Build_Cache::get_runtime_key( $directory, $instance );
+		$post_id   = wp_insert_post(
+			array(
+				'post_title'  => 'Populate cache source change',
+				'post_status' => 'publish',
+				'post_type'   => 'post',
+			)
+		);
+
+		try {
+			$this->assertGreaterThan( 0, $post_id );
+			$this->assertNotSame(
+				$before,
+				Build_Cache::get_runtime_key( $directory, $instance )
+			);
+		} finally {
+			if ( is_int( $post_id ) && $post_id > 0 ) {
+				wp_delete_post( $post_id, true );
+			}
+		}
+	}
+
+	/**
 	 * Runtime cache hydration matches a cold runtime build.
 	 *
 	 * @return void

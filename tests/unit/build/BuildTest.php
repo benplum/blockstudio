@@ -94,6 +94,95 @@ class BuildTest extends TestCase {
 		);
 	}
 
+	public function test_fetch_query_populate_is_not_baked_during_build(): void {
+		$attributes = array();
+
+		Build::build_attributes(
+			array(
+				array(
+					'id'       => 'liveUsers',
+					'type'     => 'select',
+					'populate' => array(
+						'fetch'     => true,
+						'type'      => 'query',
+						'query'     => 'users',
+						'arguments' => array(
+							'number' => 10,
+						),
+					),
+				),
+			),
+			$attributes
+		);
+
+		$this->assertSame( array(), $attributes['liveUsers']['options'] );
+		$this->assertArrayNotHasKey( 'optionsPopulate', $attributes['liveUsers'] );
+		$this->assertArrayNotHasKey( 'optionsPopulateFull', $attributes['liveUsers'] );
+	}
+
+	public function test_fetch_query_populate_resolves_for_editor_requests(): void {
+		$attributes = array();
+
+		Build::build_attributes(
+			array(
+				array(
+					'id'         => 'liveUsers',
+					'type'       => 'select',
+					'fromEditor' => true,
+					'populate'   => array(
+						'fetch'     => true,
+						'type'      => 'query',
+						'query'     => 'users',
+						'arguments' => array(
+							'number' => 10,
+						),
+					),
+				),
+			),
+			$attributes
+		);
+
+		$this->assertNotEmpty( $attributes['liveUsers']['options'] );
+		$this->assertArrayHasKey( 'value', $attributes['liveUsers']['options'][0] );
+		$this->assertArrayHasKey( 'label', $attributes['liveUsers']['options'][0] );
+	}
+
+	public function test_fetch_query_populate_preserves_defaults_without_baked_options(): void {
+		$attributes = array();
+
+		Build::build_attributes(
+			array(
+				array(
+					'id'       => 'liveUsers',
+					'type'     => 'select',
+					'multiple' => true,
+					'default'  => array( 1, 446 ),
+					'populate' => array(
+						'fetch' => true,
+						'type'  => 'query',
+						'query' => 'users',
+					),
+				),
+			),
+			$attributes
+		);
+
+		$this->assertSame( array(), $attributes['liveUsers']['options'] );
+		$this->assertSame(
+			array(
+				array(
+					'value' => 1,
+					'label' => '1',
+				),
+				array(
+					'value' => 446,
+					'label' => '446',
+				),
+			),
+			$attributes['liveUsers']['default']
+		);
+	}
+
 	public function test_extensions_keep_expanded_populate_options_for_set_templates(): void {
 		$found = false;
 

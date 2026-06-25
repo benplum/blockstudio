@@ -1,0 +1,16 @@
+{
+  "collection": "no-index-docs",
+  "title": "No Index Docs",
+  "postType": "bs_no_index_docs",
+  "postTypeArgs": {
+    "label": "No Index Docs",
+    "rewrite": {
+      "slug": "no-index-docs"
+    },
+    "supports": ["title", "editor"]
+  },
+  "defaults": {
+    "postStatus": "publish",
+    "templateLock": "contentOnly"
+  }
+}

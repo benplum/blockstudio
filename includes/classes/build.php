@@ -696,9 +696,14 @@ class Build {
 							( $is_override && isset( $v['populate'] ) ) ||
 							! $is_override
 						) {
-							$options                            =
+							$is_fetch_populate                  =
 								'select' === $type &&
-								( $v['populate']['fetch'] ?? false )
+								( $v['populate']['fetch'] ?? false );
+							$should_defer_fetch_populate        =
+								$is_fetch_populate &&
+								! ( $v['fromEditor'] ?? false );
+							$options                            =
+								$is_fetch_populate
 									? array()
 									: $v['options'] ?? array();
 							$attributes[ $field_id ]['options'] = $options;
@@ -710,6 +715,7 @@ class Build {
 							);
 
 							if (
+								! $should_defer_fetch_populate &&
 								! $has_dynamic_args &&
 								(
 									'query' === $populate_type ||
@@ -864,10 +870,28 @@ class Build {
 										: array( $v[ $item ] )
 									as $value
 								) {
+									if (
+										'select' === $type &&
+										( $v['populate']['fetch'] ?? false )
+									) {
+										$default_value = is_array( $value ) && array_key_exists( 'value', $value )
+											? $value['value']
+											: $value;
+										$default_label = is_array( $value ) && array_key_exists( 'label', $value )
+											? $value['label']
+											: ( is_scalar( $default_value ) ? (string) $default_value : '' );
+
+										$default_select[] = array(
+											'value' => $default_value,
+											'label' => $default_label,
+										);
+										continue;
+									}
+
 									$option = fn( $val ) => Block::get_option_value(
 										array(
 											'options' =>
-												$attributes[ $field_id ]['options'] ?? $v['options'],
+													$attributes[ $field_id ]['options'] ?? $v['options'],
 										),
 										$val,
 										array(
@@ -1947,6 +1971,8 @@ class Build {
 			fn( $e ) => Assets::is_css( $e ) || str_ends_with( $e, '.js' )
 		);
 
+		$file_classifier = new File_Classifier();
+
 		foreach ( $assets as $asset ) {
 			$is_css = Assets::is_css( $asset );
 
@@ -2027,10 +2053,7 @@ class Build {
 			}
 
 			$handle          = Assets::get_id( $id, $data );
-			$is_editor_asset =
-				str_ends_with( $asset, '-editor.css' ) ||
-				str_ends_with( $asset, '-editor.scss' ) ||
-				str_ends_with( $asset, '-editor.js' );
+			$is_editor_asset = $file_classifier->is_editor_asset( $asset );
 
 			$data['assets'][ $id ] = array(
 				'type'     =>

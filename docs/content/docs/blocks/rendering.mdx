@@ -201,6 +201,49 @@ Mix and match freely. Both syntaxes can nest inside each other:
 </bs:mytheme-section>
 ```
 
+### Prefix shorthands
+
+Block tags can also use project-specific prefix shorthands. Register a prefix
+with one or more namespaces and Blockstudio resolves `<prefix-slug>` to the
+first registered block in that namespace order:
+
+```php title="functions.php"
+add_filter('blockstudio/block_tags/prefixes', function($prefixes) {
+  $prefixes['dv'] = ['divine-homepage', 'bsui'];
+
+  return $prefixes;
+});
+```
+
+```html
+<dv-card title="Homepage" />
+<dv-button label="Get started" />
+<dv-onumia-feature-matrix />
+```
+
+With the example above, `<dv-card>` resolves to
+`divine-homepage/card`, `<dv-button>` falls back to `bsui/button` when
+`divine-homepage/button` is not registered, and
+`<dv-onumia-feature-matrix>` resolves to
+`divine-homepage/onumia-feature-matrix`.
+
+You can also configure prefixes in `blockstudio.json`:
+
+```json title="blockstudio.json"
+{
+  "blockTags": {
+    "prefixes": {
+      "dv": ["divine-homepage", "bsui"]
+    }
+  }
+}
+```
+
+Prefixes must be lowercase letters or numbers, start with a letter, and cannot
+contain dashes. Explicit aliases from
+`blockstudio/block_tags/tag_aliases` take precedence over prefix resolution.
+Unknown prefixed tags are left untouched.
+
 ### Core blocks
 
 Any block with a registered [renderer](/docs/pages-and-patterns) can be used:

@@ -4,7 +4,7 @@
  * Plugin URI: https://blockstudio.dev
  * Description: The block framework for WordPress.
  * Author: Blockstudio
- * Version: 7.3.3
+ * Version: 7.4.0
  * Requires at least: 6.7
  * Requires PHP: 8.2
  * License: GPL2+
@@ -37,7 +37,7 @@ function blockstudio_get_relative_plugin_path( string $content_dir, string $plug
 	);
 }
 
-define( 'BLOCKSTUDIO_VERSION', '7.3.3' );
+define( 'BLOCKSTUDIO_VERSION', '7.4.0' );
 define( 'BLOCKSTUDIO_FILE', __FILE__ );
 define( 'BLOCKSTUDIO_DIR', __DIR__ );
 define( 'BLOCKSTUDIO_URL', set_url_scheme( content_url( blockstudio_get_relative_plugin_path( WP_CONTENT_DIR, BLOCKSTUDIO_DIR ) . '/' ) ) );
@@ -53,10 +53,22 @@ spl_autoload_register(
 		}
 
 		$relative_class = substr( $class_name, $len );
-		$file           = $base_dir . str_replace( '\\', '/', $relative_class ) . '.php';
+		$relative_path  = implode(
+			'/',
+			array_map(
+				function ( string $segment ): string {
+					$segment = str_replace( '_', '-', $segment );
+					$segment = preg_replace( '/(?<!^)[A-Z]/', '-$0', $segment );
+
+					return strtolower( preg_replace( '/-+/', '-', $segment ) );
+				},
+				explode( '\\', $relative_class )
+			)
+		);
+		$file           = $base_dir . $relative_path . '.php';
 
 		if ( file_exists( $file ) ) {
-			require $file;
+			require_once $file;
 		}
 	}
 );

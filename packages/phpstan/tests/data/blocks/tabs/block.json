@@ -3,7 +3,6 @@
   "blockstudio": {
     "attributes": [
       {
-        "id": "settings",
         "type": "tabs",
         "tabs": [
           {

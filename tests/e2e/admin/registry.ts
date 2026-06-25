@@ -76,8 +76,10 @@ test.describe('Admin Page - Overview', () => {
   });
 
   test('header shows Docs link', async () => {
+    const admin = page.locator('#blockstudio-admin');
+
     await expect(
-      page.getByRole('link', { name: 'Docs' }),
+      admin.getByRole('link', { name: 'Docs' }),
     ).toHaveAttribute('href', 'https://blockstudio.dev/docs');
   });
 });

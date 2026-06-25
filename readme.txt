@@ -3,7 +3,7 @@ Contributors: dnnsjsk
 Requires at least: 6.7
 Tested up to: 7.0.0
 Requires PHP: 8.2
-Stable tag: 7.3.3
+Stable tag: 7.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -15,7 +15,7 @@ Create custom WordPress blocks by dropping a `block.json` and a PHP template int
 
 = Features =
 
-* **26 field types** including text, repeater, tabs, classes, color, files, and more
+* **28 field types** including text, repeater, tabs, classes, color, files, and more
 * **PHP, Twig, and Blade templates** with the same `$a` variable across all languages
 * **File-based pages** that parse HTML templates into native block content with automatic syncing
 * **File-based patterns** registered from template files without any PHP registration code
@@ -24,7 +24,7 @@ Create custom WordPress blocks by dropping a `block.json` and a PHP template int
 * **Storage** to persist field values in post meta or site options, queryable via WP_Query and REST API
 * **Asset pipeline** with SCSS compilation, ES module imports from npm, and automatic minification
 * **Scoped styles** that only load when a block is on the page
-* **HTML-to-block parser** with a trait-based renderer architecture and custom element mapping
+* **HTML-to-block parser** with custom element mapping
 * **SEO integration** with Yoast SEO and Rank Math content analysis
 * **50+ PHP and JS hooks** for customizing every aspect of the framework
 
@@ -52,6 +52,30 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * [Getting Started](https://blockstudio.dev/docs/getting-started)
 
 == Changelog ==
+
+= 7.4.0 =
+* New: file-based page collections can generate nested page hierarchies from `pages.json`, `page.json`, PHP/Twig/Blade templates, markdown sources, and loader output
+* New: markdown-backed pages support standalone `index.md`, frontmatter, paired `page.json` configuration, and optional raw markdown output
+* New: page collection layouts and helpers make it easier to build documentation-style sites with navigation, children, ordering, permalinks, and collection data
+* New: collection loaders can import page definitions from trusted local sources
+* New: block tag prefixes can map concise custom tags to one or more block namespaces without per-block aliases
+* New: Content Sync CLI can project allowlisted posts, terms, relationships, and declared meta references to portable files and apply them across environments with stable UIDs
+* Enhancement: collection post types now inherit the manifest `postType`, use clean slug-based URLs, and support raw markdown endpoints without theme workarounds
+* Enhancement: collection post type rewrites flush automatically when collection routing changes
+* Enhancement: changing a collection from pages to a custom post type now migrates synced posts in place and removes duplicate old-typed posts
+* Enhancement: pages now resync reliably when manifests, loaders, layouts, metadata, or source files change
+* Enhancement: nested file-based pages now resolve parent relationships and can inherit `layout.php` templates
+* Enhancement: synced page cleanup now removes generated collection pages when their source files are removed
+* Enhancement: `bsui/select` options are now data-driven, overflow-safe, and anchor correctly after async repositioning
+* Fix: markdown-backed pages now preserve block attributes correctly when synced
+* Fix: frontmatter metadata is available to frontend page helpers and layouts
+* Fix: markdown-backed pages can serve raw markdown content where needed
+* Fix: `className` attributes on programmatic `core/query` and `core/comments` block tags are preserved in generated wrapper markup
+* Fix: dynamic query-populated options stay fresh after posts, terms, users, or related meta change
+* Fix: `populate.fetch: true` query selects now fetch live options for empty editor searches
+* Fix: camelCase template component props such as `allowedFormats` and `withoutInteractiveFormatting` now reach editor components correctly
+* Fix: PHPStan now recognizes fields declared inside tabs containers for template, Twig/Blade, and block tag validation
+* Fix: deleting repeater rows with RichText fields now persists after saving
 
 = 7.3.3 =
 * New: file-backed build cache for Blockstudio runtime discovery and editor asset payloads, configurable via `cache.enabled`

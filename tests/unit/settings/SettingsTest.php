@@ -170,6 +170,24 @@ class SettingsTest extends TestCase {
 		$this->assertSame( array(), Settings::get( 'blockTags/deny' ) );
 	}
 
+	public function test_block_tags_prefixes_keeps_default(): void {
+		$this->assertSame( array(), Settings::get( 'blockTags/prefixes' ) );
+	}
+
+	public function test_content_sync_defaults(): void {
+		$this->assertFalse( Settings::get( 'content/enabled' ) );
+		$this->assertSame( 'default', Settings::get( 'content/id' ) );
+		$this->assertSame( 'content', Settings::get( 'content/path' ) );
+		$this->assertFalse( Settings::get( 'content/includePageSyncManaged' ) );
+		$this->assertSame( 'ignore', Settings::get( 'content/authors' ) );
+		$this->assertSame( array(), Settings::get( 'content/postTypes' ) );
+		$this->assertSame( array(), Settings::get( 'content/meta/include' ) );
+		$this->assertSame( array( '_edit_lock', '_edit_last', '_wp_old_slug' ), Settings::get( 'content/meta/exclude' ) );
+		$this->assertSame( array(), Settings::get( 'content/meta/references' ) );
+		$this->assertSame( array(), Settings::get( 'content/taxonomies' ) );
+		$this->assertSame( 'manifest', Settings::get( 'content/media' ) );
+	}
+
 	public function test_dev_grab_enabled_from_json(): void {
 		$this->assertTrue( Settings::get( 'dev/grab/enabled' ) );
 	}

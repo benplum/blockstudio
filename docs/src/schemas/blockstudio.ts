@@ -139,6 +139,142 @@ export const blockstudio = {
       },
       additionalProperties: true,
     },
+    content: {
+      type: 'object',
+      description:
+        'Settings for Content Sync, the WP-CLI driven projection of allowlisted WordPress content to portable files.',
+      properties: {
+        enabled: {
+          type: 'boolean',
+          default: false,
+          description: 'Enable Content Sync configuration for this theme.',
+          descriptionFilter:
+            'This filter allows you to enable/disable Content Sync.',
+          example: true,
+        },
+        id: {
+          type: 'string',
+          default: 'default',
+          description:
+            'Content-set identity stored on synced entities. Prune and ownership checks are scoped to this value.',
+          descriptionFilter:
+            'This filter allows you to set the Content Sync ownership namespace.',
+          example: 'docs',
+        },
+        path: {
+          type: 'string',
+          default: 'content',
+          description:
+            'Theme-relative directory where Content Sync reads and writes files.',
+          descriptionFilter:
+            'This filter allows you to set the Content Sync file directory.',
+          example: 'content',
+        },
+        includePageSyncManaged: {
+          type: 'boolean',
+          default: false,
+          description:
+            'Include Page Sync managed posts. Their post_content remains owned by Page Sync.',
+          descriptionFilter:
+            'This filter allows you to include or exclude Page Sync managed posts.',
+          example: false,
+        },
+        authors: {
+          type: 'string',
+          enum: ['ignore', 'login'],
+          default: 'ignore',
+          description:
+            'Author portability mode. Use ignore to omit authors or login to store author logins and resolve existing users on push.',
+          descriptionFilter:
+            'This filter allows you to configure Content Sync author handling.',
+          example: 'ignore',
+        },
+        postTypes: {
+          type: 'array',
+          default: [],
+          items: { type: 'string' },
+          description:
+            'Allowlisted post types to sync. Empty means no post types are synced.',
+          descriptionFilter:
+            'This filter allows you to configure Content Sync post type allowlists.',
+          example: ['team_member'],
+        },
+        meta: {
+          type: 'object',
+          description:
+            'Postmeta allowlist, exclude list, and declared reference rewriting rules.',
+          properties: {
+            include: {
+              type: 'array',
+              default: [],
+              items: { type: 'string' },
+              description:
+                'Glob patterns for meta keys that may be projected to files.',
+              example: ['_my_*'],
+            },
+            exclude: {
+              type: 'array',
+              default: ['_edit_lock', '_edit_last', '_wp_old_slug'],
+              items: { type: 'string' },
+              description:
+                'Glob patterns for meta keys that must never be projected, even if included.',
+              example: ['_edit_lock', '_edit_last', '_wp_old_slug'],
+            },
+            references: {
+              type: 'object',
+              default: {},
+              description:
+                'Declared meta references. Only these keys and paths are rewritten between local IDs and portable UIDs.',
+              additionalProperties: {
+                type: 'object',
+                properties: {
+                  kind: {
+                    type: 'string',
+                    enum: ['post', 'attachment', 'term'],
+                    description: 'Referenced entity type.',
+                    example: 'attachment',
+                  },
+                  path: {
+                    type: 'string',
+                    description:
+                      'Optional dot path inside structured meta. Use * to map every array item.',
+                    example: 'image.id',
+                  },
+                },
+                required: ['kind'],
+              },
+              example: {
+                _thumbnail_id: { kind: 'attachment' },
+                _related_posts: { kind: 'post', path: '*' },
+                _hero: { kind: 'attachment', path: 'image.id' },
+              },
+            },
+          },
+          additionalProperties: true,
+        },
+        taxonomies: {
+          type: 'array',
+          default: [],
+          items: { type: 'string' },
+          description:
+            'Allowlisted registered taxonomies whose terms and post relationships are synced. Taxonomy definitions are not captured.',
+          descriptionFilter:
+            'This filter allows you to configure Content Sync taxonomy allowlists.',
+          example: ['category', 'post_tag'],
+        },
+        media: {
+          type: 'string',
+          enum: ['manifest', 'none'],
+          default: 'manifest',
+          description:
+            'Attachment reference behavior. manifest records referenced attachments and validates them on push; none drops attachment references.',
+          descriptionFilter:
+            'This filter allows you to configure Content Sync media handling.',
+          example: 'manifest',
+        },
+      },
+      additionalProperties: true,
+    },
     tailwind: {
       type: 'object',
       description: 'Settings related to Tailwind.',
@@ -593,6 +729,17 @@ export const blockstudio = {
           description:
             'Denylist of block name patterns. Supports wildcards via fnmatch(). Matching blocks are excluded from tag rendering. Takes precedence over allow.',
           example: ['mytheme/internal-*'],
+        },
+        prefixes: {
+          type: 'object',
+          default: {},
+          description:
+            'Prefix to namespace shorthands for block tags. Each key is a lowercase prefix without dashes, and each value is a namespace string or ordered namespace array.',
+          descriptionFilter:
+            'This filter allows you to register prefix to namespace shorthands for block tags.',
+          example: {
+            dv: ['divine-homepage', 'bsui'],
+          },
         },
       },
       additionalProperties: true,

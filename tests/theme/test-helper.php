@@ -47,6 +47,16 @@ add_shortcode(
 	}
 );
 
+add_filter(
+	'blockstudio/block_tags/prefixes',
+	function ( $prefixes ) {
+		$prefixes       = is_array( $prefixes ) ? $prefixes : array();
+		$prefixes['dv'] = array( 'divine-homepage', 'bsui' );
+
+		return $prefixes;
+	}
+);
+
 // Blade template rendering.
 add_filter(
 	'blockstudio/blocks/render',
@@ -275,6 +285,13 @@ add_filter(
 	1
 );
 
+add_filter(
+	'blockstudio/pages/serve_markdown',
+	function ( $enabled ) {
+		return get_option( 'blockstudio_test_disable_markdown' ) ? false : $enabled;
+	}
+);
+
 /**
  * Provide editor assets for classes autocomplete.
  */
@@ -451,6 +468,32 @@ add_action(
 					'show_in_rest' => true,
 					'label'        => 'Test CPT',
 					'supports'     => array( 'title', 'editor', 'custom-fields' ),
+				)
+			);
+		}
+
+		if ( ! post_type_exists( 'bs_content_sync' ) ) {
+			register_post_type(
+				'bs_content_sync',
+				array(
+					'public'       => true,
+					'show_in_rest' => true,
+					'hierarchical' => true,
+					'label'        => 'Content Sync',
+					'supports'     => array( 'title', 'editor', 'custom-fields', 'page-attributes' ),
+				)
+			);
+		}
+
+		if ( ! taxonomy_exists( 'bs_content_topic' ) ) {
+			register_taxonomy(
+				'bs_content_topic',
+				'bs_content_sync',
+				array(
+					'label'        => 'Content Sync Topic',
+					'public'       => true,
+					'show_in_rest' => true,
+					'hierarchical' => true,
 				)
 			);
 		}
@@ -698,6 +741,7 @@ add_action(
 					}
 
 					delete_option( 'blockstudio_e2e_legacy_api_block_enabled' );
+					delete_option( 'blockstudio_test_disable_markdown' );
 
 					switch_theme( 'theme' );
 
@@ -880,7 +924,10 @@ add_action(
 						. '<bs:core-heading level="3">Core heading via bs</bs:core-heading>'
 						. '<block name="core/separator" />'
 						. '<block name="core/group"><block name="core/paragraph">Inside group</block></block>'
-						. '<bs:core-paragraph html-class="page-passthrough" data-testid="page-pt">Passthrough test</bs:core-paragraph>';
+						. '<bs:core-paragraph html-class="page-passthrough" data-testid="page-pt">Passthrough test</bs:core-paragraph>'
+						. '<dv-card title="Prefix Card"><dv-button label="Prefix Button" /></dv-card>'
+						. '<dv-onumia-feature-matrix title="Prefix Matrix" />'
+						. '<p>Unknown prefix tag: <dv-nope title="Nope" /></p>';
 					if ( ! get_post( 3100 ) ) {
 						$wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
 							$wpdb->posts,
@@ -1375,6 +1422,7 @@ add_action(
 
 					if ( ! empty( $posts ) ) {
 						update_post_meta( $posts[0]->ID, '_blockstudio_page_mtime', 0 );
+						delete_post_meta( $posts[0]->ID, '_blockstudio_page_fingerprint' );
 					}
 
 					$sync    = new \Blockstudio\Page_Sync();
@@ -1545,6 +1593,62 @@ add_action(
 					return array(
 						'post_id'      => $post_id,
 						'post_content' => get_post( $post_id )->post_content,
+					);
+				},
+				'permission_callback' => '__return_true',
+			)
+		);
+
+		register_rest_route(
+			'blockstudio-test/v1',
+			'/pages/markdown-serving',
+			array(
+				'methods'             => 'POST',
+				'callback'            => function ( $request ) {
+					$disabled = rest_sanitize_boolean( $request->get_param( 'disabled' ) );
+
+					if ( $disabled ) {
+						update_option( 'blockstudio_test_disable_markdown', 1, false );
+					} else {
+						delete_option( 'blockstudio_test_disable_markdown' );
+					}
+
+					return array(
+						'disabled' => (bool) get_option( 'blockstudio_test_disable_markdown' ),
+					);
+				},
+				'permission_callback' => '__return_true',
+			)
+		);
+
+		register_rest_route(
+			'blockstudio-test/v1',
+			'/pages/rewrite-signature-reset',
+			array(
+				'methods'             => 'POST',
+				'callback'            => function () {
+					global $wpdb;
+
+					$before = (string) get_option( 'blockstudio_collection_post_types_signature', '' );
+
+					delete_option( 'blockstudio_collection_post_types_signature' );
+					$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+						$wpdb->prepare(
+							"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+							$wpdb->esc_like( '_transient_blockstudio_collection_manifests_' ) . '%',
+							$wpdb->esc_like( '_transient_timeout_blockstudio_collection_manifests_' ) . '%'
+						)
+					);
+					wp_cache_flush();
+
+					if ( class_exists( 'Blockstudio\\Pages' ) ) {
+						\Blockstudio\Pages::reset();
+						\Blockstudio\Pages::register_collection_post_types();
+					}
+
+					return array(
+						'before' => $before,
+						'after'  => (string) get_option( 'blockstudio_collection_post_types_signature', '' ),
 					);
 				},
 				'permission_callback' => '__return_true',
