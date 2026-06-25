@@ -1,14 +1,14 @@
 ---
 title: Blockstudio 7.4
-description: Page collections, Markdown-backed docs, Content Sync, block tag namespace prefixes, and editor/runtime fixes.
+description: Page collections, Markdown page sources, Content Sync, block tag namespace prefixes, and editor/runtime fixes.
 date: 2026-06-21
 author: Dennis
 ---
 
 Blockstudio 7.4 is about making file-backed projects more portable. The release
-adds page collections for docs-style sites, Markdown-backed pages, Content Sync
-for selected WordPress content, and a set of authoring fixes that came directly
-from real project usage.
+adds page collections for docs-style sites, Markdown page sources, Content Sync
+for selected WordPress content, and targeted authoring/runtime fixes that came
+directly from real project usage.
 
 The headline feature is page collections: a way to point Blockstudio at a folder
 of page sources and generate a complete nested WordPress page structure from it.
@@ -25,7 +25,7 @@ The short version:
   helpers such as `blockstudio_page_tree()` and `blockstudio_page_content()`.
 - **External docs sources**: collection loaders can generate pages from local
   files or returned Markdown/HTML.
-- **Raw Markdown output**: Markdown-backed pages can be served as `.md` or via
+- **Raw Markdown output**: Markdown page sources can be served as `.md` or via
   `Accept: text/markdown`.
 - **Collection custom post types**: collections can own clean URLs, automatic
   rewrite flushing, raw Markdown routes, and page-to-CPT migrations without
@@ -194,7 +194,7 @@ return array(
 This is useful when the source is already generated elsewhere: a package docs
 folder, a Markdown export, or a build step that returns a list of pages.
 
-Markdown-backed pages can also serve their raw Markdown source. Request the
+Markdown page sources can also serve their raw Markdown source. Request the
 page with a `.md` suffix, or send `Accept: text/markdown`. Frontmatter is
 removed from the response, so tools get the readable document body. This works
 for collection post types too, including URLs such as `/docs.md` and
@@ -238,9 +238,10 @@ Blockstudio now detects changes across page sources, collection manifests,
 loader files, layout files, metadata, and related paths. If any of those
 change, the synced WordPress page is updated.
 
-7.4 also fixes several edge cases in the page pipeline:
+The page pipeline also handles the details that make file-backed docs practical
+in real projects:
 
-- Markdown-backed pages preserve block attributes correctly during sync
+- Markdown page sources sync as native block content, including block attributes
 - frontmatter metadata is available to frontend helpers and layouts
 - collection pages keep stable identity across syncs
 - nested non-collection pages link to their parent page

@@ -54,22 +54,20 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 == Changelog ==
 
 = 7.4.0 =
-* New: file-based page collections can generate nested page hierarchies from `pages.json`, `page.json`, PHP/Twig/Blade templates, markdown sources, and loader output
-* New: markdown-backed pages support standalone `index.md`, frontmatter, paired `page.json` configuration, and optional raw markdown output
+* New: file-based page collections can generate nested page hierarchies from `pages.json`, `page.json`, PHP/Twig/Blade templates, Markdown sources, and loader output
+* New: Markdown page sources support standalone `index.md`, frontmatter, paired `page.json` configuration, native block sync, and optional raw Markdown output
 * New: page collection layouts and helpers make it easier to build documentation-style sites with navigation, children, ordering, permalinks, and collection data
 * New: collection loaders can import page definitions from trusted local sources
+* New: collection post types can be registered from `pages.json`, inherit the manifest `postType`, and use clean slug-based URLs including raw Markdown routes
 * New: block tag prefixes can map concise custom tags to one or more block namespaces without per-block aliases
 * New: Content Sync CLI can project allowlisted posts, terms, relationships, and declared meta references to portable files and apply them across environments with stable UIDs
-* Enhancement: collection post types now inherit the manifest `postType`, use clean slug-based URLs, and support raw markdown endpoints without theme workarounds
 * Enhancement: collection post type rewrites flush automatically when collection routing changes
 * Enhancement: changing a collection from pages to a custom post type now migrates synced posts in place and removes duplicate old-typed posts
-* Enhancement: pages now resync reliably when manifests, loaders, layouts, metadata, or source files change
+* Enhancement: page sync now tracks manifests, loaders, layouts, metadata, related source paths, and source files for reliable resyncs
 * Enhancement: nested file-based pages now resolve parent relationships and can inherit `layout.php` templates
 * Enhancement: synced page cleanup now removes generated collection pages when their source files are removed
+* Enhancement: frontmatter metadata is available to frontend page helpers and layouts
 * Enhancement: `bsui/select` options are now data-driven, overflow-safe, and anchor correctly after async repositioning
-* Fix: markdown-backed pages now preserve block attributes correctly when synced
-* Fix: frontmatter metadata is available to frontend page helpers and layouts
-* Fix: markdown-backed pages can serve raw markdown content where needed
 * Fix: `className` attributes on programmatic `core/query` and `core/comments` block tags are preserved in generated wrapper markup
 * Fix: dynamic query-populated options stay fresh after posts, terms, users, or related meta change
 * Fix: `populate.fetch: true` query selects now fetch live options for empty editor searches
