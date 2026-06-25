@@ -53,6 +53,9 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 
 == Changelog ==
 
+= 7.4.1 =
+* Enhancement: `assets.reset` now restores common utility-class display and position values in the editor canvas, so wrapper-level `flex`, `grid`, `absolute`, `fixed`, and `sticky` layouts match the frontend more closely
+
 = 7.4.0 =
 * New: file-based page collections can generate nested page hierarchies from `pages.json`, `page.json`, PHP/Twig/Blade templates, Markdown sources, and loader output
 * New: Markdown page sources support standalone `index.md`, frontmatter, paired `page.json` configuration, native block sync, and optional raw Markdown output

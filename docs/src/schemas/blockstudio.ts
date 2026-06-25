@@ -53,15 +53,16 @@ export const blockstudio = {
         reset: {
           type: 'object',
           default: { enabled: false, fullWidth: [] },
-          description: 'Control removal of WordPress core block styles.',
+          description:
+            'Control removal of WordPress core block styles and editor reset parity.',
           properties: {
             enabled: {
               type: 'boolean',
               default: false,
               description:
-                'Remove all WordPress core block styles on the frontend and in the editor.',
+                'Remove WordPress core block styles on the frontend and in the editor, and restore common utility-class display and position values in the editor canvas.',
               descriptionFilter:
-                'This filter allows you to enable/disable the removal of WordPress core block styles.',
+                'This filter allows you to enable/disable the removal of WordPress core block styles and the editor utility layout reset.',
               example: true,
             },
             fullWidth: {

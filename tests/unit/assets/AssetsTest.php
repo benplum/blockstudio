@@ -495,10 +495,49 @@ class AssetsTest extends TestCase {
 		$this->assertStringNotContainsString( 'classic.min.css', $styles );
 		$this->assertStringNotContainsString( 'classic-themes.min.css', $styles );
 		$this->assertStringContainsString( '<style>.keep{display:block}</style>', $styles );
+		$this->assertStringContainsString( 'blockstudio-reset-utility-layout', $styles );
+		$this->assertStringContainsString( '.editor-styles-wrapper .flex{display:flex}', $styles );
+		$this->assertStringContainsString( '.editor-styles-wrapper .inline-flex{display:inline-flex}', $styles );
+		$this->assertStringContainsString( '.editor-styles-wrapper .grid{display:grid}', $styles );
+		$this->assertStringContainsString( '.editor-styles-wrapper .inline-grid{display:inline-grid}', $styles );
+		$this->assertStringContainsString( '.editor-styles-wrapper .absolute{position:absolute}', $styles );
+		$this->assertStringContainsString( '.editor-styles-wrapper .fixed{position:fixed}', $styles );
+		$this->assertStringContainsString( '.editor-styles-wrapper .sticky{position:sticky}', $styles );
+		$this->assertStringNotContainsString( '.editor-styles-wrapper :where(.flex', $styles );
+		$this->assertStringNotContainsString( '!important', $styles );
 		$this->assertStringNotContainsString( 'blockstudio-editor-enhance', $styles );
 		$this->assertStringNotContainsString( ':focus-visible{outline:none!important', $styles );
 		$this->assertStringNotContainsString( '.is-hovered:not(.has-child-selected)::after', $styles );
 		$this->assertStringNotContainsString( '.is-selected::after{border-color:#7c3aed}', $styles );
+	}
+
+	public function test_maybe_reset_editor_styles_does_not_add_utility_layout_styles_when_reset_disabled(): void {
+		$this->add_filter(
+			'blockstudio/settings/assets/reset/enabled',
+			static function () {
+				return false;
+			}
+		);
+		$this->add_filter(
+			'blockstudio/settings/block_editor/enhance',
+			static function () {
+				return false;
+			}
+		);
+
+		$assets   = new Assets();
+		$settings = array(
+			'__unstableResolvedAssets' => array(
+				'styles' => '<style>.keep{display:block}</style>',
+			),
+		);
+
+		$result = $assets->maybe_reset_editor_styles( $settings );
+		$styles = $result['__unstableResolvedAssets']['styles'];
+
+		$this->assertSame( '<style>.keep{display:block}</style>', $styles );
+		$this->assertStringNotContainsString( 'blockstudio-reset-utility-layout', $styles );
+		$this->assertStringNotContainsString( '.editor-styles-wrapper .flex{display:flex}', $styles );
 	}
 
 	public function test_maybe_reset_editor_styles_adds_editor_enhancements_when_enabled(): void {
