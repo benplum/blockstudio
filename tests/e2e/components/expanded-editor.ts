@@ -229,12 +229,148 @@ test.describe('expanded editor', () => {
     await expect
       .poll(() =>
         drawer
-          .locator(
-            '.blockstudio-fields__field--group > .components-panel__body',
-          )
+          .locator('.blockstudio-fields__field--group')
           .first()
           .evaluate((element) => getComputedStyle(element).borderBottomWidth),
       )
-      .toBe('0px');
+      .toBe('1px');
+  });
+
+  test('keeps drawer divider rules scoped out of the sidebar', async () => {
+    const getStyle = async (
+      locator: ReturnType<Page['locator']>,
+      property: keyof CSSStyleDeclaration,
+    ) => {
+      return locator.evaluate((element, property) => {
+        const styles = getComputedStyle(element);
+        return styles[property as keyof CSSStyleDeclaration];
+      }, property);
+    };
+
+    const expectStyle = async (
+      locator: ReturnType<Page['locator']>,
+      property: keyof CSSStyleDeclaration,
+      value: string,
+    ) => {
+      await expect
+        .poll(() => getStyle(locator, property))
+        .toBe(value);
+    };
+
+    const expectHeaderAligned = async (
+      drawer: ReturnType<Page['locator']>,
+    ) => {
+      const header = drawer.locator(
+        '.blockstudio-expanded-editor__drawer-header',
+      );
+      const fields = drawer.locator('.blockstudio-fields').first();
+
+      await expect
+        .poll(() =>
+          header.evaluate((element) => element.getBoundingClientRect().height),
+        )
+        .toBe(65);
+      await expect
+        .poll(() =>
+          Promise.all([
+            header.evaluate((element) => element.getBoundingClientRect().bottom),
+            fields.evaluate((element) => element.getBoundingClientRect().top),
+          ]).then(([headerBottom, fieldsTop]) =>
+            Math.round(fieldsTop - headerBottom),
+          ),
+        )
+        .toBe(0);
+    };
+
+    await resetPageState(page);
+    canvas = await getEditorCanvas(page);
+    await addBlock(page, 'native');
+    await count(canvas, '.is-root-container > .wp-block', 1);
+    await canvas.click('[data-type="blockstudio/native"]');
+    await openSidebar(page);
+
+    const sidebar = page.locator('.interface-interface-skeleton__sidebar');
+    const sidebarGroup = sidebar
+      .locator('.blockstudio-fields__field--group > .components-panel__body')
+      .first();
+
+    await expectStyle(sidebarGroup, 'borderTopWidth', '1px');
+    await expectStyle(sidebarGroup, 'borderBottomWidth', '1px');
+
+    await sidebar
+      .locator('.blockstudio-fields__field--group .components-panel__body-toggle')
+      .first()
+      .click();
+    await expectStyle(sidebarGroup, 'borderBottomWidth', '1px');
+
+    await page
+      .getByRole('button', {
+        name: 'Open Expanded Editor',
+      })
+      .click();
+
+    let drawer = page.locator('.blockstudio-expanded-editor__drawer');
+    await expect(drawer).toBeVisible();
+    await expectHeaderAligned(drawer);
+
+    const drawerGroupBody = drawer
+      .locator('.blockstudio-fields__field--group > .components-panel__body')
+      .first();
+    const drawerGroup = drawer
+      .locator('.blockstudio-fields__field--group')
+      .first();
+
+    await expectStyle(drawerGroupBody, 'marginTop', '0px');
+    await expectStyle(drawerGroupBody, 'borderTopWidth', '0px');
+    await expectStyle(drawerGroup, 'borderBottomWidth', '1px');
+
+    await drawer.getByRole('button', { name: 'Done' }).click();
+    await expect(drawer).toHaveCount(0);
+
+    await resetPageState(page);
+    canvas = await getEditorCanvas(page);
+    await addBlock(page, 'type-tabs');
+    await count(canvas, '.is-root-container > .wp-block', 1);
+    await canvas.click('[data-type="blockstudio/type-tabs"]');
+    await openSidebar(page);
+
+    await sidebar.getByRole('tab', { name: 'Override tab' }).click();
+
+    const sidebarTabs = sidebar
+      .locator('.blockstudio-fields__field--tabs .components-tab-panel__tabs')
+      .first();
+
+    await expectStyle(sidebarTabs, 'boxShadow', 'none');
+
+    await page
+      .getByRole('button', {
+        name: 'Open Expanded Editor',
+      })
+      .click();
+
+    drawer = page.locator('.blockstudio-expanded-editor__drawer');
+    await expect(drawer).toBeVisible();
+    await expectHeaderAligned(drawer);
+    await drawer.getByRole('tab', { name: 'Override tab' }).click();
+
+    const drawerTabs = drawer
+      .locator('.blockstudio-fields__field--tabs .components-tab-panel__tabs')
+      .first();
+    const drawerTabFields = drawer
+      .locator('.blockstudio-fields:has(> .blockstudio-fields__field--tabs)')
+      .first();
+    const drawerTabGroupBody = drawer
+      .locator(
+        '.blockstudio-fields__field--tabs .blockstudio-fields__field--group > .components-panel__body',
+      )
+      .first();
+    const drawerTabGroup = drawer
+      .locator('.blockstudio-fields__field--tabs .blockstudio-fields__field--group')
+      .first();
+
+    await expectStyle(drawerTabs, 'borderBottomWidth', '1px');
+    await expectStyle(drawerTabFields, 'borderBottomWidth', '0px');
+    await expectStyle(drawerTabGroupBody, 'borderTopWidth', '0px');
+    await expectStyle(drawerTabGroup, 'borderBottomWidth', '0px');
   });
 });
