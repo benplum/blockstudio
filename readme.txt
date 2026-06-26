@@ -3,7 +3,7 @@ Contributors: dnnsjsk
 Requires at least: 6.7
 Tested up to: 7.0.0
 Requires PHP: 8.2
-Stable tag: 7.4.0
+Stable tag: 7.4.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -52,6 +52,10 @@ Download the latest release zip from [GitHub Releases](https://github.com/inline
 * [Getting Started](https://blockstudio.dev/docs/getting-started)
 
 == Changelog ==
+
+= 7.4.1 =
+* Enhancement: `assets.reset` now restores common utility-class display and position values in the editor canvas, so wrapper-level `flex`, `grid`, `absolute`, `fixed`, and `sticky` layouts match the frontend more closely
+* Fix: Expanded Editor and inspector dividers now stay consistent across groups, tabs, extension panels, and Advanced panel boundaries
 
 = 7.4.0 =
 * New: file-based page collections can generate nested page hierarchies from `pages.json`, `page.json`, PHP/Twig/Blade templates, Markdown sources, and loader output

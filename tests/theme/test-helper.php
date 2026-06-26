@@ -57,6 +57,13 @@ add_filter(
 	}
 );
 
+add_filter(
+	'blockstudio/settings/assets/reset/enabled',
+	function ( $enabled ) {
+		return get_option( 'blockstudio_e2e_assets_reset_enabled' ) ? true : $enabled;
+	}
+);
+
 // Blade template rendering.
 add_filter(
 	'blockstudio/blocks/render',
@@ -722,6 +729,28 @@ add_action(
 
 		register_rest_route(
 			'blockstudio-test/v1',
+			'/e2e/assets-reset',
+			array(
+				'methods'             => 'POST',
+				'callback'            => function ( $request ) {
+					$enabled = rest_sanitize_boolean( $request->get_param( 'enabled' ) );
+
+					if ( $enabled ) {
+						update_option( 'blockstudio_e2e_assets_reset_enabled', 1, false );
+					} else {
+						delete_option( 'blockstudio_e2e_assets_reset_enabled' );
+					}
+
+					return array(
+						'enabled' => (bool) get_option( 'blockstudio_e2e_assets_reset_enabled' ),
+					);
+				},
+				'permission_callback' => '__return_true',
+			)
+		);
+
+		register_rest_route(
+			'blockstudio-test/v1',
 			'/e2e/setup',
 			array(
 				'methods'             => 'POST',
@@ -742,6 +771,7 @@ add_action(
 
 					delete_option( 'blockstudio_e2e_legacy_api_block_enabled' );
 					delete_option( 'blockstudio_test_disable_markdown' );
+					delete_option( 'blockstudio_e2e_assets_reset_enabled' );
 
 					switch_theme( 'theme' );
 

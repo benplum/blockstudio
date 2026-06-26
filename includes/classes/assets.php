@@ -103,6 +103,55 @@ class Assets {
 	public static bool $force_editor_screen = false;
 
 	/**
+	 * Whether the editor reset is enabled.
+	 *
+	 * @return bool
+	 */
+	private static function is_reset_enabled(): bool {
+		$reset = Settings::get( 'assets/reset' );
+
+		return true === $reset || (bool) Settings::get( 'assets/reset/enabled' );
+	}
+
+	/**
+	 * Get utility layout reset styles for the block editor iframe.
+	 *
+	 * @return string CSS.
+	 */
+	private static function get_reset_utility_layout_styles(): string {
+		$rules = array(
+			'.editor-styles-wrapper .block{display:block}',
+			'.editor-styles-wrapper .inline-block{display:inline-block}',
+			'.editor-styles-wrapper .inline{display:inline}',
+			'.editor-styles-wrapper .flex{display:flex}',
+			'.editor-styles-wrapper .inline-flex{display:inline-flex}',
+			'.editor-styles-wrapper .table{display:table}',
+			'.editor-styles-wrapper .inline-table{display:inline-table}',
+			'.editor-styles-wrapper .table-caption{display:table-caption}',
+			'.editor-styles-wrapper .table-cell{display:table-cell}',
+			'.editor-styles-wrapper .table-column{display:table-column}',
+			'.editor-styles-wrapper .table-column-group{display:table-column-group}',
+			'.editor-styles-wrapper .table-footer-group{display:table-footer-group}',
+			'.editor-styles-wrapper .table-header-group{display:table-header-group}',
+			'.editor-styles-wrapper .table-row-group{display:table-row-group}',
+			'.editor-styles-wrapper .table-row{display:table-row}',
+			'.editor-styles-wrapper .flow-root{display:flow-root}',
+			'.editor-styles-wrapper .grid{display:grid}',
+			'.editor-styles-wrapper .inline-grid{display:inline-grid}',
+			'.editor-styles-wrapper .contents{display:contents}',
+			'.editor-styles-wrapper .list-item{display:list-item}',
+			'.editor-styles-wrapper .hidden{display:none}',
+			'.editor-styles-wrapper .static{position:static}',
+			'.editor-styles-wrapper .fixed{position:fixed}',
+			'.editor-styles-wrapper .absolute{position:absolute}',
+			'.editor-styles-wrapper .relative{position:relative}',
+			'.editor-styles-wrapper .sticky{position:sticky}',
+		);
+
+		return implode( '', $rules );
+	}
+
+	/**
 	 * Constructor.
 	 */
 	public function __construct() {
@@ -186,9 +235,7 @@ class Assets {
 	 * @return void
 	 */
 	public function maybe_reset_styles(): void {
-		$reset = Settings::get( 'assets/reset' );
-
-		if ( true !== $reset && ! Settings::get( 'assets/reset/enabled' ) ) {
+		if ( ! self::is_reset_enabled() ) {
 			return;
 		}
 
@@ -265,9 +312,7 @@ class Assets {
 			return $settings;
 		}
 
-		$reset = Settings::get( 'assets/reset' );
-
-		if ( true === $reset || Settings::get( 'assets/reset/enabled' ) ) {
+		if ( self::is_reset_enabled() ) {
 			$settings['__unstableResolvedAssets']['styles'] = preg_replace(
 				array(
 					'/<link\b[^>]+(?:content|common|reset|classic)(?:\.min)?\.css(?:\?[^"\']*)?[^>]*>/i',
@@ -277,6 +322,12 @@ class Assets {
 				'',
 				$settings['__unstableResolvedAssets']['styles']
 			);
+
+			if ( ! str_contains( $settings['__unstableResolvedAssets']['styles'], 'blockstudio-reset-utility-layout' ) ) {
+				$settings['__unstableResolvedAssets']['styles'] .= '<style id="blockstudio-reset-utility-layout">'
+					. self::get_reset_utility_layout_styles()
+					. '</style>';
+			}
 		}
 
 		if ( Settings::get( 'blockEditor/enhance' ) && ! str_contains( $settings['__unstableResolvedAssets']['styles'], 'blockstudio-editor-enhance' ) ) {

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://blockstudio.dev/schema/block",
+  "name": "blockstudio/type-editor-utility-position",
+  "title": "Editor Utility Position",
+  "category": "blockstudio-test-native",
+  "icon": "star-filled",
+  "description": "Editor utility position reset fixture.",
+  "keywords": ["editor", "utility", "position"],
+  "blockstudio": true
+}
