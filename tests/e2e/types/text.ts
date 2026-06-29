@@ -135,6 +135,10 @@ testType(
             await count(page, `${item}.is-large`, 1);
             await count(page, `${item}[data-test="test"]`, 1);
             await checkStyle(page, item, 'color', 'rgb(255, 0, 0)');
+            await expect(page.locator(item)).not.toHaveAttribute(
+              'style',
+              /42px/
+            );
             await checkStyle(
               page,
               item,

@@ -36,6 +36,7 @@ import { createBlocks } from '@/blocks/utils/create-blocks';
 import { dispatch } from '@/blocks/utils/dispatch';
 import { getDefaults } from '@/blocks/utils/get-defaults';
 import { isAllowedToRender } from '@/blocks/utils/is-allowed-to-render';
+import { getRegisteredFieldType } from '@/blocks/components/fields/registry';
 import { BlockstudioAttribute } from '@/types/block';
 import {
   Any,
@@ -648,6 +649,19 @@ export const Fields = ({
           : [];
 
       const actions = [...(existingActions || []), ...switchAction];
+      const registeredField = getRegisteredFieldType(item.type);
+      const normalizedCustomProps = registeredField?.normalizer
+        ? registeredField.normalizer({
+            allProps,
+            attributes,
+            change,
+            item,
+            value: v,
+          })
+        : allProps;
+      const customFieldControl = registeredField ? (
+        <registeredField.component {...(normalizedCustomProps || allProps)} />
+      ) : null;
 
       return (
         <Control
@@ -776,6 +790,8 @@ export const Fields = ({
               link={item.link ?? false}
               media={item.media ?? false}
             />
+          ) : customFieldControl ? (
+            customFieldControl
           ) : null}
         </Control>
       );

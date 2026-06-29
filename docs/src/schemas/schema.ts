@@ -940,6 +940,11 @@ export const schema = async (extensions = false) => {
                       description:
                         "Custom field reference in format 'custom/{name}'.",
                     },
+                    {
+                      pattern: '^([a-z0-9-]+/)?[a-z0-9-]+:[a-z0-9-]+$',
+                      description:
+                        "Custom field type in namespaced format, for example 'my-plugin:spacing-scale' or 'my-vendor/my-plugin:token-field'.",
+                    },
                   ],
                 },
                 label: {
@@ -1071,6 +1076,16 @@ export const schema = async (extensions = false) => {
                       pattern: '^custom/.+$',
                       description:
                         'References a reusable custom field definition.',
+                    },
+                  },
+                  required: ['type'],
+                },
+                {
+                  properties: {
+                    type: {
+                      pattern: '^([a-z0-9-]+/)?[a-z0-9-]+:[a-z0-9-]+$',
+                      description:
+                        'References a registered custom field type.',
                     },
                   },
                   required: ['type'],
