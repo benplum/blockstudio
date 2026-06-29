@@ -84,10 +84,7 @@ class Plugin {
 		require_once $classes_dir . 'field-handlers/number-field-handler.php';
 		require_once $classes_dir . 'field-handlers/boolean-field-handler.php';
 		require_once $classes_dir . 'field-handlers/select-field-handler.php';
-		$object_field_handler = $classes_dir . 'field-handlers/object-field-handler.php';
-		if ( file_exists( $object_field_handler ) ) {
-			require_once $object_field_handler;
-		}
+		require_once $classes_dir . 'field-handlers/object-field-handler.php';
 		require_once $classes_dir . 'field-handlers/media-field-handler.php';
 		require_once $classes_dir . 'field-handlers/container-field-handler.php';
 

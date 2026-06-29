@@ -80,3 +80,6 @@ packages/phpstan/composer.lock
 tests/theme/blockstudio/**/db/
 tests/theme/blockstudio/**/_dist/
 includes/ui/**/_dist/
+
+# BP Build Script
+scripts/dist.sh

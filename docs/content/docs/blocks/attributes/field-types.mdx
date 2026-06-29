@@ -697,24 +697,3 @@ Renders a WYSIWYG editor.
 | `toolbar` | `object` | The toolbar configuration for the editor. |
 
 {/* GENERATED_FIELD_TYPES_END */}
-
-## dimensionSingle Notes
-
-`dimensionSingle` stores one scalar dimensions value (for example `16px`, `2rem`, or `50%`) in the normal attribute flow.
-
-```json
-{
-  "id": "cardGap",
-  "type": "dimensionSingle",
-  "label": "Card gap",
-  "default": "1rem"
-}
-```
-
-Use it like any other scalar field in templates:
-
-```php
-<?php echo $a['cardGap']; ?>
-```
-
-The field does not auto-apply inline styles. If you want to map its value to markup, use existing extension `set` mappings (for classes, styles, or data attributes).

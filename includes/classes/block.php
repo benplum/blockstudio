@@ -83,17 +83,6 @@ class Block {
 	}
 
 	/**
-	 * Convert spacing preset tokens to class-friendly slugs.
-	 *
-	 * @param string $value Class value.
-	 *
-	 * @return string
-	 */
-	private static function normalize_spacing_preset_class_value( string $value ): string {
-		return (string) preg_replace( '/var:preset\\|spacing\\|([a-z0-9_-]+)/i', '$1', $value );
-	}
-
-	/**
 	 * Apply `set` rules from block attribute definitions onto rendered attributes.
 	 *
 	 * This enables templates using bs_render_attributes($a) to receive
@@ -156,7 +145,6 @@ class Block {
 					}
 
 					if ( 'class' === $target_attribute ) {
-						$resolved_value      = self::normalize_spacing_preset_class_value( $resolved_value );
 						$existing_class      = (string) ( $attributes['class'] ?? '' );
 						$attributes['class'] = trim( $existing_class . ' ' . $resolved_value );
 						return;

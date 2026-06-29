@@ -7,6 +7,7 @@
   "scripts": {
     "build:llm": "tsx scripts/build-llm.ts",
     "build": "wp-scripts build --config webpack.config.cjs",
+    "dist": "bash scripts/dist.sh",
     "catalog:blocks": "playwright test tests/e2e/catalog-blocks.ts --config=playwright.wp-env.config.ts",
     "check": "eslint src && tsc --noEmit",
     "dev": "wp-scripts start src/blocks/index.tsx --output-path=includes/admin/assets/blocks --config webpack.config.cjs",
